@@ -1,4 +1,7 @@
+import { stat } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { CommandError } from "../errors.js";
+import { MAX_OUTPUT_BYTES } from "../support/run-command.js";
 import type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -71,7 +74,8 @@ const lintIntentAnnotations: ToolDefinition = {
         items: { type: "string" },
         description:
           "Specific spec files to check, relative to project_dir. Omit to check every *_spec.rb " +
-          "under it. Cannot be combined with `changed`.",
+          "under it. An empty list is an error, not a way to say 'everything'. " +
+          "Cannot be combined with `changed`.",
       },
       changed: {
         type: "boolean",
@@ -95,11 +99,18 @@ const lintIntentAnnotations: ToolDefinition = {
     const changed = optionalBoolean(args["changed"], "changed");
     const base = optionalString(args["base"], "base");
 
+    // Every argument is checked before anything is spawned, so a call that was
+    // never going to run cannot leave a subprocess behind to explain.
+    if (projectDir !== undefined) await requireProjectDir(projectDir);
+
     const argv = [...context.config.lintCommand, "--json"];
     if (changed === true) argv.push(base === undefined ? "--changed" : `--changed=${base}`);
     if (paths !== undefined) argv.push(...paths);
 
-    const result = await context.runCommand(argv, { cwd: projectDir });
+    const result = await context.runCommand(argv, {
+      cwd: projectDir,
+      notFoundHint: LINT_COMMAND_HINT,
+    });
 
     // Exit 2 — and every signal death, which is the same "no verdict" outcome
     // wearing a different code. stderr is the diagnosis; there is no document.
@@ -110,7 +121,7 @@ const lintIntentAnnotations: ToolDefinition = {
       );
     }
 
-    const report = parseReport(result.stdout);
+    const report = parseReport(result.stdout, result.stdoutTruncated);
 
     return {
       // The provenance line the gem writes to stderr on EVERY run names which
@@ -132,6 +143,70 @@ const lintIntentAnnotations: ToolDefinition = {
 export default lintIntentAnnotations;
 
 /**
+ * What to try when `specguard-lint` is not on PATH.
+ *
+ * Passed to `runCommand` rather than baked into it: only this tool knows that
+ * ITS command comes from `SPECGUARD_LINT_COMMAND`, and a shared helper that
+ * names one tool's variable would misdirect every later tool that spawns
+ * something else.
+ */
+const LINT_COMMAND_HINT =
+  "Set SPECGUARD_LINT_COMMAND to the command that runs it here " +
+  '(for a bundled Ruby project that is usually "bundle exec specguard-lint").';
+
+/**
+ * `project_dir` names a directory that exists, or the failure says exactly that.
+ *
+ * This check earns its place because of WHO supplies the argument. `project_dir`
+ * is model-supplied — an agent guesses a repository root — which makes it the
+ * likeliest thing about a call to this tool to be wrong. Unchecked it becomes
+ * `spawn`'s `cwd`, and Node reports a missing `cwd` as ENOENT: the same code as
+ * a missing binary. The answer to a mistyped path would then be "specguard-lint
+ * is not on this server's PATH; set SPECGUARD_LINT_COMMAND" — every clause of it
+ * wrong, and it names the one thing that was right. Worse, it points an agent at
+ * MCP server configuration it usually cannot reach, to fix a working install, so
+ * it will try again and fail identically.
+ *
+ * Checked here rather than in `run-command` because this is the only place the
+ * argument's NAME is known, and naming `project_dir` is what turns this from a
+ * message about the server into one the agent can act on unaided.
+ */
+async function requireProjectDir(projectDir: string): Promise<void> {
+  let isDirectory: boolean;
+
+  try {
+    isDirectory = (await stat(projectDir)).isDirectory();
+  } catch {
+    throw new CommandError(
+      `\`project_dir\` ${JSON.stringify(projectDir)} does not exist${resolvedNote(projectDir)}. ` +
+        "Pass the absolute path of the project root — the directory holding its Gemfile and " +
+        "spec/ — or omit `project_dir` to lint the directory this server was started in. " +
+        "(specguard-lint itself was not the problem.)",
+    );
+  }
+
+  if (!isDirectory) {
+    throw new CommandError(
+      `\`project_dir\` ${JSON.stringify(projectDir)} is not a directory${resolvedNote(projectDir)}. ` +
+        "Pass the project root — the directory holding its Gemfile and spec/ — not a file inside " +
+        "it. To lint one file, pass it in `paths` instead.",
+    );
+  }
+}
+
+/**
+ * A relative `project_dir` is resolved against whatever directory this server
+ * was started in, which is not the agent's working directory and is not
+ * something the agent can see. When the two can differ, the path that was
+ * actually used is the useful half of the message.
+ */
+function resolvedNote(projectDir: string): string {
+  return isAbsolute(projectDir)
+    ? ""
+    : ` (a relative path, resolved against this server's working directory to ${JSON.stringify(resolve(projectDir))})`;
+}
+
+/**
  * The linter's document, echoed through rather than re-modelled.
  *
  * Typed as `unknown`-ish on purpose: this server does not own the shape, the
@@ -143,7 +218,7 @@ interface LintReport extends Record<string, unknown> {
   ok?: unknown;
 }
 
-function parseReport(stdout: string): LintReport {
+function parseReport(stdout: string, truncated: boolean): LintReport {
   const trimmed = stdout.trim();
 
   if (trimmed === "") {
@@ -158,6 +233,19 @@ function parseReport(stdout: string): LintReport {
   try {
     parsed = JSON.parse(trimmed);
   } catch {
+    // Truncation is checked FIRST, because it is a cause and "not JSON" is only
+    // the symptom it produces. A document this bridge cut in half does not parse,
+    // and blaming the linter's output for it would name the wrong cause — and
+    // withhold the one thing that would fix it, which is asking for less.
+    if (truncated) {
+      throw new CommandError(
+        `specguard-lint produced more than ${MAX_OUTPUT_BYTES / 1024 / 1024} MB of output, so ` +
+          "this bridge truncated it and the JSON document is incomplete — no findings could be " +
+          "read from it. Narrow the run with `paths`, or with `changed` to check only what " +
+          "differs from the merge base.",
+      );
+    }
+
     throw new CommandError(
       `specguard-lint's output was not JSON, so no findings could be read. It wrote:\n${truncate(trimmed)}`,
     );
@@ -195,7 +283,11 @@ function truncate(value: string, limit = 2000): string {
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw new CommandError(`\`${field}\` must be a string.`);
-  return value.trim() === "" ? undefined : value;
+  // Trimmed, not merely tested for blankness. `project_dir` becomes a `cwd`, so
+  // " /srv/app" — a path an agent produces by concatenating one — would otherwise
+  // be a directory that cannot exist, reported as a directory that does not.
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
 }
 
 function optionalBoolean(value: unknown, field: string): boolean | undefined {
@@ -205,13 +297,17 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
 }
 
 /**
- * A non-empty list of non-empty strings, or nothing.
+ * A non-empty list of non-empty paths, or nothing.
  *
- * The empty-array case is the one worth guarding: passing `paths: []` through
- * would run the linter with no positional arguments, which selects EVERY spec
- * file in the project — an agent asking to check nothing would instead audit the
- * whole suite and be told it was clean. Normalising it to "not given" makes that
- * explicit rather than accidental.
+ * `paths: []` is REFUSED rather than normalised. Both readings of it are bad and
+ * neither is what an agent meant: passed through, an empty list leaves the
+ * linter with no positional arguments and it audits EVERY spec file in the
+ * project, so "check nothing" comes back as a clean bill of health for the whole
+ * suite; silently treated as "not given", the same thing happens by a different
+ * route. A tool whose entire purpose is to stop a check that examined nothing
+ * from looking like a check that found nothing cannot itself answer an empty
+ * selection with "all clean". So it is an error, and the message says which of
+ * the two the caller probably wanted.
  */
 function optionalStringArray(value: unknown, field: string): string[] | undefined {
   if (value === undefined || value === null) return undefined;
@@ -219,10 +315,21 @@ function optionalStringArray(value: unknown, field: string): string[] | undefine
 
   const entries = value.map((entry) => {
     if (typeof entry !== "string") throw new CommandError(`\`${field}\` must contain only strings.`);
-    return entry;
+    // Trimmed BEFORE the checks below, so a stray space cannot smuggle an entry
+    // past the leading-dash guard as " --version".
+    return entry.trim();
   });
 
-  const nonEmpty = entries.filter((entry) => entry.trim() !== "");
+  const nonEmpty = entries.filter((entry) => entry !== "");
+
+  if (nonEmpty.length === 0) {
+    throw new CommandError(
+      `\`${field}\` was given but names no file${entries.length === 0 ? "" : " (every entry was blank)"}, ` +
+        "which selects nothing to check. Omit `paths` to check every spec file in the project, " +
+        "or list the files you want checked — an empty selection is not treated as “everything”, " +
+        "because a run that checked nothing must never come back clean.",
+    );
+  }
 
   // A leading `-` would be read by the linter's OptionParser as a flag rather
   // than a path — `--version` would exit 0 having checked nothing, which is the
@@ -235,5 +342,5 @@ function optionalStringArray(value: unknown, field: string): string[] | undefine
     }
   }
 
-  return nonEmpty.length === 0 ? undefined : nonEmpty;
+  return nonEmpty;
 }

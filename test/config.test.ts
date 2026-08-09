@@ -101,6 +101,75 @@ describe("requireApiConfig", () => {
   });
 });
 
+/**
+ * The endpoint is validated where it is REQUIRED, not where it is spent.
+ *
+ * Unvalidated, a malformed endpoint reaches `new URL(...)` in the HTTP client and
+ * throws a `TypeError`, which is not a `SpecGuardMcpError` — so the server's
+ * error boundary classifies it as a defect and answers the agent with "this is a
+ * bug in the bridge, not in your project or configuration". For a missing
+ * `https://` that is the opposite of the truth, and it sends the agent looking in
+ * the one place the fault is not. These tests pin the two shapes an operator
+ * actually types.
+ */
+describe("requireApiConfig — a malformed endpoint is a config error, not a bridge bug", () => {
+  const key = { SPECGUARD_API_KEY: "sgk_abc" };
+
+  function refusal(env: NodeJS.ProcessEnv): ConfigError {
+    try {
+      requireApiConfig(loadConfig({ ...key, ...env }));
+    } catch (error) {
+      assert.ok(error instanceof ConfigError, `expected a ConfigError, got ${String(error)}`);
+      return error;
+    }
+
+    return assert.fail("expected a ConfigError");
+  }
+
+  it("refuses an endpoint with no scheme — the commonest typo there is", () => {
+    const error = refusal({ SPECGUARD_ENDPOINT: "sg.example.com" });
+
+    assert.match(error.message, /SPECGUARD_ENDPOINT is not a usable URL: "sg\.example\.com"/);
+    assert.match(error.message, /including the scheme/);
+    // The half that matters: it must not disown the problem.
+    assert.doesNotMatch(error.message, /bug in the bridge/);
+  });
+
+  it("refuses a scheme-less host:port, which `new URL` otherwise accepts as a protocol", () => {
+    // `new URL("localhost:3000")` parses — protocol "localhost:", path "3000" —
+    // so presence-plus-parse is not enough; the scheme has to be http(s).
+    const error = refusal({ SPECGUARD_ENDPOINT: "localhost:3000" });
+
+    assert.match(error.message, /not a usable URL: "localhost:3000"/);
+    assert.match(error.message, /http:\/\/localhost:3000/);
+  });
+
+  it("refuses a non-HTTP scheme", () => {
+    assert.match(refusal({ SPECGUARD_ENDPOINT: "ftp://sg.example.com" }).message, /not a usable URL/);
+    assert.match(refusal({ SPECGUARD_ENDPOINT: "file:///etc/passwd" }).message, /not a usable URL/);
+  });
+
+  it("names SPECGUARD_URL when THAT is the variable the operator set", () => {
+    // Accepting two spellings is only a kindness if the diagnostics speak the
+    // one that was used — otherwise it says to fix a variable nobody set.
+    const error = refusal({ SPECGUARD_URL: "sg.example.com" });
+
+    assert.match(error.message, /SPECGUARD_URL is not a usable URL/);
+    assert.doesNotMatch(error.message, /SPECGUARD_ENDPOINT is not a usable URL/);
+  });
+
+  it("accepts what a real deployment looks like, http or https, with a port or a path", () => {
+    for (const endpoint of [
+      "https://sg.example.com",
+      "http://localhost:3000",
+      "https://sg.example.com:8443",
+      "https://example.com/specguard",
+    ]) {
+      assert.equal(requireApiConfig(loadConfig({ ...key, SPECGUARD_ENDPOINT: endpoint })).endpoint, endpoint);
+    }
+  });
+});
+
 describe("tokenise", () => {
   it("splits on whitespace", () => {
     assert.deepEqual(tokenise("bundle exec specguard-lint"), ["bundle", "exec", "specguard-lint"]);

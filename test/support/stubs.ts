@@ -28,7 +28,15 @@ export function stubCommand(result: Partial<CommandResult> | ((argv: readonly st
     runCommand: async (argv, options) => {
       calls.push({ argv, options });
       const resolved = typeof result === "function" ? result(argv) : result;
-      return { code: 0, signal: null, stdout: "", stderr: "", ...resolved };
+      return {
+        code: 0,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        ...resolved,
+      };
     },
   };
 }

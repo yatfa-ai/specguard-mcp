@@ -32,6 +32,16 @@ import { ConfigError } from "./errors.js";
 export interface Config {
   /** SpecGuard deployment root, trailing slash stripped. `undefined` when unset. */
   readonly endpoint: string | undefined;
+  /**
+   * WHICH variable the endpoint was read from — so a message about a bad value
+   * can name the variable the operator actually set.
+   *
+   * Without this, someone who followed the brief and set `SPECGUARD_URL` to a
+   * malformed value would be told to go and fix `SPECGUARD_ENDPOINT`, which they
+   * never set. Accepting two spellings is only a kindness if the diagnostics
+   * speak the one that was used.
+   */
+  readonly endpointVariable: "SPECGUARD_ENDPOINT" | "SPECGUARD_URL" | undefined;
   /** An `sgk_…` API key. `undefined` when unset. */
   readonly apiKey: string | undefined;
   /**
@@ -54,9 +64,16 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 /** Reads config from an environment. Never throws — see the note above. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const lintCommand = tokenise(env["SPECGUARD_LINT_COMMAND"]);
+  const endpointVariable =
+    presence(env["SPECGUARD_ENDPOINT"]) !== undefined
+      ? "SPECGUARD_ENDPOINT"
+      : presence(env["SPECGUARD_URL"]) !== undefined
+        ? "SPECGUARD_URL"
+        : undefined;
 
   return {
     endpoint: normaliseEndpoint(env["SPECGUARD_ENDPOINT"] ?? env["SPECGUARD_URL"]),
+    endpointVariable,
     apiKey: presence(env["SPECGUARD_API_KEY"]),
     lintCommand: lintCommand.length > 0 ? lintCommand : DEFAULT_LINT_COMMAND,
     requestTimeoutMs: positiveInteger(env["SPECGUARD_TIMEOUT_MS"]) ?? DEFAULT_REQUEST_TIMEOUT_MS,
@@ -76,6 +93,16 @@ export interface ApiConfig {
  * Reported together rather than one at a time: an operator who set neither
  * should learn that in one round trip instead of fixing a variable, re-calling,
  * and being told about the next one.
+ *
+ * The endpoint is also PARSED here, not merely counted as present. It is spent
+ * later inside `new URL(...)` in the HTTP client, where a malformed value throws
+ * a bare `TypeError` — which is not a `SpecGuardMcpError`, so the server's error
+ * boundary reads it as a defect and tells the agent "this is a bug in the
+ * bridge, not in your project or configuration". For the commonest config typo
+ * there is (omitting `https://`) that sentence is the exact opposite of the
+ * truth, and it sends an agent looking in the one place the problem is not.
+ * Validating here rather than at the call site is deliberate: every HTTP-backed
+ * tool added later comes through this function and inherits the check.
  */
 export function requireApiConfig(config: Config): ApiConfig {
   const missing: string[] = [];
@@ -93,10 +120,47 @@ export function requireApiConfig(config: Config): ApiConfig {
   }
 
   return {
-    endpoint: config.endpoint as string,
+    endpoint: requireHttpUrl(config.endpoint as string, config.endpointVariable),
     apiKey: config.apiKey as string,
     requestTimeoutMs: config.requestTimeoutMs,
   };
+}
+
+/**
+ * An absolute `http(s)` URL, or a `ConfigError` that names the variable and the
+ * value it holds.
+ *
+ * Both failing shapes are worth naming because they fail in different places
+ * without this. `sg.example.com` has no scheme and `new URL` rejects it
+ * outright; `localhost:3000` is *accepted* by `new URL` — as protocol
+ * `localhost:` with path `3000` — and instead dies much later as an unhelpful
+ * transport error. An operator making either mistake made the same mistake, so
+ * they get the same answer.
+ */
+function requireHttpUrl(
+  endpoint: string,
+  variable: Config["endpointVariable"],
+): string {
+  const name = variable ?? "SPECGUARD_ENDPOINT";
+
+  let parsed: URL | undefined;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    parsed = undefined;
+  }
+
+  if (parsed === undefined || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+    throw new ConfigError(
+      `${name} is not a usable URL: ${JSON.stringify(endpoint)}. It must be your SpecGuard ` +
+        "deployment's root URL including the scheme — for example " +
+        "https://specguard.example.com, or http://localhost:3000 for a local deployment. " +
+        `This is the MCP server's own environment: fix ${name} in your MCP client's server ` +
+        "config. Nothing about your project or your arguments is wrong.",
+    );
+  }
+
+  return endpoint;
 }
 
 /**
