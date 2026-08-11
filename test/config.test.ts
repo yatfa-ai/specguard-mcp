@@ -47,6 +47,60 @@ describe("loadConfig", () => {
     assert.equal(config.endpoint, undefined);
   });
 
+  /**
+   * The intersection of the two rules above, and the one input on which they
+   * used to disagree.
+   *
+   * "Blank is unset" decided WHICH variable was in play, but the value was read
+   * with `??`, which only falls through on null/undefined — so a blank
+   * `SPECGUARD_ENDPOINT` returned the empty string and the alias was never
+   * consulted. The operator had set a perfectly good endpoint and was told the
+   * endpoint was unset: the exact silent no-op the alias exists to prevent, hit
+   * by the person who followed the brief's `SPECGUARD_URL` spelling. A templated
+   * client `env` block with every key present and only some filled in is the
+   * ordinary way to produce it.
+   */
+  it("falls through to SPECGUARD_URL when SPECGUARD_ENDPOINT is present but blank", () => {
+    for (const blank of ["", "   "]) {
+      const config = loadConfig({ SPECGUARD_ENDPOINT: blank, SPECGUARD_URL: "https://brief.example.com" });
+
+      assert.equal(config.endpoint, "https://brief.example.com", `blank ${JSON.stringify(blank)} suppressed the alias`);
+      assert.equal(config.endpointVariable, "SPECGUARD_URL");
+    }
+  });
+
+  it("reports the variable it actually read the endpoint from", () => {
+    assert.equal(loadConfig({ SPECGUARD_ENDPOINT: "https://a.example.com" }).endpointVariable, "SPECGUARD_ENDPOINT");
+    assert.equal(loadConfig({ SPECGUARD_URL: "https://a.example.com" }).endpointVariable, "SPECGUARD_URL");
+    assert.equal(loadConfig({}).endpointVariable, undefined);
+  });
+
+  /**
+   * The value and its name are read from ONE decision, so they cannot drift
+   * apart again — whichever variable `endpointVariable` names is the variable
+   * `endpoint` was taken from, for every combination of set/blank/unset.
+   */
+  it("never names one variable while holding the other's value", () => {
+    const values = [undefined, "", "   ", "https://endpoint.example.com"];
+
+    for (const endpointValue of values) {
+      for (const urlValue of values) {
+        const env: NodeJS.ProcessEnv = {};
+        if (endpointValue !== undefined) env["SPECGUARD_ENDPOINT"] = endpointValue;
+        if (urlValue !== undefined) env["SPECGUARD_URL"] = urlValue === "https://endpoint.example.com" ? "https://url.example.com" : urlValue;
+
+        const config = loadConfig(env);
+        const where = JSON.stringify(env);
+
+        if (config.endpointVariable === undefined) {
+          assert.equal(config.endpoint, undefined, `named nothing but held a value: ${where}`);
+        } else {
+          assert.equal(config.endpoint, env[config.endpointVariable]?.trim(), `name and value disagree: ${where}`);
+        }
+      }
+    }
+  });
+
   it("takes the lint command from SPECGUARD_LINT_COMMAND", () => {
     assert.deepEqual(loadConfig({ SPECGUARD_LINT_COMMAND: "bundle exec specguard-lint" }).lintCommand, [
       "bundle",
@@ -74,6 +128,30 @@ describe("requireApiConfig", () => {
     assert.equal(api.apiKey, "sgk_abc");
   });
 
+  it("carries WHICH variable the endpoint came from, for the messages downstream", () => {
+    const viaAlias = requireApiConfig(
+      loadConfig({ SPECGUARD_URL: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_abc" }),
+    );
+
+    assert.equal(viaAlias.endpointVariable, "SPECGUARD_URL");
+    assert.equal(
+      requireApiConfig(loadConfig({ SPECGUARD_ENDPOINT: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_abc" }))
+        .endpointVariable,
+      "SPECGUARD_ENDPOINT",
+    );
+  });
+
+  it("uses the alias rather than refusing when SPECGUARD_ENDPOINT is set but blank", () => {
+    // The blocking half of the bug: this used to throw "SPECGUARD_ENDPOINT is
+    // not set" at an operator who had set SPECGUARD_URL correctly.
+    const api = requireApiConfig(
+      loadConfig({ SPECGUARD_ENDPOINT: "  ", SPECGUARD_URL: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_abc" }),
+    );
+
+    assert.equal(api.endpoint, "https://sg.example.com");
+    assert.equal(api.endpointVariable, "SPECGUARD_URL");
+  });
+
   it("names EVERY missing variable in one message, not one per round trip", () => {
     assert.throws(
       () => requireApiConfig(loadConfig({})),
@@ -95,6 +173,31 @@ describe("requireApiConfig", () => {
         // follows explains both, which is what makes the message actionable.
         assert.match(error.message, /and SPECGUARD_API_KEY is not set/);
         assert.doesNotMatch(error.message, /SPECGUARD_ENDPOINT and/);
+        return true;
+      },
+    );
+  });
+
+  it("speaks the operator's spelling in the guidance, not the canonical one", () => {
+    assert.throws(
+      () => requireApiConfig(loadConfig({ SPECGUARD_URL: "https://sg.example.com" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_URL is your deployment's root URL/);
+        assert.doesNotMatch(error.message, /SPECGUARD_ENDPOINT/);
+        return true;
+      },
+    );
+  });
+
+  it("asks for SPECGUARD_ENDPOINT when neither spelling was set", () => {
+    // Nobody chose a spelling, so the message picks the one the rest of the
+    // toolchain (the shipped gem) already reads.
+    assert.throws(
+      () => requireApiConfig(loadConfig({ SPECGUARD_API_KEY: "sgk_abc" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT is not set/);
         return true;
       },
     );

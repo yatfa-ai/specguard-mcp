@@ -23,14 +23,14 @@ export async function getJson(
   const response = await fetchWithTimeout(url, api, fetchImpl);
   const body = await response.text();
 
-  if (!response.ok) throw describeFailure(response.status, body, api.endpoint);
+  if (!response.ok) throw describeFailure(response.status, body, api);
 
   try {
     return JSON.parse(body) as unknown;
   } catch {
     throw new ApiError(
       `${api.endpoint} answered ${response.status} but the body was not JSON. ` +
-        "Check that SPECGUARD_ENDPOINT points at a SpecGuard deployment and not, say, a proxy " +
+        `Check that ${api.endpointVariable} points at a SpecGuard deployment and not, say, a proxy ` +
         "or login page.",
       response.status,
     );
@@ -58,14 +58,16 @@ async function fetchWithTimeout(
   } catch (error) {
     // A transport failure and a refusal are different problems with different
     // fixes, and "fetch failed" names neither. The endpoint is echoed because
-    // the commonest cause by far is that it is wrong.
+    // the commonest cause by far is that it is wrong — and the variable is named
+    // from the config rather than spelled out here, so an operator who set
+    // SPECGUARD_URL is not sent to fix a variable they never set.
     if (controller.signal.aborted) {
       throw new ApiError(`${api.endpoint} did not respond within ${api.requestTimeoutMs}ms.`);
     }
 
     throw new ApiError(
       `Could not reach ${api.endpoint}: ${error instanceof Error ? error.message : String(error)}. ` +
-        "Check SPECGUARD_ENDPOINT and that the deployment is reachable from this machine.",
+        `Check ${api.endpointVariable} and that the deployment is reachable from this machine.`,
     );
   } finally {
     clearTimeout(timer);
@@ -80,11 +82,11 @@ async function fetchWithTimeout(
  * key is required", with no detail about why — so the useful half of the
  * diagnosis has to be supplied from this side.
  */
-function describeFailure(status: number, body: string, endpoint: string): ApiError {
+function describeFailure(status: number, body: string, api: ApiConfig): ApiError {
   if (status === 401) {
     return new ApiError(
       "SpecGuard rejected the API key (401). SPECGUARD_API_KEY must be an sgk_… key issued by " +
-        `${endpoint} for the repository you are asking about — keys are per-repository, and a ` +
+        `${api.endpoint} for the repository you are asking about — keys are per-repository, and a ` +
         "revoked key reads the same as a wrong one.",
       status,
     );
@@ -92,8 +94,8 @@ function describeFailure(status: number, body: string, endpoint: string): ApiErr
 
   if (status === 404) {
     return new ApiError(
-      `${endpoint} has no such endpoint (404). Check that SPECGUARD_ENDPOINT is the deployment's ` +
-        "root URL, without a path.",
+      `${api.endpoint} has no such endpoint (404). Check that ${api.endpointVariable} is the ` +
+        "deployment's root URL, without a path.",
       status,
     );
   }

@@ -41,7 +41,7 @@ export interface Config {
    * never set. Accepting two spellings is only a kindness if the diagnostics
    * speak the one that was used.
    */
-  readonly endpointVariable: "SPECGUARD_ENDPOINT" | "SPECGUARD_URL" | undefined;
+  readonly endpointVariable: EndpointVariable | undefined;
   /** An `sgk_…` API key. `undefined` when unset. */
   readonly apiKey: string | undefined;
   /**
@@ -64,6 +64,17 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 /** Reads config from an environment. Never throws — see the note above. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const lintCommand = tokenise(env["SPECGUARD_LINT_COMMAND"]);
+  // WHICH variable is in play is decided ONCE, and the value is then read from
+  // the variable that answer names. An earlier version derived the two
+  // separately — the name via `presence()` (blank is unset) and the value via
+  // `??` (blank is a value) — and the two rules disagreed on exactly one input:
+  // a blank `SPECGUARD_ENDPOINT` alongside a good `SPECGUARD_URL` made `??`
+  // return the empty string, so the alias was never consulted and the operator
+  // was told the endpoint was unset while looking at the one they had set. That
+  // is the silent no-op the alias exists to prevent, and a templated MCP client
+  // `env` block with every key present and only some filled in is the ordinary
+  // way to produce it. Reading through the chosen name makes the two
+  // structurally incapable of disagreeing, rather than agreeing by coincidence.
   const endpointVariable =
     presence(env["SPECGUARD_ENDPOINT"]) !== undefined
       ? "SPECGUARD_ENDPOINT"
@@ -72,7 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         : undefined;
 
   return {
-    endpoint: normaliseEndpoint(env["SPECGUARD_ENDPOINT"] ?? env["SPECGUARD_URL"]),
+    endpoint: endpointVariable === undefined ? undefined : normaliseEndpoint(env[endpointVariable]),
     endpointVariable,
     apiKey: presence(env["SPECGUARD_API_KEY"]),
     lintCommand: lintCommand.length > 0 ? lintCommand : DEFAULT_LINT_COMMAND,
@@ -83,9 +94,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 /** What a tool that talks to the SpecGuard API needs, once both halves are known. */
 export interface ApiConfig {
   readonly endpoint: string;
+  /**
+   * WHICH variable `endpoint` came from, carried one layer further out.
+   *
+   * `requireHttpUrl` already names the variable the operator set when it refuses
+   * a malformed value, but the HTTP client one level down has its own diagnostics
+   * — unreachable, 404, a body that is not JSON — and each of them tells the
+   * operator to go and check the endpoint. Without the name here, all three said
+   * `SPECGUARD_ENDPOINT` unconditionally, so someone who followed the brief and
+   * set `SPECGUARD_URL` was sent to fix a variable they never set. Threading it
+   * onto `ApiConfig` rather than re-deriving it means every HTTP-backed tool
+   * added later inherits correct naming the same way it inherits the URL check.
+   */
+  readonly endpointVariable: EndpointVariable;
   readonly apiKey: string;
   readonly requestTimeoutMs: number;
 }
+
+export type EndpointVariable = "SPECGUARD_ENDPOINT" | "SPECGUARD_URL";
+
+/**
+ * The name to speak when no variable was set at all — the message is telling
+ * someone to set one, and this is the spelling the rest of the toolchain reads.
+ */
+const DEFAULT_ENDPOINT_VARIABLE: EndpointVariable = "SPECGUARD_ENDPOINT";
 
 /**
  * Both halves or a legible failure — never one half and a surprise later.
@@ -105,8 +137,10 @@ export interface ApiConfig {
  * tool added later comes through this function and inherits the check.
  */
 export function requireApiConfig(config: Config): ApiConfig {
+  const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
+
   const missing: string[] = [];
-  if (config.endpoint === undefined) missing.push("SPECGUARD_ENDPOINT");
+  if (config.endpoint === undefined) missing.push(endpointVariable);
   if (config.apiKey === undefined) missing.push("SPECGUARD_API_KEY");
 
   if (missing.length > 0) {
@@ -114,13 +148,14 @@ export function requireApiConfig(config: Config): ApiConfig {
       `This tool talks to a SpecGuard deployment, and ${missing.join(" and ")} ` +
         `${missing.length === 1 ? "is" : "are"} not set in the MCP server's environment. ` +
         "Set them in your MCP client's server config " +
-        "(SPECGUARD_ENDPOINT is your deployment's root URL, SPECGUARD_API_KEY an sgk_… key " +
+        `(${endpointVariable} is your deployment's root URL, SPECGUARD_API_KEY an sgk_… key ` +
         "issued from its API keys page). Tools that do not reach the deployment are unaffected.",
     );
   }
 
   return {
-    endpoint: requireHttpUrl(config.endpoint as string, config.endpointVariable),
+    endpoint: requireHttpUrl(config.endpoint as string, endpointVariable),
+    endpointVariable,
     apiKey: config.apiKey as string,
     requestTimeoutMs: config.requestTimeoutMs,
   };
@@ -137,12 +172,7 @@ export function requireApiConfig(config: Config): ApiConfig {
  * transport error. An operator making either mistake made the same mistake, so
  * they get the same answer.
  */
-function requireHttpUrl(
-  endpoint: string,
-  variable: Config["endpointVariable"],
-): string {
-  const name = variable ?? "SPECGUARD_ENDPOINT";
-
+function requireHttpUrl(endpoint: string, name: EndpointVariable): string {
   let parsed: URL | undefined;
   try {
     parsed = new URL(endpoint);

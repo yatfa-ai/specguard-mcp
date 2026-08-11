@@ -138,3 +138,55 @@ describe("get_repository_overview — failures an agent can act on", () => {
     await rejects(getRepositoryOverview.run({ branch: 7 }, toolContext({ env: ENV })), /must be a string/);
   });
 });
+
+/**
+ * Every one of these messages ends by telling the operator to go and check the
+ * endpoint variable — so each has to name the variable they actually set.
+ *
+ * The endpoint check in `requireApiConfig` learned this first; the HTTP client
+ * one layer out did not, and said `SPECGUARD_ENDPOINT` unconditionally. Someone
+ * who followed the SPGD-310 brief and set `SPECGUARD_URL` was sent to fix a
+ * variable that does not exist in their config. These pin the whole set rather
+ * than the one message that prompted the fix, because the next HTTP tool
+ * inherits `ApiConfig` and should inherit the naming with it.
+ */
+describe("get_repository_overview — diagnostics name the variable the operator set", () => {
+  const VIA_ALIAS = { SPECGUARD_URL: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_test" };
+
+  const unreachable = (async () => {
+    throw new TypeError("fetch failed");
+  }) as unknown as typeof globalThis.fetch;
+
+  const cases: ReadonlyArray<{ what: string; context: () => Parameters<typeof getRepositoryOverview.run>[1]; expect: RegExp }> = [
+    {
+      what: "unreachable deployment",
+      context: () => toolContext({ env: VIA_ALIAS, fetch: unreachable }),
+      expect: /Check SPECGUARD_URL and that the deployment is reachable/,
+    },
+    {
+      what: "404",
+      context: () => toolContext({ env: VIA_ALIAS, fetch: stubFetch({ status: 404 }).fetch }),
+      expect: /Check that SPECGUARD_URL is the deployment's root URL/,
+    },
+    {
+      what: "200 with a non-JSON body",
+      context: () => toolContext({ env: VIA_ALIAS, fetch: stubFetch({ body: "<html>login</html>" }).fetch }),
+      expect: /Check that SPECGUARD_URL points at a SpecGuard deployment/,
+    },
+  ];
+
+  for (const { what, context, expect } of cases) {
+    it(`names SPECGUARD_URL, not SPECGUARD_ENDPOINT, for ${what}`, async () => {
+      const error = await rejects(getRepositoryOverview.run({}, context()), expect);
+
+      assert.doesNotMatch(error.message, /SPECGUARD_ENDPOINT/);
+    });
+  }
+
+  it("still says SPECGUARD_ENDPOINT when that is the variable in use", async () => {
+    await rejects(
+      getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: unreachable })),
+      /Check SPECGUARD_ENDPOINT and that the deployment is reachable/,
+    );
+  });
+});
