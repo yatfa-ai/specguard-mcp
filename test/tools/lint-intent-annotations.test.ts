@@ -205,6 +205,50 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
     );
   });
 
+  // The realistic shape of that failure: SPECGUARD_LINT_COMMAND wraps the linter
+  // in `bundle exec`, and the WRAPPER fails before the linter runs. It exits 1 —
+  // indistinguishable by code from "malformed annotations found" — writes nothing
+  // to stdout, and puts the only account of what happened on stderr. Dropping
+  // that line leaves the reader debugging the wrong thing.
+  it("quotes the stderr explaining why no document was written", async () => {
+    await rejects(
+      lintIntentAnnotations.run(
+        {},
+        toolContext({
+          runCommand: stubCommand({
+            code: 1,
+            stdout: "",
+            stderr: "bundler: command not found: specguard-lint\nInstall missing gem executables with `bundle install`",
+          }).runCommand,
+        }),
+      ),
+      /bundler: command not found[\s\S]*bundle install/,
+    );
+  });
+
+  it("says stderr was empty too, rather than quoting nothing", async () => {
+    await rejects(
+      lintIntentAnnotations.run(
+        {},
+        toolContext({ runCommand: stubCommand({ code: 0, stdout: "", stderr: "  " }).runCommand }),
+      ),
+      /wrote nothing on stderr either/,
+    );
+  });
+
+  // A no-document run must never read as clean, whichever branch it takes.
+  it("never calls a document-less run clean", async () => {
+    for (const stderr of ["", "bundler: command not found: specguard-lint"]) {
+      await rejects(
+        lintIntentAnnotations.run(
+          {},
+          toolContext({ runCommand: stubCommand({ code: 0, stdout: "", stderr }).runCommand }),
+        ),
+        /is NOT a clean run/,
+      );
+    }
+  });
+
   it("refuses unparseable output", async () => {
     await rejects(
       lintIntentAnnotations.run({}, toolContext({ runCommand: stubCommand({ stdout: "not json" }).runCommand })),

@@ -121,7 +121,7 @@ const lintIntentAnnotations: ToolDefinition = {
       );
     }
 
-    const report = parseReport(result.stdout, result.stdoutTruncated);
+    const report = parseReport(result.stdout, result.stdoutTruncated, result.stderr);
 
     return {
       // The provenance line the gem writes to stderr on EVERY run names which
@@ -218,14 +218,27 @@ interface LintReport extends Record<string, unknown> {
   ok?: unknown;
 }
 
-function parseReport(stdout: string, truncated: boolean): LintReport {
+function parseReport(stdout: string, truncated: boolean, stderr: string): LintReport {
   const trimmed = stdout.trim();
 
   if (trimmed === "") {
+    // stderr is carried, not dropped. An exit of 0 or 1 with an empty stdout is
+    // most often produced by the WRAPPER in SPECGUARD_LINT_COMMAND — `bundle`,
+    // `rbenv`, a docker shim — failing before the linter ever ran, and such a
+    // wrapper explains itself on stderr and nowhere else. Withholding that line
+    // to speculate about the variable instead leaves the one reader who could
+    // fix it guessing, which is the failure mode the sibling branches below
+    // (and the exit-2 branch above) already avoid by quoting their evidence.
+    const reported = stderr.trim();
+
     throw new CommandError(
-      "specguard-lint exited with a verdict but wrote no JSON document. " +
-        "That should not happen with --json; the configured SPECGUARD_LINT_COMMAND may not be " +
-        "specguard-lint, or may be a version older than the one that added --json.",
+      "specguard-lint exited with a verdict but wrote no JSON document, so there are no " +
+        "findings to report — this is NOT a clean run." +
+        (reported === ""
+          ? " It wrote nothing on stderr either. The command in SPECGUARD_LINT_COMMAND may not be " +
+            "specguard-lint, or may be a version older than the one that added --json."
+          : `\n\nIt reported:\n${truncate(reported)}\n\n` +
+            "That is the command in SPECGUARD_LINT_COMMAND reporting why it produced no document."),
     );
   }
 
