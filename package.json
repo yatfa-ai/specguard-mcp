@@ -1,0 +1,44 @@
+{
+  "name": "specguard-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing SpecGuard suite intelligence to AI coding agents",
+  "license": "ISC",
+  "type": "module",
+  "bin": {
+    "specguard-mcp": "dist/bin/specguard-mcp.js"
+  },
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "pretest": "tsc --project tsconfig.test.json",
+    "test": "node --test .test-build/test/",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yatfa-ai/specguard-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "specguard",
+    "rspec",
+    "test-intelligence"
+  ]
+}

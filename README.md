@@ -3,29 +3,43 @@
 > The MCP bridge to [SpecGuard](https://github.com/yatfa-ai/specguard) — gives an AI agent the suite
 > intelligence behind a very large test suite as tools.
 
-> **Status: scaffolded.** This repository is bootstrapped; the server is not yet implemented or
-> published. The surface below is the intended design, not a shipped contract.
-
 `specguard-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server that connects
-an MCP-capable agent (Claude Code, Claude Desktop, …) to a SpecGuard deployment, so the agent can ask
-what a suite covers, what it costs to run, how fast it is growing, and where the gaps are — the same
-answers the SpecGuard dashboard renders, as tools an agent can call.
+an MCP-capable agent (Claude Code, Claude Desktop, …) to SpecGuard, so the agent can ask what a
+suite covers, what it costs to run and where the gaps are — without a line of HTTP or auth code in
+its prompt.
 
 SpecGuard is built [primarily for AI coding agents](https://github.com/yatfa-ai/specguard); this
 bridge is how an agent reaches it without scraping a web UI.
 
+> **Status: bootstrap.** Two tools ship today, each wrapping a capability that already exists. The
+> toolset **grows gradually** — see [Adding a tool](#adding-a-tool). It is not published to npm yet;
+> install from a checkout.
+
 ## Install
 
 ```bash
-npx specguard-mcp
+git clone https://github.com/yatfa-ai/specguard-mcp.git
+cd specguard-mcp && npm install && npm run build
 ```
+
+Requires Node.js 20 or newer.
 
 ## Configure
 
-| Variable | Required | Default | What it is |
+Nothing is required to *start* the server. Each tool asks for what it needs when it is called, so a
+missing variable comes back as one readable sentence in a tool result — never as a server that
+refuses to boot and takes the tools that needed no configuration down with it.
+
+| Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
-| `SPECGUARD_API_KEY` | yes | — | an agent/CI API key (`sgk_…`) issued by your SpecGuard deployment |
-| `SPECGUARD_ENDPOINT` | yes | — | your SpecGuard instance's root URL, e.g. `https://specguard.example.com` |
+| `SPECGUARD_ENDPOINT` | `get_repository_overview` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
+| `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
+| `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
+| `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
+
+`SPECGUARD_ENDPOINT` and `SPECGUARD_API_KEY` are the same variables
+[`specguard-rspec`](https://github.com/yatfa-ai/specguard-rspec) uses to ship a run, so a repository
+that already posts telemetry to SpecGuard already has them.
 
 Register it with your MCP client — for Claude Code:
 
@@ -33,32 +47,106 @@ Register it with your MCP client — for Claude Code:
 {
   "mcpServers": {
     "specguard": {
-      "command": "npx",
-      "args": ["specguard-mcp"],
+      "command": "node",
+      "args": ["/path/to/specguard-mcp/dist/bin/specguard-mcp.js"],
       "env": {
+        "SPECGUARD_ENDPOINT": "https://specguard.example.com",
         "SPECGUARD_API_KEY": "sgk_…",
-        "SPECGUARD_ENDPOINT": "https://specguard.example.com"
+        "SPECGUARD_LINT_COMMAND": "bundle exec specguard-lint"
       }
     }
   }
 }
 ```
 
-`SPECGUARD_API_KEY` and `SPECGUARD_ENDPOINT` are the same variables
-[`specguard-rspec`](https://github.com/yatfa-ai/specguard-rspec) uses to ship a run, so a repository
-that already posts telemetry to SpecGuard already has them.
+## The tools
+
+### `lint_intent_annotations`
+
+Validates the `@intent:` annotations in a Ruby project's spec files against the
+[OpenTestIntent](https://github.com/yatfa-ai/open-test-intent) schema, by running that project's own
+`specguard-lint --json`. Findings come back as data — file, line, failure kind, every violated rule
+— rather than as a prose report to regex.
+
+| argument | |
+| --- | --- |
+| `project_dir` | the project to lint; defaults to the server's working directory. A path that does not exist, or is not a directory, is refused by name — never reported as a missing linter |
+| `paths` | specific spec files, relative to `project_dir`; omit to check all of them. An empty list is an error rather than a synonym for "everything", because a run that selected nothing must not come back clean |
+| `changed` | check only what differs from the merge base with the default branch — CI's mode |
+| `base` | diff `changed` against this ref instead |
+
+Needs no SpecGuard deployment and no API key. A **missing** annotation is never a failure: adoption
+is gradual by design, so a suite with no annotations lints clean.
+
+**The exit code is a verdict, and the mapping matters.** `specguard-lint` exits `0` clean, `1` on a
+malformed annotation, and `2` when it could not do its job. Exit `1` comes back as a **successful**
+tool call carrying findings — an agent told "the tool failed" retries the tool, where an agent handed
+a finding fixes the annotation. Only exit `2` is a tool error, and it carries the linter's stderr,
+because the gem deliberately emits no document on that path.
+
+### `get_repository_overview`
+
+Asks SpecGuard what a repository's suite looks like **without running it** — the cold-start question
+from Project Goals. One call returns the latest CI run (spec counts, annotated ratio, wall-clock and
+per-shard cost), where that run spent its time (heaviest files, heaviest directories, slowest
+individual examples with file and line), the recent run history, and the branches that have runs.
+
+| argument | |
+| --- | --- |
+| `branch` | narrow the run **history** to one branch, for a real growth series |
+
+`branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
+busy repo may be on another branch. That is a property of the endpoint, not of this bridge.
+
+Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
+because a zero would read as a measurement that was taken.
 
 ## How it works
 
-The server speaks MCP over **stdio** and routes every call through your SpecGuard deployment:
-
 ```
-agent  ⇄  specguard-mcp  ⇄  SpecGuard
-        (stdio/MCP)        (HTTP, same API as the dashboard)
+agent  ⇄  specguard-mcp  ⇄  SpecGuard         (HTTP, the same API the dashboard uses)
+        (stdio/MCP)      ⇄  specguard-lint    (subprocess, in your project)
 ```
 
-Authorization and project scoping are enforced by SpecGuard — never by this bridge — using the same
+The bridge is a **thin client**: it shells out and it calls the API, and it re-implements neither.
+It carries no knowledge of the OpenTestIntent schema, holds no copy of the linter's rules, and
+reshapes no response — both tools return the shape of the capability they wrap, so a field added
+upstream reaches the agent without a release here.
+
+Authorization and project scoping are enforced by SpecGuard, never by this bridge, using the same
 `sgk_…` keys CI uses to ingest runs. The bridge adds no credentials of its own and stores nothing.
+
+No argument ever reaches a shell: subprocesses are spawned with an argument list, so a path from a
+model is a path that does not exist rather than a command.
+
+## Adding a tool
+
+The toolset fills in as more of SpecGuard lands. Adding one is two mechanical edits:
+
+1. a new file under `src/tools/` that default-exports a `ToolDefinition`;
+2. one entry appended to the array in `src/tools/index.ts`.
+
+There is no third. `src/server.ts` iterates that array and contains no per-tool code — no `switch`,
+no hard-coded name — and everything a tool touches the world with (config, subprocesses, `fetch`) is
+injected, so a new tool is testable without a live deployment for free. The property tests in
+`test/tools/registry.test.ts` run over whatever the registry holds, so a tool added later is checked
+by tests written today.
+
+**Only wrap capabilities that exist.** A tool in `tools/list` is a promise an agent acts on; one that
+discovers cleanly and fails on use is worse than one that is absent, because the agent has already
+committed to a plan by the time it finds out. `/check-intent` and duplicate clustering are therefore
+not here, and should arrive when their backing data and engine do.
+
+Transport is chosen in `bin/specguard-mcp.ts` and nowhere else — stdio today, so an HTTP/SSE
+entrypoint is a sibling of that file rather than a change to the server.
+
+## Development
+
+```bash
+npm run build      # compile to dist/
+npm test           # typecheck, then run the suite
+npm run typecheck  # types only
+```
 
 ## Related repositories
 
