@@ -39,6 +39,26 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * surprise, and it is stated in the schema because an agent that has not read
  * the controller would otherwise read `latest_run` as belonging to the branch it
  * asked for.
+ *
+ * == `spec_directory` opens an area the ranking only names
+ *
+ * `latest_run.spec_directories` ranks the heaviest directories and is served
+ * unconditionally, so an agent can already see WHERE the time went — but the
+ * ranking is at the area grain and cannot say which files inside the area spent
+ * it. `?spec_directory=` is the endpoint's answer to that, and the server has
+ * served it since the controller took `RequestedSpecDirectoryParam`: the key
+ * `latest_run.spec_directory_files` opens from `null` to a populated object the
+ * moment the parameter is sent. This bridge withheld it by not offering the
+ * parameter, which made the ranking a dead end for every agent that reached it
+ * through MCP.
+ *
+ * The parameter is forwarded and nothing about it is interpreted here. The
+ * server owns the whole meaning of the answer — `null` for "you did not ask",
+ * `rows: []` for "asked, matched nothing" (a renamed or deleted directory is an
+ * ordinary way to arrive, not an error), and a non-String shape read as no ask
+ * at all. A blank one sends no parameter, exactly as `branch` does and for the
+ * same reason: `getJson` omits an `undefined` value, so `optionalString` is the
+ * whole of the blank-handling in both cases.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -51,6 +71,8 @@ const getRepositoryOverview: ToolDefinition = {
     "counts, annotated ratio, wall-clock and per-shard cost), where that run spent its time " +
     "(heaviest spec files, heaviest directories, slowest individual examples with file and line), " +
     "the recent run history for growth over time, and the branches that have runs. " +
+    "Pass `spec_directory` to open one of those heaviest directories and see the individual spec " +
+    "files inside it. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, or to see " +
     "annotation coverage. Needs SPECGUARD_ENDPOINT and SPECGUARD_API_KEY. " +
     "Figures are null where CI did not report them — a null is 'not measured', never zero.",
@@ -67,15 +89,34 @@ const getRepositoryOverview: ToolDefinition = {
           "repository's newest run, which on a busy repo may be on another branch. Use a name " +
           "from `branches`; an unknown one returns an empty history rather than an error.",
       },
+      spec_directory: {
+        type: "string",
+        description:
+          "Open ONE area of the `latest_run.spec_directories` ranking, which says where the time " +
+          "went by directory but not which files inside it spent it. Use a path exactly as served " +
+          "in `latest_run.spec_directories.rows[].path`. Asking populates " +
+          "`latest_run.spec_directory_files` — the spec files in that one directory with their " +
+          "`total_seconds`/`recorded_count`/`timed_count`, plus the AREA's own `file_count`, " +
+          "`recorded_count`, `timed_count` and the `limit` the row list was cut at (the totals " +
+          "describe the whole area, not the returned page, so do not re-derive them from `rows`). " +
+          "Omit it and the key is `null`, meaning you did not ask — an area the run recorded " +
+          "nothing for is `rows: []` instead, not an error.",
+      },
     },
     additionalProperties: false,
   },
 
   async run(args, context): Promise<ToolResult> {
     const branch = optionalString(args["branch"], "branch");
+    const specDirectory = optionalString(args["spec_directory"], "spec_directory");
     const api = requireApiConfig(context.config);
 
-    const body = await getJson(api, "/api/v1/repository", { branch }, context.fetch);
+    const body = await getJson(
+      api,
+      "/api/v1/repository",
+      { branch, spec_directory: specDirectory },
+      context.fetch,
+    );
 
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       throw new ApiError("SpecGuard returned a JSON value that was not an object.");

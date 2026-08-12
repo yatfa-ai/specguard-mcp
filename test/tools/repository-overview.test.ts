@@ -18,11 +18,44 @@ const BODY = JSON.stringify({
     duration_seconds: null,
     shards: null,
     suite_size_measured: true,
+    // Served on every response. `null` is the server saying "you did not ask" —
+    // it is populated only when `?spec_directory=` names an area.
+    spec_directory_files: null,
   },
   history_window: { branch_scope: "all_branches", branch: null, limit: 10, returned: 1 },
   history: [],
   branches_window: { returned: 1 },
   branches: [{ name: "main", run_count: 4, run_count_capped: false }],
+});
+
+/**
+ * The same response as `BODY`, as the server renders it once the drill-down was
+ * asked for — the ONE key that changes.
+ *
+ * The area totals are deliberately larger than the rows they sit beside:
+ * `file_count` is 31 against 2 returned rows, because the server serves the
+ * AREA's figures next to a row list it truncated at `limit`. A client that
+ * re-derived either from `rows` would be reporting the page's figure under the
+ * area's name, so this fixture is built so that mistake would be visible.
+ */
+const DRILLED_BODY = JSON.stringify({
+  ...JSON.parse(BODY),
+  latest_run: {
+    ...JSON.parse(BODY).latest_run,
+    spec_directory_files: {
+      path: "spec/models",
+      rows: [
+        { path: "spec/models/user_spec.rb", total_seconds: 12.5, recorded_count: 40, timed_count: 40 },
+        // `total_seconds` is null, never 0.0: every example in this file went
+        // untimed, and a zero would assert a file that cost nothing.
+        { path: "spec/models/order_spec.rb", total_seconds: null, recorded_count: 8, timed_count: 0 },
+      ],
+      file_count: 31,
+      recorded_count: 900,
+      timed_count: 640,
+      limit: 25,
+    },
+  },
 });
 
 describe("get_repository_overview — the request it makes", () => {
@@ -47,6 +80,33 @@ describe("get_repository_overview — the request it makes", () => {
     const http = stubFetch({ body: BODY });
 
     await getRepositoryOverview.run({ branch: "  " }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
+  it("passes ?spec_directory= through when an area is asked for", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { spec_directory: "spec/models" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?spec_directory=spec%2Fmodels",
+    );
+  });
+
+  it("omits ?spec_directory= entirely for a blank one, rather than opening a guaranteed-empty area", async () => {
+    // `?spec_directory=` (blank) is "no ask" server-side, so sending it would be
+    // a request for the drill-down that can only answer with nothing.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { spec_directory: "  " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
 
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
@@ -81,6 +141,46 @@ describe("get_repository_overview — the response it returns", () => {
     const result = await getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: stubFetch({ body: BODY }).fetch }));
 
     assert.deepEqual(JSON.parse(result.text), result.structured);
+  });
+
+  it("hands back the drill-down populated when an area was asked for", async () => {
+    const result = await getRepositoryOverview.run(
+      { spec_directory: "spec/models" },
+      toolContext({ env: ENV, fetch: stubFetch({ body: DRILLED_BODY }).fetch }),
+    );
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    const drilled = latest["spec_directory_files"] as Record<string, unknown>;
+
+    assert.deepEqual(drilled, JSON.parse(DRILLED_BODY).latest_run.spec_directory_files);
+
+    // The area's own totals, NOT the returned page's — served beside a row list
+    // the server truncated at `limit`, and passed through as they arrived.
+    assert.equal(drilled["file_count"], 31);
+    assert.equal((drilled["rows"] as unknown[]).length, 2);
+
+    // And the null survives the hop for the same reason every other null here does.
+    assert.equal((drilled["rows"] as Record<string, unknown>[])[1]?.["total_seconds"], null);
+  });
+
+  it("asks for no area, and gets back null, when none was named", async () => {
+    // The regression lock on the whole change, and it only means something if it
+    // holds BOTH halves in the one place: the request must not carry a
+    // `?spec_directory=` the agent never asked for, and the `null` answering it
+    // must survive the hop unchanged.
+    //
+    // Asserting only the response would not reach the first half. `stubFetch`
+    // answers with its canned body whatever the URL, so a `run()` mutated to
+    // always send the parameter would leave a response-only assertion green —
+    // the guard would be selecting on the response while claiming the request.
+    const http = stubFetch({ body: BODY });
+
+    const result = await getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    assert.equal(latest["spec_directory_files"], null);
   });
 });
 
@@ -136,6 +236,16 @@ describe("get_repository_overview — failures an agent can act on", () => {
 
   it("rejects a branch of the wrong type", async () => {
     await rejects(getRepositoryOverview.run({ branch: 7 }, toolContext({ env: ENV })), /must be a string/);
+  });
+
+  it("rejects a spec_directory of the wrong type, naming it", async () => {
+    // The server treats a non-String as no ask at all and renders the page it
+    // rendered before the parameter existed — a silent wrong answer. Refusing
+    // here tells the caller which argument it got wrong instead.
+    await rejects(
+      getRepositoryOverview.run({ spec_directory: ["spec/models"] }, toolContext({ env: ENV })),
+      /`spec_directory` must be a string/,
+    );
   });
 });
 
