@@ -108,13 +108,13 @@ const getRepositoryOverview: ToolDefinition = {
 
   async run(args, context): Promise<ToolResult> {
     const branch = optionalString(args["branch"], "branch");
-    const spec_directory = optionalString(args["spec_directory"], "spec_directory");
+    const specDirectory = optionalString(args["spec_directory"], "spec_directory");
     const api = requireApiConfig(context.config);
 
     const body = await getJson(
       api,
       "/api/v1/repository",
-      { branch, spec_directory },
+      { branch, spec_directory: specDirectory },
       context.fetch,
     );
 

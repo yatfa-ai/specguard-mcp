@@ -163,10 +163,21 @@ describe("get_repository_overview — the response it returns", () => {
     assert.equal((drilled["rows"] as Record<string, unknown>[])[1]?.["total_seconds"], null);
   });
 
-  it("leaves the drill-down null when no area was asked for", async () => {
-    // The regression lock on the whole change: adding the parameter must not
-    // make the tool ask for something the agent did not.
-    const result = await getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: stubFetch({ body: BODY }).fetch }));
+  it("asks for no area, and gets back null, when none was named", async () => {
+    // The regression lock on the whole change, and it only means something if it
+    // holds BOTH halves in the one place: the request must not carry a
+    // `?spec_directory=` the agent never asked for, and the `null` answering it
+    // must survive the hop unchanged.
+    //
+    // Asserting only the response would not reach the first half. `stubFetch`
+    // answers with its canned body whatever the URL, so a `run()` mutated to
+    // always send the parameter would leave a response-only assertion green —
+    // the guard would be selecting on the response while claiming the request.
+    const http = stubFetch({ body: BODY });
+
+    const result = await getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
 
     const latest = result.structured?.["latest_run"] as Record<string, unknown>;
     assert.equal(latest["spec_directory_files"], null);
