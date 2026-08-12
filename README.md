@@ -94,9 +94,20 @@ individual examples with file and line), the recent run history, and the branche
 | argument | |
 | --- | --- |
 | `branch` | narrow the run **history** to one branch, for a real growth series |
+| `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge.
+
+`spec_directories` ranks the heaviest areas but stops at the area grain, so it says *where* the time
+went and not *which files* spent it. `spec_directory` is the next question: pass a path exactly as
+served in `latest_run.spec_directories.rows[].path` and `latest_run.spec_directory_files` opens with
+the files in that one directory (`total_seconds`, `recorded_count`, `timed_count` each), plus the
+**area's** own `file_count`/`recorded_count`/`timed_count` and the `limit` the row list was cut at —
+those totals describe the whole area, not the returned page, so don't re-derive them from `rows`.
+Omit the argument and the key is `null`, meaning *you did not ask*; an area the run recorded nothing
+for answers `rows: []` rather than an error, so a renamed or deleted directory is an empty result and
+not a failure.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
