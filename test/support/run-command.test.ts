@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { CommandError } from "../../src/errors.js";
 import {
   MAX_OUTPUT_BYTES,
   runCommand,
@@ -17,6 +18,17 @@ import { rejects } from "./stubs.js";
  * about `spawn`, and the defect these tests exist to prevent was exactly a wrong
  * belief about `spawn`. `process.execPath` is used as the program because a Node
  * binary is the one executable guaranteed to be here.
+ *
+ * == Why every rejection below asserts a TYPE as well as a message
+ *
+ * The message is only half the contract. `server.ts`'s error boundary splits on
+ * `error instanceof SpecGuardMcpError`: a `CommandError` reaches the agent as
+ * its own sentence, anything else is prefixed with "this is a bug in the bridge,
+ * not in your project or configuration". So a throw here that carried the right
+ * words in a plain `Error` would be delivered to the agent INVERTED — told the
+ * fault is in this server, when the sentence it is wrapping names a missing
+ * binary the operator can install. A message-only assertion cannot see that
+ * happen: it reads the same either way.
  */
 function node(script: string, args: readonly string[] = []): readonly string[] {
   return [process.execPath, "-e", script, ...args];
@@ -44,10 +56,12 @@ describe("runCommand — a verdict, or a legible reason there is none", () => {
   });
 
   it("reports a timeout as no-verdict, not as a run that finished", async () => {
-    await rejects(
+    const error = await rejects(
       runCommand(node("setTimeout(() => {}, 60_000)"), { timeoutMs: 100 }),
       /did not finish within 100ms and was killed, so it produced no verdict/,
     );
+
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 });
 
@@ -67,6 +81,7 @@ describe("runCommand — ENOENT names the thing that was actually missing", () =
     const error = await rejects(runCommand([MISSING_PROGRAM]), /is not on this server's PATH/);
 
     assert.doesNotMatch(error.message, /working directory/);
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
   it("appends the caller's hint on that path, and only there", async () => {
@@ -92,6 +107,7 @@ describe("runCommand — ENOENT names the thing that was actually missing", () =
     );
 
     assert.doesNotMatch(error.message, /is not on this server's PATH/);
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
   it("treats a file given as a cwd the same way, though the code is ENOTDIR not ENOENT", async () => {
@@ -108,11 +124,21 @@ describe("runCommand — ENOENT names the thing that was actually missing", () =
 
     assert.match(error.message, new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(error.message, /is not on this server's PATH/);
+    // The type matters most on exactly this path: the raw `Error: spawn ENOTDIR`
+    // that used to escape here is the shape the boundary calls a bridge defect.
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
   it("refuses an empty argv instead of spawning nothing", async () => {
     // Thrown synchronously, before any promise exists — there is nothing to await.
-    assert.throws(() => runCommand([]), /No command was configured to run/);
+    assert.throws(
+      () => runCommand([]),
+      (error: unknown) => {
+        assert.ok(error instanceof CommandError, `expected a CommandError, got ${String(error)}`);
+        assert.match(error.message, /No command was configured to run/);
+        return true;
+      },
+    );
   });
 });
 
