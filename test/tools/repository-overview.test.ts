@@ -21,6 +21,10 @@ const BODY = JSON.stringify({
     // Served on every response. `null` is the server saying "you did not ask" —
     // it is populated only when `?spec_directory=` names an area.
     spec_directory_files: null,
+    // The same contract, one rung down each: populated only when `?spec_file=`
+    // names a file, and only when `?repeated_description=` names a group.
+    spec_file_examples: null,
+    repeated_description_examples: null,
   },
   history_window: { branch_scope: "all_branches", branch: null, limit: 10, returned: 1 },
   history: [],
@@ -53,6 +57,87 @@ const DRILLED_BODY = JSON.stringify({
       file_count: 31,
       recorded_count: 900,
       timed_count: 640,
+      limit: 25,
+    },
+  },
+});
+
+/**
+ * `?spec_file=` answered — rung 3, and the ONE key that changes.
+ *
+ * Built on the same trap as `DRILLED_BODY`: `recorded_count` is 210 against 2
+ * returned rows, because those counts are the FILE's population, evaluated
+ * before the server cut the list at `limit`. `timed_count` is deliberately
+ * lower than `recorded_count` — the file has examples CI never timed — so a
+ * client that read either off `rows` would be reporting the page's figure under
+ * the file's name.
+ */
+const FILE_DRILLED_BODY = JSON.stringify({
+  ...JSON.parse(BODY),
+  latest_run: {
+    ...JSON.parse(BODY).latest_run,
+    spec_file_examples: {
+      path: "spec/models/user_spec.rb",
+      rows: [
+        {
+          name: "validates the email format",
+          file_path: "app/models/user.rb",
+          line_number: 42,
+          spec_file_path: "spec/models/user_spec.rb",
+          duration_seconds: 3.25,
+          outcome: "passed",
+        },
+        // `duration_seconds` is null, never 0.0: this example went untimed, and
+        // a zero would assert an example that cost nothing.
+        {
+          name: "normalises the name",
+          file_path: "app/models/user.rb",
+          line_number: 58,
+          spec_file_path: "spec/models/user_spec.rb",
+          duration_seconds: null,
+          outcome: "pending",
+        },
+      ],
+      recorded_count: 210,
+      timed_count: 190,
+      limit: 50,
+    },
+  },
+});
+
+/**
+ * `?repeated_description=` answered — rung 4, and the ONE key that changes.
+ *
+ * The group's members sit in DIFFERENT spec files, which is the whole point of
+ * the ranking and the reason this rung is not reachable by walking the one
+ * above: no single `spec_file` ask returns this list.
+ */
+const GROUP_DRILLED_BODY = JSON.stringify({
+  ...JSON.parse(BODY),
+  latest_run: {
+    ...JSON.parse(BODY).latest_run,
+    repeated_description_examples: {
+      name: "is valid",
+      rows: [
+        {
+          name: "is valid",
+          file_path: "app/models/user.rb",
+          line_number: 12,
+          spec_file_path: "spec/models/user_spec.rb",
+          duration_seconds: 0.4,
+          outcome: "passed",
+        },
+        {
+          name: "is valid",
+          file_path: "app/models/order.rb",
+          line_number: 9,
+          spec_file_path: "spec/models/order_spec.rb",
+          duration_seconds: null,
+          outcome: "passed",
+        },
+      ],
+      recorded_count: 88,
+      timed_count: 71,
       limit: 25,
     },
   },
@@ -111,6 +196,55 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
 
+  it("passes ?spec_file= through when a file is asked for", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { spec_file: "spec/models/user_spec.rb" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?spec_file=spec%2Fmodels%2Fuser_spec.rb",
+    );
+  });
+
+  it("omits ?spec_file= entirely for a blank one, rather than opening a guaranteed-empty file", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run({ spec_file: "  " }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
+  it("passes ?repeated_description= through when a group is asked for", async () => {
+    // A description is free text rather than a path, so spaces and punctuation
+    // are ordinary in it — the encoding is the load-bearing half of this one.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repeated_description: "is valid & saves" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?repeated_description=is+valid+%26+saves",
+    );
+  });
+
+  it("omits ?repeated_description= entirely for a blank one, rather than opening a guaranteed-empty group", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repeated_description: "  " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
   it("does not double the slash when the endpoint carries a trailing one", async () => {
     const http = stubFetch({ body: BODY });
 
@@ -163,6 +297,60 @@ describe("get_repository_overview — the response it returns", () => {
     assert.equal((drilled["rows"] as Record<string, unknown>[])[1]?.["total_seconds"], null);
   });
 
+  it("hands back the file's examples populated when a file was asked for", async () => {
+    const result = await getRepositoryOverview.run(
+      { spec_file: "spec/models/user_spec.rb" },
+      toolContext({ env: ENV, fetch: stubFetch({ body: FILE_DRILLED_BODY }).fetch }),
+    );
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    const drilled = latest["spec_file_examples"] as Record<string, unknown>;
+
+    assert.deepEqual(drilled, JSON.parse(FILE_DRILLED_BODY).latest_run.spec_file_examples);
+
+    // The FILE's own totals, NOT the returned page's — served beside a row list
+    // the server cut at `limit` by duration, and passed through as they arrived.
+    assert.equal(drilled["recorded_count"], 210);
+    assert.equal(drilled["timed_count"], 190);
+    assert.equal((drilled["rows"] as unknown[]).length, 2);
+
+    // And the null survives the hop for the same reason every other null here does.
+    assert.equal((drilled["rows"] as Record<string, unknown>[])[1]?.["duration_seconds"], null);
+
+    // Drilling one rung must not invent the others.
+    assert.equal(latest["spec_directory_files"], null);
+    assert.equal(latest["repeated_description_examples"], null);
+  });
+
+  it("hands back the group's examples populated when a repeated description was asked for", async () => {
+    const result = await getRepositoryOverview.run(
+      { repeated_description: "is valid" },
+      toolContext({ env: ENV, fetch: stubFetch({ body: GROUP_DRILLED_BODY }).fetch }),
+    );
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    const drilled = latest["repeated_description_examples"] as Record<string, unknown>;
+
+    assert.deepEqual(
+      drilled,
+      JSON.parse(GROUP_DRILLED_BODY).latest_run.repeated_description_examples,
+    );
+
+    // The GROUP's own totals, NOT the returned page's.
+    assert.equal(drilled["recorded_count"], 88);
+    assert.equal(drilled["timed_count"], 71);
+    assert.equal((drilled["rows"] as unknown[]).length, 2);
+
+    // The members sit in different spec files — the property that makes this
+    // rung unreachable from `spec_file`, preserved through the hop.
+    const rows = drilled["rows"] as Record<string, unknown>[];
+    assert.notEqual(rows[0]?.["spec_file_path"], rows[1]?.["spec_file_path"]);
+    assert.equal(rows[1]?.["duration_seconds"], null);
+
+    assert.equal(latest["spec_directory_files"], null);
+    assert.equal(latest["spec_file_examples"], null);
+  });
+
   it("asks for no area, and gets back null, when none was named", async () => {
     // The regression lock on the whole change, and it only means something if it
     // holds BOTH halves in the one place: the request must not carry a
@@ -181,6 +369,11 @@ describe("get_repository_overview — the response it returns", () => {
 
     const latest = result.structured?.["latest_run"] as Record<string, unknown>;
     assert.equal(latest["spec_directory_files"], null);
+    // Same lock, for the two rungs bridged after it — the URL assertion above is
+    // the half that reaches them, since a `run()` that always sent either
+    // parameter would still be handed this canned body.
+    assert.equal(latest["spec_file_examples"], null);
+    assert.equal(latest["repeated_description_examples"], null);
   });
 });
 
@@ -245,6 +438,26 @@ describe("get_repository_overview — failures an agent can act on", () => {
     await rejects(
       getRepositoryOverview.run({ spec_directory: ["spec/models"] }, toolContext({ env: ENV })),
       /`spec_directory` must be a string/,
+    );
+  });
+
+  it("rejects a spec_file of the wrong type, naming it", async () => {
+    // Same silent-wrong-answer trap as the sibling above, and the same remedy:
+    // the message must name the field, because with four asks on this tool
+    // "must be a string" alone does not say which one to fix.
+    await rejects(
+      getRepositoryOverview.run(
+        { spec_file: ["spec/models/user_spec.rb"] },
+        toolContext({ env: ENV }),
+      ),
+      /`spec_file` must be a string/,
+    );
+  });
+
+  it("rejects a repeated_description of the wrong type, naming it", async () => {
+    await rejects(
+      getRepositoryOverview.run({ repeated_description: 7 }, toolContext({ env: ENV })),
+      /`repeated_description` must be a string/,
     );
   });
 });
