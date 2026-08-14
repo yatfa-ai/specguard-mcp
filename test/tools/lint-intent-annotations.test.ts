@@ -166,6 +166,14 @@ describe("lint_intent_annotations — the exit-code contract", () => {
   });
 
   it("treats a signal death as no-verdict rather than as a clean run", async () => {
+    // The stub below fabricates `{ code: null, signal: "SIGKILL" }`, so on its
+    // own this test asserts only that the tool handles a shape the test file
+    // invented. What earns the stub is
+    // `test/support/run-command.test.ts` — "a child killed by a signal is not a
+    // run that passed" — which holds the REAL `runCommand` to producing exactly
+    // this shape off a real killed process. Keep the pair: this half is the
+    // consumer, that half is the producer, and either alone is green whatever
+    // the other does.
     await rejects(
       lintIntentAnnotations.run(
         {},
