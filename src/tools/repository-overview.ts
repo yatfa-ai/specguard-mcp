@@ -98,7 +98,7 @@ const getRepositoryOverview: ToolDefinition = {
     "counts, annotated ratio, wall-clock and per-shard cost), where that run spent its time " +
     "(heaviest spec files, heaviest directories, slowest individual examples with file and line), " +
     "which descriptions are repeated across the suite (the overcoverage ranking: one description " +
-    "carried by many examples, with how many files it is spread over), " +
+    "carried by many examples, and which files it is spread over), " +
     "the recent run history for growth over time, and the branches that have runs. " +
     "Three of those rankings open: pass `spec_directory` to see the spec files inside one of the " +
     "heaviest directories, `spec_file` to see the individual examples inside one of the heaviest " +

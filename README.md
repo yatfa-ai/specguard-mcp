@@ -89,12 +89,16 @@ because the gem deliberately emits no document on that path.
 Asks SpecGuard what a repository's suite looks like **without running it** — the cold-start question
 from Project Goals. One call returns the latest CI run (spec counts, annotated ratio, wall-clock and
 per-shard cost), where that run spent its time (heaviest files, heaviest directories, slowest
-individual examples with file and line), the recent run history, and the branches that have runs.
+individual examples with file and line), which descriptions are repeated across the suite (the
+overcoverage ranking — one description carried by many examples, and which files it is spread over),
+the recent run history, and the branches that have runs.
 
 | argument | |
 | --- | --- |
 | `branch` | narrow the run **history** to one branch, for a real growth series |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
+| `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
+| `repeated_description` | open ONE repeated description and list the examples that all share it |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge.
@@ -108,6 +112,29 @@ those totals describe the whole area, not the returned page, so don't re-derive 
 Omit the argument and the key is `null`, meaning *you did not ask*; an area the run recorded nothing
 for answers `rows: []` rather than an error, so a renamed or deleted directory is an empty result and
 not a failure.
+
+`spec_files` ranks the heaviest files but stops at the file grain, so it says *which files* cost the
+most and not *which examples* inside them spent it. `spec_file` is the next question: pass a path
+exactly as served in `latest_run.spec_files.rows[].path` and `latest_run.spec_file_examples` opens
+with up to 50 of that file's individual examples, cut by **duration** (`name`, `file_path`,
+`line_number`, `spec_file_path`, `duration_seconds`, `outcome` each), plus the **file's** own
+`recorded_count`/`timed_count` and the `limit` the row list was cut at — those totals describe the
+whole file, not the returned page, so don't re-derive them from `rows`. Omit the argument and the
+key is `null`, meaning *you did not ask*; a path that matched nothing answers `rows: []` rather than
+an error, so a renamed or deleted spec file and a stale bookmark are empty results and not failures.
+
+`repeated_descriptions` ranks the descriptions carried by the most examples — the overcoverage
+ranking — but names the description and the files it was seen in, not *which* examples say the same
+thing. `repeated_description` is the next question: pass a description exactly as served in
+`latest_run.repeated_descriptions.rows[].name` and `latest_run.repeated_description_examples` opens
+with up to 25 of that group's members (the same six fields), plus the **group's** own
+`recorded_count`/`timed_count` and the `limit` the row list was cut at — again totals for the whole
+group and not for the returned page. This is the **only** way to reach a group's members:
+`slowest_examples` is the run-wide top ten and rarely contains them, and walking `spec_file` over
+each path in the row's `files_seen` is N unrelated lists each cut by duration, with no guarantee the
+group's members survive the cut in any of them. Omit the argument and the key is `null`; a
+description that matched nothing answers `rows: []`, so a test renamed since and an edited
+description are empty results and not failures.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
