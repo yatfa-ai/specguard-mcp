@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { ApiError, ArgumentError, SpecGuardMcpError } from "../../src/errors.js";
 import getRepositoryOverview from "../../src/tools/repository-overview.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
 
@@ -459,6 +460,35 @@ describe("get_repository_overview — failures an agent can act on", () => {
       getRepositoryOverview.run({ repeated_description: 7 }, toolContext({ env: ENV })),
       /`repeated_description` must be a string/,
     );
+  });
+
+  it("blames the ARGUMENT for a bad type, not the deployment", async () => {
+    // Note the context: no endpoint, no key, no `ENV` at all. The four
+    // `optionalString` calls run before `requireApiConfig`, so this refusal
+    // happens on a server where no deployment could have been contacted — which
+    // is exactly why the class it throws matters.
+    const error = await rejects(
+      getRepositoryOverview.run({ branch: 7 }, toolContext()),
+      /`branch` must be a string/,
+    );
+
+    assert.ok(error instanceof ArgumentError, `expected an ArgumentError, got ${error.name}`);
+
+    // The leg that makes this bite. Without it the example passes against the
+    // code this ticket exists to change, and pins the defect instead of the fix:
+    // `ApiError` is read elsewhere in this codebase as "the deployment
+    // misbehaved" (`specguard-api.ts:127` branches on it), so any consumer that
+    // grows a retry or a "SpecGuard may be down" message off that class would
+    // apply it to the agent's own malformed argument, which no retry can fix.
+    assert.ok(
+      !(error instanceof ApiError),
+      "a wrong-typed argument is not the deployment refusing — nothing was contacted",
+    );
+
+    // Still an expected failure rather than a defect, so it crosses `runTool`'s
+    // boundary as the agent's own fixable mistake.
+    assert.ok(error instanceof SpecGuardMcpError);
+    assert.doesNotMatch(error.message, /bug in the bridge/);
   });
 });
 

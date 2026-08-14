@@ -140,6 +140,33 @@ describe("an MCP client against the server", () => {
     await client.close();
   });
 
+  it("hands a wrong-typed argument back as the caller's own fixable mistake", async () => {
+    // The unit tests assert the CLASS; this asserts the consequence of the class
+    // at the only boundary that reads it. `describeError` splits on
+    // `instanceof SpecGuardMcpError`, so an `ArgumentError` that had been
+    // declared outside that hierarchy — a plain `Error`, or a shadowing
+    // `TypeError` — would take the fallback branch and tell the agent its
+    // argument is a bug in this bridge. It is not: it is the one failure the
+    // agent can fix from the message alone, and no config or linter was even
+    // reached before it was raised.
+    const client = await connect({ config: loadConfig({}) });
+
+    const result = await client.callTool({
+      name: "lint_intent_annotations",
+      arguments: { changed: "yes" },
+    });
+    const text = JSON.stringify(result.content);
+
+    assert.equal(result.isError, true);
+    assert.match(text, /`changed` must be a boolean/);
+    assert.doesNotMatch(text, /bug in the bridge/);
+
+    const { tools } = await client.listTools();
+    assert.equal(tools.length, 2, "the server is still serving after a bad argument");
+
+    await client.close();
+  });
+
   it("still calls a genuine defect a bug in the bridge, and not the caller's fault", async () => {
     // The counterweight, and it is not optional. "A CommandError reaches the
     // agent verbatim" is satisfiable by a describeError that returns

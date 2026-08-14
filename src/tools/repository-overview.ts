@@ -1,5 +1,5 @@
 import { requireApiConfig } from "../config.js";
-import { ApiError } from "../errors.js";
+import { ApiError, ArgumentError } from "../errors.js";
 import { getJson } from "../support/specguard-api.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -226,6 +226,6 @@ function renderText(overview: Record<string, unknown>): string {
 
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") throw new ApiError(`\`${field}\` must be a string.`);
+  if (typeof value !== "string") throw new ArgumentError(`\`${field}\` must be a string.`);
   return value.trim() === "" ? undefined : value.trim();
 }

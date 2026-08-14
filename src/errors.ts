@@ -40,6 +40,25 @@ export class ApiError extends SpecGuardMcpError {
 }
 
 /**
+ * The arguments the agent supplied are not the shape the schema advertises.
+ *
+ * What separates this from its two neighbours is WHERE IN THE CALL it is raised:
+ * argument shape is checked first, so this throws BEFORE any config is resolved
+ * and BEFORE any command is spawned. Nothing was reached and refused, so it is
+ * not an `ApiError`; nothing was run and broke, so it is not a `CommandError`.
+ * Both of those say the fault lies somewhere the agent cannot see, and invite a
+ * retry that cannot help. This is the one failure class the agent can fix
+ * unaided, on the next call, from the message alone.
+ *
+ * Deliberately NOT named `TypeError`: `describeError` treats the global
+ * `TypeError` as the canonical non-`SpecGuardMcpError` defect, and shadowing it
+ * would invert that branch.
+ */
+export class ArgumentError extends SpecGuardMcpError {
+  override readonly name = "ArgumentError";
+}
+
+/**
  * A wrapped command could not be run, or broke while running.
  *
  * NOT "the command reported a problem with your code" — that is a finding and
