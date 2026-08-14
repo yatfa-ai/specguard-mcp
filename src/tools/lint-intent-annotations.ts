@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { CommandError } from "../errors.js";
+import { ArgumentError, CommandError } from "../errors.js";
 import { MAX_OUTPUT_BYTES } from "../support/run-command.js";
 import type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
 
@@ -295,7 +295,7 @@ function truncate(value: string, limit = 2000): string {
 
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") throw new CommandError(`\`${field}\` must be a string.`);
+  if (typeof value !== "string") throw new ArgumentError(`\`${field}\` must be a string.`);
   // Trimmed, not merely tested for blankness. `project_dir` becomes a `cwd`, so
   // " /srv/app" — a path an agent produces by concatenating one — would otherwise
   // be a directory that cannot exist, reported as a directory that does not.
@@ -305,7 +305,7 @@ function optionalString(value: unknown, field: string): string | undefined {
 
 function optionalBoolean(value: unknown, field: string): boolean | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "boolean") throw new CommandError(`\`${field}\` must be a boolean.`);
+  if (typeof value !== "boolean") throw new ArgumentError(`\`${field}\` must be a boolean.`);
   return value;
 }
 
@@ -324,10 +324,10 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
  */
 function optionalStringArray(value: unknown, field: string): string[] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value)) throw new CommandError(`\`${field}\` must be an array of strings.`);
+  if (!Array.isArray(value)) throw new ArgumentError(`\`${field}\` must be an array of strings.`);
 
   const entries = value.map((entry) => {
-    if (typeof entry !== "string") throw new CommandError(`\`${field}\` must contain only strings.`);
+    if (typeof entry !== "string") throw new ArgumentError(`\`${field}\` must contain only strings.`);
     // Trimmed BEFORE the checks below, so a stray space cannot smuggle an entry
     // past the leading-dash guard as " --version".
     return entry.trim();

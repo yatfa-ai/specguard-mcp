@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { CommandError } from "../../src/errors.js";
+import { ArgumentError, CommandError, SpecGuardMcpError } from "../../src/errors.js";
 import lintIntentAnnotations from "../../src/tools/lint-intent-annotations.js";
 import { rejects, stubCommand, toolContext } from "../support/stubs.js";
 
@@ -335,6 +335,43 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
     await rejects(lintIntentAnnotations.run({ project_dir: 7 }, toolContext()), /must be a string/);
     await rejects(lintIntentAnnotations.run({ paths: "spec/a_spec.rb" }, toolContext()), /must be an array/);
     await rejects(lintIntentAnnotations.run({ paths: [1] }, toolContext()), /only strings/);
+  });
+
+  it("blames the ARGUMENT for a bad type, not the linter", async () => {
+    // All four shape checks run before `runCommand` is ever called, and the
+    // command stub confirms it below: nothing was wrapped, so nothing could have
+    // broken while running.
+    const command = stubCommand({ code: 0 });
+
+    const cases: Array<[Record<string, unknown>, RegExp]> = [
+      [{ changed: "yes" }, /must be a boolean/],
+      [{ project_dir: 7 }, /must be a string/],
+      [{ paths: "spec/a_spec.rb" }, /must be an array/],
+      [{ paths: [1] }, /only strings/],
+    ];
+
+    for (const [args, pattern] of cases) {
+      const error = await rejects(
+        lintIntentAnnotations.run(args, toolContext({ runCommand: command.runCommand })),
+        pattern,
+      );
+
+      assert.ok(error instanceof ArgumentError, `expected an ArgumentError, got ${error.name}`);
+
+      // The leg that makes this bite. `CommandError` is this codebase's word for
+      // "the linter itself is unusable" — not on PATH, exit 2, output that will
+      // not parse. Told that, an agent goes and looks at its Ruby toolchain
+      // instead of at the argument it typed, which is the only thing wrong.
+      assert.ok(
+        !(error instanceof CommandError),
+        `\`${JSON.stringify(args)}\` is a bad argument, not a broken linter`,
+      );
+
+      assert.ok(error instanceof SpecGuardMcpError);
+      assert.doesNotMatch(error.message, /bug in the bridge/);
+    }
+
+    assert.equal(command.calls.length, 0, "the linter must not have been run at all");
   });
 });
 
