@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { CommandError } from "../../src/errors.js";
 import lintIntentAnnotations from "../../src/tools/lint-intent-annotations.js";
 import { rejects, stubCommand, toolContext } from "../support/stubs.js";
 
@@ -148,13 +149,20 @@ describe("lint_intent_annotations — the exit-code contract", () => {
   it("exit 2 is the only tool error, and carries the linter's stderr prose", async () => {
     // The gem deliberately emits NO document on exit 2, so stderr is the entire
     // diagnosis.
-    await rejects(
+    const error = await rejects(
       lintIntentAnnotations.run(
         {},
         toolContext({ runCommand: stubCommand({ code: 2, stdout: "", stderr: "error: could not load schema" }).runCommand }),
       ),
       /could not load schema/,
     );
+
+    // The type is what carries that prose to the agent intact. As a plain
+    // `Error` the same words reach it wrapped in "this is a bug in the bridge,
+    // not in your project or configuration" — which is a claim about the wrong
+    // codebase, and the linter's own account of what it could not load is then
+    // read as noise from a broken server.
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
   it("treats a signal death as no-verdict rather than as a clean run", async () => {
@@ -250,10 +258,12 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
   });
 
   it("refuses unparseable output", async () => {
-    await rejects(
+    const error = await rejects(
       lintIntentAnnotations.run({}, toolContext({ runCommand: stubCommand({ stdout: "not json" }).runCommand })),
       /was not JSON/,
     );
+
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
   it("blames truncation for a cut-off document, not the linter's output", async () => {
@@ -277,6 +287,7 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
     assert.match(error.message, /4 MB/);
     assert.match(error.message, /`paths`/);
     assert.doesNotMatch(error.message, /was not JSON/);
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
   it("refuses a path that would be read as a flag", async () => {

@@ -110,15 +110,70 @@ describe("an MCP client against the server", () => {
   });
 
   it("reports a linter that is not installed as an actionable tool error", async () => {
+    // Driven through the REAL `runCommand` against a binary genuinely not on
+    // PATH, so the error crossing the boundary is the `CommandError` production
+    // actually throws. That is the whole test. A stub throwing a raw `Error`
+    // with an ENOENT code on it — which is what this example used to do — is not
+    // a `SpecGuardMcpError`, so it takes describeError's FALLBACK branch and the
+    // agent is told the fault is in this bridge. The example was exercising the
+    // opposite of its own title, and passing.
     const client = await connect({
-      runCommand: async () => {
-        throw Object.assign(new Error("spawn specguard-lint ENOENT"), { code: "ENOENT" });
-      },
+      config: loadConfig({ SPECGUARD_LINT_COMMAND: "specguard-lint-does-not-exist-9f3a" }),
     });
 
     const result = await client.callTool({ name: "lint_intent_annotations", arguments: {} });
+    const text = JSON.stringify(result.content);
 
     assert.equal(result.isError, true);
+
+    // The agent is told what is wrong and which variable fixes it.
+    assert.match(text, /is not on this server's PATH/);
+    assert.match(text, /SPECGUARD_LINT_COMMAND/);
+
+    // The half `isError: true` cannot express. `runTool` sets that flag on BOTH
+    // branches of describeError, so the old lone assertion was satisfied by
+    // precisely the outcome this test exists to reject: "this is a bug in the
+    // bridge, not in your project or configuration" tells the agent to stop
+    // editing the only thing that is actually wrong.
+    assert.doesNotMatch(text, /bug in the bridge/);
+
+    await client.close();
+  });
+
+  it("still calls a genuine defect a bug in the bridge, and not the caller's fault", async () => {
+    // The counterweight, and it is not optional. "A CommandError reaches the
+    // agent verbatim" is satisfiable by a describeError that returns
+    // `error.message` unconditionally — which would report every real crash in
+    // this server as a verdict about the user's project, sending an agent to
+    // edit code that is fine. Both directions are pinned here, or the
+    // defect-vs-expected-failure split the boundary exists for is not pinned at
+    // all.
+    const broken: ToolDefinition = {
+      name: "a_tool_with_a_defect",
+      title: "A tool with a defect",
+      description: "Throws the shape a real bug in this server throws: not a SpecGuardMcpError.",
+      inputSchema: { type: "object", additionalProperties: false },
+      run: async () => {
+        throw new TypeError("Cannot read properties of undefined (reading 'ok')");
+      },
+    };
+
+    const client = await connect({ tools: [broken] });
+
+    const result = await client.callTool({ name: "a_tool_with_a_defect", arguments: {} });
+    const text = JSON.stringify(result.content);
+
+    assert.equal(result.isError, true);
+    assert.match(text, /bug in the bridge, not in your project or configuration/);
+    // Which tool, and what actually went wrong — a defect nobody can locate is
+    // barely better than a dead pipe.
+    assert.match(text, /a_tool_with_a_defect/);
+    assert.match(text, /TypeError: Cannot read properties of undefined/);
+
+    // And it is still a tool result, not a thrown rejection: on stdio an
+    // unhandled one takes the transport down with every other tool on it.
+    const { tools } = await client.listTools();
+    assert.equal(tools.length, 1, "the server is still serving after a defect");
 
     await client.close();
   });
