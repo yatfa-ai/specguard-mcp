@@ -105,7 +105,7 @@ describe("an MCP client against the server", () => {
 
     const { tools } = await client.listTools();
     assert.ok(
-      tools.some((tool) => tool.name === "get_repository_overview"),
+      tools.some((tool) => tool.name === "lint_intent_annotations"),
       "the server is still serving after a failed call",
     );
 

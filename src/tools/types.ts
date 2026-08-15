@@ -18,19 +18,19 @@ import type { RunCommand } from "../support/run-command.js";
  *
  * There is no third *wiring* edit — but do not read that as "no third edit":
  * making only the two above turns the suite red, deliberately. Every tool also
- * earns a `### ` section in `README.md` with an argument table above it, and
- * every argument earns a row in that table, since that README ships as the
- * package's published documentation and `test/readme.test.ts` derives the
- * obligation from this registry, so a missing section or an undocumented
- * parameter fails. And `test/server.test.ts`'s `discovers the bootstrap tools`
- * asserts the advertised tool names by `deepEqual`, so growing the toolset must
- * update that list — a pin kept on purpose, so that what this server promises an
- * agent changes only by a conscious decision (`src/tools/index.ts` says why only
- * these two). Neither obligation is covered by `test/server.test.ts`'s `adding a
- * tool` example: that one *injects* a definition through `createServer`'s
- * `tools` option, which REPLACES the registry rather than growing it, so it
- * proves the handler path is tool-agnostic and says nothing about what registry
- * growth costs.
+ * earns a `### ` section in `README.md` whose argument table gives every
+ * argument a row, since that README ships as the package's published
+ * documentation and `test/readme.test.ts` derives the obligation from this
+ * registry, so a missing section or an undocumented parameter fails. And
+ * `test/server.test.ts`'s `discovers the bootstrap tools` asserts the advertised
+ * tool names by `deepEqual`, so growing the toolset must update that list — a
+ * pin kept on purpose, so that what this server promises an agent changes only
+ * by a conscious decision (`src/tools/index.ts` says why only these two).
+ * Neither obligation is covered by `test/server.test.ts`'s `adding a tool`
+ * example: that one *injects* a definition through `createServer`'s `tools`
+ * option, which REPLACES the registry rather than growing it, so it proves the
+ * handler path is tool-agnostic and says nothing about what registry growth
+ * costs.
  *
  * `test/tools/registry.test.ts` asserts the properties a new entry must satisfy
  * (unique name, non-empty description, object schema) over whatever the array
