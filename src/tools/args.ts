@@ -16,9 +16,10 @@ import { ArgumentError } from "../errors.js";
  * one, and the next tool author still has to choose the class again from
  * scratch.
  *
- * `types.ts` promises that adding a tool is "two mechanical edits with no
- * third". Hand-copying these coercions and re-picking an error class was the
- * unlisted third edit. This file removes it.
+ * `types.ts` promised, until SPGD-558 narrowed the claim to *wiring* edits,
+ * that adding a tool was "two mechanical edits with no third". Hand-copying
+ * these coercions and re-picking an error class was the unlisted third edit.
+ * This file removes it.
  *
  * == What belongs here, and what does not
  *
