@@ -104,7 +104,10 @@ describe("an MCP client against the server", () => {
     assert.match(JSON.stringify(result.content), /SPECGUARD_API_KEY/);
 
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 2, "the server is still serving after a failed call");
+    assert.ok(
+      tools.some((tool) => tool.name === "lint_intent_annotations"),
+      "the server is still serving after a failed call",
+    );
 
     await client.close();
   });
@@ -162,7 +165,10 @@ describe("an MCP client against the server", () => {
     assert.doesNotMatch(text, /bug in the bridge/);
 
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 2, "the server is still serving after a bad argument");
+    assert.ok(
+      tools.some((tool) => tool.name === "lint_intent_annotations"),
+      "the server is still serving after a bad argument",
+    );
 
     await client.close();
   });
