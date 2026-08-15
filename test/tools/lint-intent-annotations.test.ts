@@ -298,6 +298,87 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
     assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
   });
 
+  // The three below pin the OTHER cause of "the output is not all here": the
+  // grace backstop in run-command.ts, which settles a run whose process exited
+  // while something still held its stdout. That state is newly reachable — on
+  // main this path did not settle at all — and `outputDrained` is the only thing
+  // that distinguishes it, so without these the field is inert and both messages
+  // above name a cause that is not the cause.
+  it("blames the held-open pipe for a missing document, not SPECGUARD_LINT_COMMAND", async () => {
+    const error = await rejects(
+      lintIntentAnnotations.run(
+        {},
+        toolContext({
+          runCommand: stubCommand({ code: 0, stdout: "", outputDrained: false }).runCommand,
+        }),
+      ),
+      /kept the output pipe open/,
+    );
+
+    // The whole point of the branch: the command ran and the variable is right,
+    // so sending the reader to change it is the `cwd`-vs-PATH misdirection this
+    // file refuses elsewhere.
+    assert.doesNotMatch(error.message, /may not be\s+specguard-lint|version older/);
+    assert.match(error.message, /is NOT a clean run/);
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
+  });
+
+  it("blames the held-open pipe for a half-read document, not the linter's output", async () => {
+    const error = await rejects(
+      lintIntentAnnotations.run(
+        {},
+        toolContext({
+          runCommand: stubCommand({
+            code: 0,
+            stdout: '{"ok":true,"findings":[',
+            outputDrained: false,
+          }).runCommand,
+        }),
+      ),
+      /kept the output pipe open/,
+    );
+
+    assert.doesNotMatch(error.message, /was not JSON/);
+    // The evidence is still quoted, as every sibling branch here does.
+    assert.match(error.message, /\{"ok":true,"findings":\[/);
+  });
+
+  // Ordering pin: a run can hit the 4 MB ceiling AND leak a descriptor. "Ask for
+  // less" is still the advice that works, so truncation must win — this is the
+  // test that fails if the two branches are ever reordered.
+  it("still blames truncation when the pipe was also left open", async () => {
+    const error = await rejects(
+      lintIntentAnnotations.run(
+        {},
+        toolContext({
+          runCommand: stubCommand({
+            stdout: '{"ok": true, "findings": [{"file": "spec/a_sp',
+            stdoutTruncated: true,
+            outputDrained: false,
+          }).runCommand,
+        }),
+      ),
+      /truncated it and the JSON document is incomplete/,
+    );
+
+    assert.doesNotMatch(error.message, /kept the output pipe open/);
+  });
+
+  // The negative half, and the reason the check sits on the failure branches
+  // rather than at the top: an undrained tail is not itself an error. The
+  // document arrived; the byte we never waited for was a trailing newline.
+  it("returns the findings when an undrained tail cost nothing", async () => {
+    const result = await lintIntentAnnotations.run(
+      {},
+      toolContext({
+        runCommand: stubCommand({ code: 0, stdout: report(), outputDrained: false }).runCommand,
+      }),
+    );
+
+    assert.equal(result.structured?.["ok"], true);
+    assert.equal(result.structured?.["exit_code"], 0);
+  });
+
   it("refuses a path that would be read as a flag", async () => {
     // `--version` as a "path" would exit 0 having checked nothing — a false
     // clean, which is the exact failure this toolchain exists to prevent.

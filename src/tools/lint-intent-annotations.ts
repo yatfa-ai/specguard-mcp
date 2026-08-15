@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { ArgumentError, CommandError } from "../errors.js";
-import { MAX_OUTPUT_BYTES } from "../support/run-command.js";
+import { EXIT_CLOSE_GRACE_MS, MAX_OUTPUT_BYTES, type CommandResult } from "../support/run-command.js";
 import type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -121,7 +121,7 @@ const lintIntentAnnotations: ToolDefinition = {
       );
     }
 
-    const report = parseReport(result.stdout, result.stdoutTruncated, result.stderr);
+    const report = parseReport(result);
 
     return {
       // The provenance line the gem writes to stderr on EVERY run names which
@@ -218,10 +218,30 @@ interface LintReport extends Record<string, unknown> {
   ok?: unknown;
 }
 
-function parseReport(stdout: string, truncated: boolean, stderr: string): LintReport {
+/**
+ * Takes the whole `CommandResult` rather than the three or four fields it reads.
+ *
+ * Not tidiness: `stdoutTruncated` and `outputDrained` are both booleans meaning
+ * "the output is not all here", they are both consulted below, and they carry
+ * OPPOSITE remedies — ask for less output, versus stop leaving a process holding
+ * the pipe. As positional arguments they would typecheck swapped, and a swap
+ * would silently exchange one of this file's diagnoses for the other. The struct
+ * makes the two unswappable at the call site.
+ */
+function parseReport(result: CommandResult): LintReport {
+  const { stdout, stderr, stdoutTruncated: truncated, outputDrained: drained } = result;
   const trimmed = stdout.trim();
 
   if (trimmed === "") {
+    // Asked BEFORE the sibling below, because the two answer different
+    // questions and only one of them is established here. "The linter wrote no
+    // document" is a claim about the linter; when the pipe was never drained
+    // this bridge stopped listening, so what the linter wrote is precisely what
+    // we do not know. Blaming SPECGUARD_LINT_COMMAND for silence we caused is
+    // the `cwd`-vs-PATH mistake this file already refuses once above — it sends
+    // the reader to change the one thing that was right.
+    if (!drained) throw new CommandError(undrainedPipe(result, ""));
+
     // stderr is carried, not dropped. An exit of 0 or 1 with an empty stdout is
     // most often produced by the WRAPPER in SPECGUARD_LINT_COMMAND — `bundle`,
     // `rbenv`, a docker shim — failing before the linter ever ran, and such a
@@ -259,6 +279,14 @@ function parseReport(stdout: string, truncated: boolean, stderr: string): LintRe
       );
     }
 
+    // The same reasoning one rung further out, and it is ordered AFTER truncation
+    // deliberately: both mean "this bridge stopped reading", but truncation is
+    // the definite cut with the actionable remedy, so when a run manages to hit
+    // the 4 MB ceiling AND leak a descriptor, "ask for less" is still the advice
+    // that works. Below it, though, a document this bridge stopped reading is
+    // not the linter emitting garbage, and saying so would name the wrong cause.
+    if (!drained) throw new CommandError(undrainedPipe(result, trimmed));
+
     throw new CommandError(
       `specguard-lint's output was not JSON, so no findings could be read. It wrote:\n${truncate(trimmed)}`,
     );
@@ -269,6 +297,39 @@ function parseReport(stdout: string, truncated: boolean, stderr: string): LintRe
   }
 
   return parsed as LintReport;
+}
+
+/**
+ * The diagnosis for a run whose output this bridge stopped reading.
+ *
+ * Reached only from the two failure branches above, never on its own: an
+ * undrained pipe that still delivered a parseable document is not an error and
+ * must not be reported as one. `outputDrained: false` says the tail was not
+ * waited for, not that anything is missing from what arrived — the run whose
+ * last unread byte was a newline is a successful run, and the caller sees the
+ * findings. So this is what a lost tail COST, asked only once something is
+ * actually absent.
+ *
+ * Names the pipe-holder rather than the linter or its configuration, because
+ * the remedy lives in neither: the command ran and SPECGUARD_LINT_COMMAND is
+ * correct. What is wrong is that the run leaves something behind holding the
+ * output, and re-running is the one thing guaranteed not to help.
+ */
+function undrainedPipe(result: CommandResult, partial: string): string {
+  const reported = result.stderr.trim();
+
+  return (
+    `specguard-lint exited ${result.code}, but this bridge did not receive its complete JSON ` +
+    `document — no findings could be read, and this is NOT a clean run. The command itself ` +
+    `finished; something it left running kept the output pipe open, so the bridge stopped ` +
+    `reading ${EXIT_CLOSE_GRACE_MS}ms later rather than waiting forever.\n\n` +
+    "The linter's output is not the problem here, and neither is SPECGUARD_LINT_COMMAND — that " +
+    "command ran. Look for a process the run leaves behind holding its stdout: a preloader " +
+    "(Ruby's `spring` is the usual one) or a helper the wrapper starts in the background. " +
+    "Stopping it is what makes the document arrive; re-running unchanged will end the same way." +
+    (partial === "" ? "" : `\n\nThe partial document was:\n${truncate(partial)}`) +
+    (reported === "" ? "" : `\n\nIt reported on stderr:\n${truncate(reported)}`)
+  );
 }
 
 /**

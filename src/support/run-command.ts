@@ -27,12 +27,21 @@ export interface CommandResult {
    * with what was buffered rather than never answering at all.
    *
    * A SEPARATE field from `stdoutTruncated` rather than a second way to set it,
-   * because the two have different causes and different remedies, and the
-   * caller acts on the difference: `stdoutTruncated` means the output exceeded
+   * because the two have different causes and different remedies, and the caller
+   * acts on the difference: `stdoutTruncated` means the output exceeded
    * `MAX_OUTPUT_BYTES` and the fix is to ask for less (see
    * `lint-intent-annotations.ts`'s "narrow the run with `paths`"), which would
    * be advice about the wrong problem here. This tail was lost to a leaked file
    * descriptor and asking for less output would not change it.
+   *
+   * Where that difference is acted on, so this stays checkable rather than
+   * merely asserted: `parseReport` in `lint-intent-annotations.ts` consults this
+   * on both of its failure branches — `undrainedPipe` there names the
+   * pipe-holder instead of blaming the linter or `SPECGUARD_LINT_COMMAND`, and
+   * is ordered after the truncation branch for the run that manages both. Note
+   * it is consulted only where something is already missing: false here does NOT
+   * mean the result is incomplete, only that the tail was not waited for, so a
+   * run whose last undrained byte was a newline is an ordinary success.
    */
   readonly outputDrained: boolean;
 }
