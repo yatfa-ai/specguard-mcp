@@ -276,6 +276,43 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
 
+  it("passes ?commit_sha= through when one run is named", async () => {
+    // Sent alongside a drill-in, because the two compose rather than compete:
+    // this one chooses WHICH RUN is described and `spec_file` opens one file OF
+    // that run, so both keys have to survive onto the URL together. A sha is
+    // not validated for shape server-side — `commit_sha` is a plain string
+    // column written from whatever CI reported — so the short form is the
+    // honest fixture here.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { commit_sha: "a1b2c3d", spec_file: "spec/models/user_spec.rb" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?spec_file=spec%2Fmodels%2Fuser_spec.rb&commit_sha=a1b2c3d",
+    );
+  });
+
+  it("omits ?commit_sha= entirely for a blank one, rather than claiming an ask that must fall back", async () => {
+    // Not merely tidy. The server reads the parameter as `.presence`, so a
+    // blank one is "no ask" there too — but sending it would be asserting that
+    // the two agree. They do, and a blank never leaves here: `test_runs`
+    // validates the presence of `commit_sha`, so an empty ask is guaranteed to
+    // match nothing, and forwarding it would risk a `run_anchor` reporting a
+    // request that was never meaningfully made.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { commit_sha: "  " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
   it("does not double the slash when the endpoint carries a trailing one", async () => {
     const http = stubFetch({ body: BODY });
 
@@ -474,7 +511,7 @@ describe("get_repository_overview — failures an agent can act on", () => {
 
   it("rejects a spec_file of the wrong type, naming it", async () => {
     // Same silent-wrong-answer trap as the sibling above, and the same remedy:
-    // the message must name the field, because with five asks on this tool
+    // the message must name the field, because with six asks on this tool
     // "must be a string" alone does not say which one to fix.
     await rejects(
       getRepositoryOverview.run(
@@ -502,6 +539,21 @@ describe("get_repository_overview — failures an agent can act on", () => {
     await rejects(
       getRepositoryOverview.run({ unstable_test: ["is valid"] }, toolContext({ env: ENV })),
       /`unstable_test` must be a string/,
+    );
+  });
+
+  it("rejects a commit_sha of the wrong type, naming it", async () => {
+    // The array shape specifically, because it is the one the server's own
+    // guard singles out: `?commit_sha[]=x` would reach a `where(commit_sha: …)`
+    // on a plain string column as an IN list, which does not raise — it would
+    // quietly anchor on whichever of several unrelated commits sorted newest
+    // and serve every rollup, every drill-in and both growth windows against
+    // it, under a `run_anchor` naming one sha the client asked for. That is the
+    // silent wrong answer at its worst, and it is refused here before a request
+    // is made.
+    await rejects(
+      getRepositoryOverview.run({ commit_sha: ["abc"] }, toolContext({ env: ENV })),
+      /`commit_sha` must be a string/,
     );
   });
 
@@ -538,8 +590,80 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("discloses the three things about `commit_sha` an agent cannot guess from the ladder", () => {
+    // Same shape and same honest limit as the guard above: these are the
+    // SERVER's facts, so nothing here verifies the endpoint's behaviour — only
+    // that the description an agent receives still discloses it. Each of the
+    // three is a silent wrong answer if it drifts out, and none is derivable
+    // from the five siblings, all of which narrow what is served about a run
+    // that was already chosen.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
+
+    // 1. It CHOOSES THE RUN. Read as a sixth narrowing parameter it looks
+    // redundant beside `branch`, and an agent that wants one run would reach
+    // for the branch name — which re-anchors nothing and answers about the
+    // newest run regardless. The controller draws the line in these terms.
+    assert.match(
+      description,
+      /SERIES.*WHICH RUN|WHICH RUN.*SERIES/s,
+      "the description must draw the line the controller draws — `branch` asks about a SERIES, " +
+        "this asks WHICH RUN — because nothing in the other five suggests a parameter that moves " +
+        "the anchor rather than narrowing what hangs off it",
+    );
+
+    // 2. `history` DOES NOT MOVE. Every other run-grain block does, so an agent
+    // that reasonably generalises will read `history[0]` as the run it asked
+    // for and difference the wrong pair of rows.
+    assert.match(
+      description,
+      /`history` DOES NOT MOVE WITH IT/,
+      "the description must state that `history` is not re-anchored, so the " +
+        "`history[0] == latest_run` identity is not expected to hold under an explicit ask",
+    );
+
+    // 3. An unknown sha FALLS BACK rather than erroring, and the response is
+    // shaped exactly like a success. This is the one that costs an agent its
+    // answer silently: no 404, no empty block, just another run's numbers.
+    assert.match(
+      description,
+      /run_anchor\.resolved/,
+      "naming the fallback is not enough — the description must name the field an agent reads " +
+        "to detect it, because a fallback response is otherwise indistinguishable from a hit",
+    );
+  });
+
+  it("points `commit_sha` at response paths that actually exist", () => {
+    // The three guards above pin the FACTS. This one pins the PATH, because a
+    // description can state every fact correctly and still hand the agent a
+    // key that resolves to nothing — and that failure is invisible to a
+    // fact-shaped assertion, which is how it survived the first round here.
+    //
+    // The specific trap: `unstable_test_runs` is an OBJECT (`name`, `rows`,
+    // and the window's counters), not an array. Its shas live one level down,
+    // on `rows[]`. Writing `unstable_test_runs[].commit_sha` indexes the
+    // object and finds nothing, and it is precisely the path an agent has to
+    // follow to use this parameter for the flakiness work it was built for.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
+
+    assert.match(
+      description,
+      /`unstable_tests\.unstable_test_runs\.rows\[\]\.commit_sha`/,
+      "the description must name the sha's real home — `unstable_test_runs` is an object whose " +
+        "shas hang off `rows[]`, so the `[]` belongs after `rows` and nowhere else",
+    );
+    assert.doesNotMatch(
+      description,
+      /unstable_test_runs\[\]/,
+      "`unstable_test_runs[]` subscripts an object: this repo reserves `[]` for arrays " +
+        "(`unstable_tests.rows[].name` is written that way for exactly that reason), so the bare " +
+        "form is a path that resolves to nothing",
+    );
+  });
+
   it("blames the ARGUMENT for a bad type, not the deployment", async () => {
-    // Note the context: no endpoint, no key, no `ENV` at all. The five
+    // Note the context: no endpoint, no key, no `ENV` at all. The six
     // `optionalString` calls run before `requireApiConfig`, so this refusal
     // happens on a server where no deployment could have been contacted — which
     // is exactly why the class it throws matters.

@@ -130,6 +130,55 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * that recorded nothing under the description contributes no row, and a
  * description carried by two examples in one run contributes two. Same
  * direction as `history` is not same index into it.
+ *
+ * == `commit_sha` is not a sixth rung — it moves the ladder
+ *
+ * The five parameters above narrow what is served ABOUT a run that
+ * `Api::V1::RepositoriesController#latest_test_run` had already chosen. This
+ * one CHOOSES THAT RUN, which the controller states in those terms: `?branch=`
+ * asks about a SERIES, this asks WHICH RUN. It is read once, in that memo, so
+ * every run-grain block moves together — `latest_run` and its rollups, the
+ * three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and
+ * `repeated_description_examples`), `shards`, both growth windows and
+ * `previous_test_run`.
+ *
+ * That is three of the FOUR drill-ins above, and the excluded one is worth
+ * naming because it is the composition an agent will actually try:
+ * `unstable_test_runs` is read over the BRANCH WINDOW (`history_runs`), not off
+ * the anchored run, so it does not move with this parameter. Sent together,
+ * `?commit_sha=` and `?unstable_test=` answer about different things on
+ * purpose — one run, and the window that run sits in.
+ *
+ * Withholding it here withheld a capability that the tool was ALREADY
+ * DISCLOSING THE NEED FOR. `branch`'s own description names the failure:
+ * "`latest_run` always names the repository's newest run, which on a busy repo
+ * may be on another branch". And `unstable_test`'s teaches `commit_sha` as the
+ * canonical run handle — read the run off each row's `commit_sha`, never off
+ * its index — while every `unstable_test_runs` row carries one. The bridge
+ * handed shas out and accepted none back, with `additionalProperties: false`
+ * refusing the argument before a request was made, so the agent that most needs
+ * it — one that edits tests, pushes, waits for CI and re-reads SpecGuard to
+ * check its own work — could not work around it. On a repository where anything
+ * else pushed in between, it was silently answered about another commit.
+ *
+ * `renderText` is the whole body verbatim, so this bridge has been SERVING the
+ * `run_anchor` block since the API shipped it — with its only informative state
+ * structurally unreachable. `requested_commit_sha` was always `nil` through the
+ * bridge, so every MCP call read `source: "default"`, `resolved: true`. A
+ * disclosure block cannot disclose a fallback to a client that cannot make the
+ * ask that falls back.
+ *
+ * TWO THINGS ARE STATED IN THE SCHEMA because neither is guessable from the
+ * ladder. `history` is NOT re-anchored — it stays the recent runs, narrowed
+ * only by `branch` — so the `history[0] == latest_run` identity holds on a
+ * default call and is NOT expected to hold under an explicit ask; that is the
+ * contract, and a client needing the identity back omits the parameter. And an
+ * unknown sha DOES NOT 404: a stale bookmark, a pruned run and a commit whose
+ * CI never reported are ordinary ways to arrive, so the endpoint falls back to
+ * the newest run and SAYS SO (`source: "requested"`, `resolved: false`, the raw
+ * ask kept in `requested_commit_sha`, `commit_sha`/`branch` naming what was
+ * actually served). Nothing else about the response looks unusual, which is why
+ * the schema tells the agent to read `run_anchor.resolved`.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -157,6 +206,10 @@ const getRepositoryOverview: ToolDefinition = {
     "`repeated_description` to see the examples that all share one repeated description, or " +
     "`unstable_test` (alongside `branch`) to see one flaky test's outcome run by run, which is " +
     "the only way to tell a regression from genuine flakiness. " +
+    "All of those describe the repository's NEWEST run, which on a busy repository may be another " +
+    "branch's: pass `commit_sha` to be answered about ONE named run instead — after pushing a " +
+    "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
+    "because an unknown sha falls back to the newest rather than erroring. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, or to see annotation coverage. " +
@@ -273,6 +326,46 @@ const getRepositoryOverview: ToolDefinition = {
           "so a renamed test starts a NEW history and a stale bookmark is an ordinary way to " +
           "arrive.",
       },
+      commit_sha: {
+        type: "string",
+        description:
+          "Anchor the whole answer on ONE run, naming it by commit sha. This is a DIFFERENT KIND " +
+          "OF ASK from every other argument here: the five above narrow what is served ABOUT a run " +
+          "that was already chosen for you, and this one CHOOSES THAT RUN. `branch` asks about a " +
+          "SERIES; this asks WHICH RUN. Use a sha exactly as served in " +
+          "`latest_run.commit_sha`, `history[].commit_sha` or " +
+          "`unstable_tests.unstable_test_runs.rows[].commit_sha`. " +
+          "Everything at run grain re-anchors together: `latest_run` and its five rollups, the " +
+          "three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and " +
+          "`repeated_description_examples`), `shards`, both per-area growth windows and " +
+          "`previous_test_run`. `unstable_test_runs` is the one drill-in that does NOT move with " +
+          "it: it is read over the branch window rather than off the anchored run, so sending " +
+          "this with `unstable_test` still gives you that test across the whole window. " +
+          "Use it when you need to be answered about a SPECIFIC run rather than whatever is " +
+          "newest — after pushing a commit and waiting for CI, say, on a repository where anything " +
+          "else may have pushed in between: `latest_run` otherwise names the repository's newest " +
+          "run, which may be another branch's, with no error and no signal that you were answered " +
+          "about someone else's commit. " +
+          "`history` DOES NOT MOVE WITH IT. It stays the repository's recent runs, newest first, " +
+          "narrowed only by `branch` — so the `history[0] == latest_run` identity that holds on a " +
+          "default call is NOT expected to hold here: naming an older run makes `latest_run` a row " +
+          "from the middle of `history`, or from behind its bound entirely. That is the contract, " +
+          "not a bug. A client that needs the identity back omits this parameter. " +
+          "AN UNKNOWN SHA DOES NOT ERROR — IT FALLS BACK AND SAYS SO, so read `run_anchor` rather " +
+          "than trusting the shape of a successful response. A stale bookmark, a pruned run and a " +
+          "commit whose CI never reported are ordinary ways to arrive, and all three are served " +
+          "the repository's newest run with `source: \"requested\"`, `resolved: false` and the " +
+          "raw ask echoed in `requested_commit_sha` — while `run_anchor.commit_sha`/`branch` name " +
+          "the run ACTUALLY SERVED and will not equal what you asked for. THAT INEQUALITY IS THE " +
+          "ONLY SIGNAL: check `run_anchor.resolved` before believing the run-grain blocks are " +
+          "about your commit. `resolved` is false in exactly one case — you named a sha and are " +
+          "not being served it — so it is `true` on a plain call, where there was no ask to fail. " +
+          "Omit it and `run_anchor` reads `source: \"default\"`, `requested_commit_sha: null`. " +
+          "A blank or non-string value is treated as NO ASK AT ALL rather than an error, and no " +
+          "hex or length checking is done: `commit_sha` is a plain string column written from " +
+          "whatever CI reported, so short and long forms both work — pass the sha back exactly as " +
+          "it was served.",
+      },
     },
     additionalProperties: false,
   },
@@ -286,6 +379,7 @@ const getRepositoryOverview: ToolDefinition = {
       "repeated_description",
     );
     const unstableTest = optionalString(args["unstable_test"], "unstable_test");
+    const commitSha = optionalString(args["commit_sha"], "commit_sha");
     const api = requireApiConfig(context.config);
 
     const body = await getJson(
@@ -297,6 +391,7 @@ const getRepositoryOverview: ToolDefinition = {
         spec_file: specFile,
         repeated_description: repeatedDescription,
         unstable_test: unstableTest,
+        commit_sha: commitSha,
       },
       context.fetch,
     );
