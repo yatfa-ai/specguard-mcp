@@ -246,6 +246,36 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
 
+  it("passes ?unstable_test= through when a flaky test is asked for", async () => {
+    // Sent WITH `branch`, because that is the only way the parameter is of any
+    // use: `unstable_tests` is served only for a branch-narrowed window, so the
+    // block this drills into is `null` without one and there is nothing to
+    // open. A description is free text rather than a path, so the encoding is
+    // load-bearing here for the same reason it is on `repeated_description`.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { branch: "main", unstable_test: "is valid & saves" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?branch=main&unstable_test=is+valid+%26+saves",
+    );
+  });
+
+  it("omits ?unstable_test= entirely for a blank one, rather than opening a guaranteed-empty history", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { unstable_test: "  " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
   it("does not double the slash when the endpoint carries a trailing one", async () => {
     const http = stubFetch({ body: BODY });
 
@@ -444,7 +474,7 @@ describe("get_repository_overview — failures an agent can act on", () => {
 
   it("rejects a spec_file of the wrong type, naming it", async () => {
     // Same silent-wrong-answer trap as the sibling above, and the same remedy:
-    // the message must name the field, because with four asks on this tool
+    // the message must name the field, because with five asks on this tool
     // "must be a string" alone does not say which one to fix.
     await rejects(
       getRepositoryOverview.run(
@@ -462,8 +492,21 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("rejects an unstable_test of the wrong type, naming it", async () => {
+    // The array shape specifically, because it is the one the server's own
+    // guard singles out: `?unstable_test[]=x` would reach a `where(name: …)` as
+    // an IN list and answer with SEVERAL tests' runs interleaved under a `name`
+    // restating one — and two tests' outcomes shuffled together look exactly
+    // like the alternation this block exists to show. Refused here, before a
+    // request is made.
+    await rejects(
+      getRepositoryOverview.run({ unstable_test: ["is valid"] }, toolContext({ env: ENV })),
+      /`unstable_test` must be a string/,
+    );
+  });
+
   it("blames the ARGUMENT for a bad type, not the deployment", async () => {
-    // Note the context: no endpoint, no key, no `ENV` at all. The four
+    // Note the context: no endpoint, no key, no `ENV` at all. The five
     // `optionalString` calls run before `requireApiConfig`, so this refusal
     // happens on a server where no deployment could have been contacted — which
     // is exactly why the class it throws matters.
