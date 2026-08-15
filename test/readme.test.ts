@@ -39,9 +39,11 @@ import { TOOLS } from "../src/tools/index.js";
  * The failure mode this file must not have is its own: a section locator that
  * stops matching (a heading reworded, the tables moved to a separate page)
  * would check zero parameters per tool and pass, permanently and silently. So
- * the tool count, the section lookup and the parameter count are each asserted
- * non-zero, in the manner of `test/index.test.ts:39`. "Nothing to check" must
- * read as a failure here, never as a pass.
+ * the README's own content, the tool count, the section lookup and the
+ * parameter count are each asserted non-empty, in the manner of
+ * `test/index.test.ts:39`. "Nothing to check" must read as a failure here,
+ * never as a pass — including when the thing with nothing to check is this
+ * file's own reading of the README.
  *
  * NOTE the path: `npm test` runs `node --test .test-build/test/` over compiled
  * output, and `tsconfig.test.json` inherits `rootDir: "."`, so this file lands
@@ -51,7 +53,11 @@ import { TOOLS } from "../src/tools/index.js";
  * the tree this actually runs in.
  */
 const README_URL = new URL("../../README.md", import.meta.url);
-const README_LINES = readFileSync(README_URL, "utf8").split("\n");
+const README = readFileSync(README_URL, "utf8");
+const README_LINES = README.split("\n");
+
+/** The `##` section the per-tool `###` headings live under. */
+const TOOLS_HEADING = "## The tools";
 
 /** A markdown heading of any level — the boundary a tool's section stops at. */
 const HEADING = /^#{1,6}\s/;
@@ -82,10 +88,21 @@ function documentsParameter(section: string[], parameter: string): boolean {
 }
 
 describe("the published README", () => {
-  it("was read — an empty file would document every tool equally well", () => {
+  it("was read, and still carries the tools heading the per-tool sections live under", () => {
+    // Assert on the raw text, NOT on README_LINES.length: `"".split("\n")` is
+    // `[""]`, so a length check over the split is true for every possible input
+    // — a floor that cannot fail, which is the exact shape the rest of this file
+    // exists to prevent. The heading check gives the floor some reach beyond
+    // emptiness: if the tool documentation is ever relocated to another page,
+    // that fails HERE, naming the relocation, rather than as a confusing "no
+    // section to look in" per tool.
     assert.ok(
-      README_LINES.length > 0,
+      README.trim().length > 0,
       `${README_URL.pathname} is empty; every assertion below would be checking nothing`,
+    );
+    assert.ok(
+      README_LINES.some((line) => line.trimEnd() === TOOLS_HEADING),
+      `${README_URL.pathname} has no "${TOOLS_HEADING}" heading. The per-tool "### \`name\`" sections live under it, so if the tool documentation moved to another page this guard now covers nothing — point it at the new page rather than deleting it`,
     );
   });
 
