@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { ArgumentError, CommandError } from "../errors.js";
 import { EXIT_CLOSE_GRACE_MS, MAX_OUTPUT_BYTES, type CommandResult } from "../support/run-command.js";
+import { optionalBoolean, optionalString } from "./args.js";
 import type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -352,22 +353,6 @@ function renderText(report: LintReport, stderr: string, code: number | null): st
 
 function truncate(value: string, limit = 2000): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}… [truncated]`;
-}
-
-function optionalString(value: unknown, field: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string") throw new ArgumentError(`\`${field}\` must be a string.`);
-  // Trimmed, not merely tested for blankness. `project_dir` becomes a `cwd`, so
-  // " /srv/app" — a path an agent produces by concatenating one — would otherwise
-  // be a directory that cannot exist, reported as a directory that does not.
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
-
-function optionalBoolean(value: unknown, field: string): boolean | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "boolean") throw new ArgumentError(`\`${field}\` must be a boolean.`);
-  return value;
 }
 
 /**
