@@ -99,11 +99,20 @@ const getRepositoryOverview: ToolDefinition = {
     "(heaviest spec files, heaviest directories, slowest individual examples with file and line), " +
     "which descriptions are repeated across the suite (the overcoverage ranking: one description " +
     "carried by many examples, and which files it is spread over), " +
+    "which areas of the suite grew or shrank and which got slower or faster since the previous run " +
+    "on the same branch (the per-area comparisons, at BOTH the example-count grain and the " +
+    "runtime grain — an area where an existing spec was made slow gains no examples and appears " +
+    "only in the runtime one), " +
     "the recent run history for growth over time, and the branches that have runs. " +
+    "Pass `branch` for two more: which tests fail intermittently rather than consistently (the " +
+    "cross-run flakiness ranking) and how the areas moved across the whole branch window rather " +
+    "than between the last two runs. " +
     "Three of those rankings open: pass `spec_directory` to see the spec files inside one of the " +
-    "heaviest directories, `spec_file` to see the individual examples inside one of the heaviest " +
-    "files, or `repeated_description` to see the examples that all share one repeated description. " +
+    "heaviest directories — and, in the same answer, which of those files grew and which got " +
+    "slower — `spec_file` to see the individual examples inside one of the heaviest files, or " +
+    "`repeated_description` to see the examples that all share one repeated description. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
+    "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, or to see annotation coverage. " +
     "Needs SPECGUARD_ENDPOINT and SPECGUARD_API_KEY. " +
     "Figures are null where CI did not report them — a null is 'not measured', never zero.",
@@ -118,7 +127,13 @@ const getRepositoryOverview: ToolDefinition = {
           "default all-branches window (whose consecutive rows are routinely different branches " +
           "and must not be differenced). Narrows `history` ONLY: `latest_run` always names the " +
           "repository's newest run, which on a busy repo may be on another branch. Use a name " +
-          "from `branches`; an unknown one returns an empty history rather than an error.",
+          "from `branches`; an unknown one returns an empty history rather than an error. " +
+          "It also UNLOCKS two blocks that read the same window and are `null` without it: " +
+          "`unstable_tests` (which tests failed intermittently across the window rather than " +
+          "consistently) and `directory_growth` (how each area moved between the two ENDPOINTS of " +
+          "that window). The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
+          "and `directory_runtime_growth` — need no branch and take none; they scope to the latest " +
+          "run's own branch by construction, so a plain call already carries them.",
       },
       spec_directory: {
         type: "string",
@@ -130,8 +145,16 @@ const getRepositoryOverview: ToolDefinition = {
           "`total_seconds`/`recorded_count`/`timed_count`, plus the AREA's own `file_count`, " +
           "`recorded_count`, `timed_count` and the `limit` the row list was cut at (the totals " +
           "describe the whole area, not the returned page, so do not re-derive them from `rows`). " +
-          "Omit it and the key is `null`, meaning you did not ask — an area the run recorded " +
-          "nothing for is `rows: []` instead, not an error.",
+          "The one ask opens THREE blocks, each in its own grain: `spec_directory_files` for which " +
+          "files carry the area's wall clock, `directory_run_file_growth` for which of them changed " +
+          "SIZE since the previous run, and `directory_runtime_file_growth` for which of them " +
+          "changed TIME. The last two are the answer to the dead end the area-grain comparisons " +
+          "leave — `spec/models 412 → 459 (+47)`, but WHICH FILES did that — and they need no " +
+          "second parameter. " +
+          "Omit it and all three are `null`, meaning you did not ask — an area the run recorded " +
+          "nothing for is `rows: []` instead, not an error. The two growth blocks are additionally " +
+          "`null` when there is no previous run to compare this one against, which is the same " +
+          "'not measured' the area-grain comparisons report.",
       },
       spec_file: {
         type: "string",

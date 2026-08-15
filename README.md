@@ -91,17 +91,31 @@ from Project Goals. One call returns the latest CI run (spec counts, annotated r
 per-shard cost), where that run spent its time (heaviest files, heaviest directories, slowest
 individual examples with file and line), which descriptions are repeated across the suite (the
 overcoverage ranking — one description carried by many examples, and which files it is spread over),
-the recent run history, and the branches that have runs.
+which areas grew or shrank and which got slower or faster since the previous run on the same branch
+(the per-area comparisons, at both the example-count grain and the runtime grain), the recent run
+history, and the branches that have runs. Pass `branch` for two more: which tests fail intermittently
+rather than consistently (the cross-run flakiness ranking) and how the areas moved across the whole
+branch window rather than between the last two runs.
 
 | argument | |
 | --- | --- |
-| `branch` | narrow the run **history** to one branch, for a real growth series |
+| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests` and `directory_growth`, which read the same window |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge.
+
+`branch` is also the gate on the two blocks read over that same window, and they are `null` without
+it: `unstable_tests` (which tests failed intermittently across the window rather than consistently)
+and `directory_growth` (how each area moved between the two **endpoints** of the window). The
+per-area comparisons against the **previous run** — `directory_run_growth` at the example-count
+grain and `directory_runtime_growth` at the runtime grain — are a different question and take no
+branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
+call already carries them. The two grains are independent, which is why both ship: making an
+existing spec slow adds zero examples and shows up only in the runtime pair, and splitting one slow
+spec into four fast ones is `+3` examples and *less* time.
 
 `spec_directories` ranks the heaviest areas but stops at the area grain, so it says *where* the time
 went and not *which files* spent it. `spec_directory` is the next question: pass a path exactly as
@@ -112,6 +126,12 @@ those totals describe the whole area, not the returned page, so don't re-derive 
 Omit the argument and the key is `null`, meaning *you did not ask*; an area the run recorded nothing
 for answers `rows: []` rather than an error, so a renamed or deleted directory is an empty result and
 not a failure.
+
+That one ask opens **three** blocks, each in its own grain: `latest_run.spec_directory_files` for
+which files carry the area's wall clock, `directory_run_file_growth` for which of them changed size
+since the previous run, and `directory_runtime_file_growth` for which of them changed time. The last
+two are the answer to the question the area-grain comparisons dead-end on — `spec/models 412 → 459
+(+47)`, but *which files did that* — so they need no second parameter.
 
 `spec_files` ranks the heaviest files but stops at the file grain, so it says *which files* cost the
 most and not *which examples* inside them spent it. `spec_file` is the next question: pass a path
