@@ -62,14 +62,14 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * == `spec_file` and `repeated_description` are the same argument, twice more
  *
- * The endpoint serves a FOUR-rung drill-down ladder and this bridge forwarded
- * two of them. The sentence above — "this bridge withheld it by not offering
- * the parameter, which made the ranking a dead end for every agent that reached
- * it through MCP" — was true verbatim of two further rungs, and the block was
- * doubled: `additionalProperties: false` REJECTED the argument before the call,
- * and `run()` would have dropped it anyway. Both rankings are served
- * unconditionally to every caller, so the agent was shown the door and denied
- * the handle:
+ * At that point the endpoint served a FOUR-rung drill-down ladder and this
+ * bridge forwarded two of them. The sentence above — "this bridge withheld it
+ * by not offering the parameter, which made the ranking a dead end for every
+ * agent that reached it through MCP" — was true verbatim of two further rungs,
+ * and the block was doubled: `additionalProperties: false` REJECTED the
+ * argument before the call, and `run()` would have dropped it anyway. Both
+ * rankings are served unconditionally to every caller, so the agent was shown
+ * the door and denied the handle:
  *
  *   `latest_run.spec_files`            → `spec_file_examples`            (`spec_file`)
  *   `latest_run.repeated_descriptions` → `repeated_description_examples` (`repeated_description`)
@@ -86,6 +86,49 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * unrelated lists each cut at 50 BY DURATION, with no guarantee any of the
  * group's members survive the cut in any of them. Withholding this one
  * parameter withheld the capability, not merely a shortcut to it.
+ *
+ * == `unstable_test` is the fifth rung, and the same argument once more
+ *
+ *   `unstable_tests.rows` → `unstable_tests.unstable_test_runs` (`unstable_test`)
+ *
+ * A flakiness row says `run_count: 30`, `failed_run_count: 4`,
+ * `outcome_words: ["failed", "passed"]`. Those three figures are IDENTICAL for
+ * two windows that call for opposite work: four failures in runs 27–30 is a
+ * REGRESSION, and the work is to find the commit between run 26 and run 27;
+ * four failures in runs 3, 11, 19 and 26 is genuine FLAKINESS, where there is
+ * no culprit commit and the work is quarantine or shared state. The RUN
+ * SEQUENCE is the only thing that separates them, and it is derivable from
+ * nothing else this bridge returns — `history` has no per-test grain, and both
+ * example drill-ins carry `outcome` for the LATEST RUN alone. So this is the
+ * fourth rung's argument again: withholding the parameter withheld the
+ * capability rather than a shortcut to it, and an agent told to "fix the flaky
+ * tests" hunts nondeterminism in tests that fail deterministically.
+ *
+ * TWO THINGS DIFFER FROM ITS FOUR SIBLINGS, and both are stated in the schema
+ * because neither is guessable from the ladder. The answer lands INSIDE the
+ * flakiness block — `unstable_tests.unstable_test_runs`, not under
+ * `latest_run.*` where the two example drill-ins live — and `branch` is a hard
+ * PREREQUISITE rather than a suggestion: `unstable_tests` is served only for a
+ * branch-narrowed window, so this parameter sent alone yields no block at all
+ * to drill into. Every sibling works on a plain call; this one does not.
+ *
+ * THE SEQUENCE RUNS NEWEST RUN FIRST, and that is stated in the schema too,
+ * because this is the one list on this tool where the direction IS the payload.
+ * The window is `Repository#recent_test_runs`, ordered `created_at: :desc`, and
+ * `SpecObservation.outcome_sequence_in` PRESERVES that order rather than
+ * re-sorting it. Read front-to-back as run 1 → run N, the regression above
+ * reads as four failures at the START of the window that have passed since —
+ * a fixed flake, the exact inversion of the truth, with no error anywhere to
+ * signal it. The consequence worth stating outright: the run a failure STARTED
+ * at is the LAST row of the leading failed block, not the first. The 200 cap
+ * takes rows off the OLD end for the same reason, so a truncated sequence is
+ * still the recent runs.
+ *
+ * The run a row belongs to is read off its `commit_sha` / `test_run_id` and
+ * NEVER off its index. `rows.length` is not the window's `run_count`: a run
+ * that recorded nothing under the description contributes no row, and a
+ * description carried by two examples in one run contributes two. Same
+ * direction as `history` is not same index into it.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -107,10 +150,12 @@ const getRepositoryOverview: ToolDefinition = {
     "Pass `branch` for two more: which tests fail intermittently rather than consistently (the " +
     "cross-run flakiness ranking) and how the areas moved across the whole branch window rather " +
     "than between the last two runs. " +
-    "Three of those rankings open: pass `spec_directory` to see the spec files inside one of the " +
+    "Four of those rankings open: pass `spec_directory` to see the spec files inside one of the " +
     "heaviest directories — and, in the same answer, which of those files grew and which got " +
-    "slower — `spec_file` to see the individual examples inside one of the heaviest files, or " +
-    "`repeated_description` to see the examples that all share one repeated description. " +
+    "slower — `spec_file` to see the individual examples inside one of the heaviest files, " +
+    "`repeated_description` to see the examples that all share one repeated description, or " +
+    "`unstable_test` (alongside `branch`) to see one flaky test's outcome run by run, which is " +
+    "the only way to tell a regression from genuine flakiness. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, or to see annotation coverage. " +
@@ -190,6 +235,43 @@ const getRepositoryOverview: ToolDefinition = {
           "nothing is `rows: []` instead, not an error: a test renamed since and an edited " +
           "description are ordinary ways to arrive.",
       },
+      unstable_test: {
+        type: "string",
+        description:
+          "Open ONE row of the `unstable_tests` ranking — the cross-run flakiness ranking, which " +
+          "counts how often a test failed across the window but not WHEN. Use a description " +
+          "exactly as served in `unstable_tests.rows[].name`. Asking populates " +
+          "`unstable_tests.unstable_test_runs` — that description's rows run by run in window " +
+          "order, NEWEST RUN FIRST, up to 200, each with `test_run_id`, `commit_sha`, `branch`, " +
+          "`ingested_at`, `outcome`, `duration_seconds`, `spec_file_path` and `line_number`, " +
+          "plus the DESCRIPTION's own `recorded_count`, `reported_outcome_count`, " +
+          "`unreported_outcome_count`, the window's `run_count` and the `limit` the row list was " +
+          "cut at (the totals describe the whole window, not the returned page, so do not " +
+          "re-derive them from `rows`). " +
+          "This is the ONLY way to tell a regression from genuine flakiness: `run_count: 30`, " +
+          "`failed_run_count: 4`, `outcome_words: [\"failed\", \"passed\"]` are IDENTICAL for " +
+          "failures in runs 27–30 — a regression, so find the commit — and failures in runs 3, " +
+          "11, 19 and 26 — flakiness, where there is no culprit commit. The sequence is not " +
+          "derivable from anything else served: `history` has no per-test grain, and " +
+          "`spec_file_examples`/`repeated_description_examples` carry `outcome` for the latest " +
+          "run only. " +
+          "MIND THE DIRECTION when you read those positions: element 0 is the MOST RECENT run in " +
+          "the window, so the run a failure STARTED at is the LAST row of the leading failed " +
+          "block, not the first. Read front-to-back as run 1 onwards and the regression above " +
+          "looks like a flake that was fixed — the exact inversion, with no error to signal it. " +
+          "The 200 cap drops the OLDEST rows for the same reason. Read the run off each row's " +
+          "`commit_sha`/`test_run_id`, never off its index: a run that recorded nothing under " +
+          "the description contributes no row and a description carried by two examples in one " +
+          "run contributes two, so `rows` is not one entry per run. " +
+          "`branch` IS REQUIRED WITH IT, unlike every other argument here: `unstable_tests` is " +
+          "served only for a branch-narrowed window, so this parameter sent alone leaves the " +
+          "whole containing block `null` and there is nothing to drill into — not an empty " +
+          "`rows: []`, no block at all. " +
+          "Omit it and the key is `null`, meaning you did not ask — a description the window " +
+          "recorded nothing for is `rows: []` instead, not an error: identity here is semantic, " +
+          "so a renamed test starts a NEW history and a stale bookmark is an ordinary way to " +
+          "arrive.",
+      },
     },
     additionalProperties: false,
   },
@@ -202,6 +284,7 @@ const getRepositoryOverview: ToolDefinition = {
       args["repeated_description"],
       "repeated_description",
     );
+    const unstableTest = optionalString(args["unstable_test"], "unstable_test");
     const api = requireApiConfig(context.config);
 
     const body = await getJson(
@@ -212,6 +295,7 @@ const getRepositoryOverview: ToolDefinition = {
         spec_directory: specDirectory,
         spec_file: specFile,
         repeated_description: repeatedDescription,
+        unstable_test: unstableTest,
       },
       context.fetch,
     );

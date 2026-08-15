@@ -103,6 +103,7 @@ branch window rather than between the last two runs.
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
+| `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge.
@@ -155,6 +156,36 @@ each path in the row's `files_seen` is N unrelated lists each cut by duration, w
 group's members survive the cut in any of them. Omit the argument and the key is `null`; a
 description that matched nothing answers `rows: []`, so a test renamed since and an edited
 description are empty results and not failures.
+
+`unstable_tests` ranks the tests that failed intermittently across the branch window, but a row
+carries `run_count`, `failed_run_count` and `outcome_words` — and those three figures are
+*identical* for four failures in runs 27–30 and four failures in runs 3, 11, 19 and 26. The first is
+a **regression** and the work is to find the commit; the second is genuine **flakiness** and the work
+is quarantine or shared state. `unstable_test` is the next question: pass a description exactly as
+served in `unstable_tests.rows[].name` and `unstable_tests.unstable_test_runs` opens with that
+description's rows run by run in window order, **newest run first**, up to 200 (`test_run_id`,
+`commit_sha`, `branch`, `ingested_at`, `outcome`, `duration_seconds`, `spec_file_path`,
+`line_number` each), plus the **description's** own
+`recorded_count`/`reported_outcome_count`/`unreported_outcome_count`, the window's `run_count` and
+the `limit` the row list was cut at.
+
+Note the two ways it differs from the drill-ins above. The answer lands **inside** the flakiness
+block — `unstable_tests.unstable_test_runs`, not under `latest_run.*` — and `branch` is a hard
+prerequisite rather than a suggestion: `unstable_tests` is `null` without it, so `unstable_test` sent
+alone leaves no block to drill into at all, and not an empty `rows: []` either. Omit the argument and
+the key is `null`; a description the window recorded nothing for answers `rows: []`, so a renamed
+test — which starts a new history under the project's semantic identity rule — is an empty result and
+not a failure.
+
+**Mind the direction.** The rows are newest run first: element 0 is the most recent run in the
+window, so the run a failure *started* at is the **last** row of the leading failed block, not the
+first. Read front-to-back as run 1 onwards and the regression above reads as four failures at the
+start of the window that have passed since — a fixed flake, the exact inversion of the truth, and
+nothing errors to signal it. The 200-row cap drops the **oldest** rows for the same reason, so a
+truncated sequence is still the recent runs. Read the run off each row's `commit_sha`/`test_run_id`
+and never off its index: a run that recorded nothing under the description contributes no row, and a
+description carried by two examples in one run contributes two, so `rows` is not one entry per run
+and its length is not the window's `run_count`.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
