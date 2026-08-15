@@ -164,11 +164,14 @@ The toolset fills in as more of SpecGuard lands. Adding one is two mechanical ed
 1. a new file under `src/tools/` that default-exports a `ToolDefinition`;
 2. one entry appended to the array in `src/tools/index.ts`.
 
-There is no third. `src/server.ts` iterates that array and contains no per-tool code — no `switch`,
-no hard-coded name — and everything a tool touches the world with (config, subprocesses, `fetch`) is
-injected, so a new tool is testable without a live deployment for free. The property tests in
-`test/tools/registry.test.ts` run over whatever the registry holds, so a tool added later is checked
-by tests written today.
+There is no third — no third *wiring* edit, at least: every tool also earns a `### ` section with an
+argument table above, and every argument earns a row in that table, since this README ships as the
+package's published documentation, and `test/readme.test.ts` derives that obligation from the
+registry so a missing section or an undocumented parameter fails the suite. `src/server.ts` iterates
+that array and contains no per-tool code — no `switch`, no hard-coded name — and everything a tool
+touches the world with (config, subprocesses, `fetch`) is injected, so a new tool is testable
+without a live deployment for free. The property tests in `test/tools/registry.test.ts` run over
+whatever the registry holds, so a tool added later is checked by tests written today.
 
 **Only wrap capabilities that exist.** A tool in `tools/list` is a promise an agent acts on; one that
 discovers cleanly and fails on use is worse than one that is absent, because the agent has already
