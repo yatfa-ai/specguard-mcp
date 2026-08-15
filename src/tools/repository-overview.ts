@@ -62,14 +62,14 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * == `spec_file` and `repeated_description` are the same argument, twice more
  *
- * The endpoint served a FOUR-rung drill-down ladder then and this bridge
- * forwarded two of them. The sentence above — "this bridge withheld it by not offering
- * the parameter, which made the ranking a dead end for every agent that reached
- * it through MCP" — was true verbatim of two further rungs, and the block was
- * doubled: `additionalProperties: false` REJECTED the argument before the call,
- * and `run()` would have dropped it anyway. Both rankings are served
- * unconditionally to every caller, so the agent was shown the door and denied
- * the handle:
+ * At that point the endpoint served a FOUR-rung drill-down ladder and this
+ * bridge forwarded two of them. The sentence above — "this bridge withheld it
+ * by not offering the parameter, which made the ranking a dead end for every
+ * agent that reached it through MCP" — was true verbatim of two further rungs,
+ * and the block was doubled: `additionalProperties: false` REJECTED the
+ * argument before the call, and `run()` would have dropped it anyway. Both
+ * rankings are served unconditionally to every caller, so the agent was shown
+ * the door and denied the handle:
  *
  *   `latest_run.spec_files`            → `spec_file_examples`            (`spec_file`)
  *   `latest_run.repeated_descriptions` → `repeated_description_examples` (`repeated_description`)
@@ -111,6 +111,24 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * PREREQUISITE rather than a suggestion: `unstable_tests` is served only for a
  * branch-narrowed window, so this parameter sent alone yields no block at all
  * to drill into. Every sibling works on a plain call; this one does not.
+ *
+ * THE SEQUENCE RUNS NEWEST RUN FIRST, and that is stated in the schema too,
+ * because this is the one list on this tool where the direction IS the payload.
+ * The window is `Repository#recent_test_runs`, ordered `created_at: :desc`, and
+ * `SpecObservation.outcome_sequence_in` PRESERVES that order rather than
+ * re-sorting it. Read front-to-back as run 1 → run N, the regression above
+ * reads as four failures at the START of the window that have passed since —
+ * a fixed flake, the exact inversion of the truth, with no error anywhere to
+ * signal it. The consequence worth stating outright: the run a failure STARTED
+ * at is the LAST row of the leading failed block, not the first. The 200 cap
+ * takes rows off the OLD end for the same reason, so a truncated sequence is
+ * still the recent runs.
+ *
+ * The run a row belongs to is read off its `commit_sha` / `test_run_id` and
+ * NEVER off its index. `rows.length` is not the window's `run_count`: a run
+ * that recorded nothing under the description contributes no row, and a
+ * description carried by two examples in one run contributes two. Same
+ * direction as `history` is not same index into it.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -224,9 +242,9 @@ const getRepositoryOverview: ToolDefinition = {
           "counts how often a test failed across the window but not WHEN. Use a description " +
           "exactly as served in `unstable_tests.rows[].name`. Asking populates " +
           "`unstable_tests.unstable_test_runs` — that description's rows run by run in window " +
-          "order, up to 200, each with `test_run_id`, `commit_sha`, `branch`, `ingested_at`, " +
-          "`outcome`, `duration_seconds`, `spec_file_path` and `line_number`, plus the " +
-          "DESCRIPTION's own `recorded_count`, `reported_outcome_count`, " +
+          "order, NEWEST RUN FIRST, up to 200, each with `test_run_id`, `commit_sha`, `branch`, " +
+          "`ingested_at`, `outcome`, `duration_seconds`, `spec_file_path` and `line_number`, " +
+          "plus the DESCRIPTION's own `recorded_count`, `reported_outcome_count`, " +
           "`unreported_outcome_count`, the window's `run_count` and the `limit` the row list was " +
           "cut at (the totals describe the whole window, not the returned page, so do not " +
           "re-derive them from `rows`). " +
@@ -237,6 +255,14 @@ const getRepositoryOverview: ToolDefinition = {
           "derivable from anything else served: `history` has no per-test grain, and " +
           "`spec_file_examples`/`repeated_description_examples` carry `outcome` for the latest " +
           "run only. " +
+          "MIND THE DIRECTION when you read those positions: element 0 is the MOST RECENT run in " +
+          "the window, so the run a failure STARTED at is the LAST row of the leading failed " +
+          "block, not the first. Read front-to-back as run 1 onwards and the regression above " +
+          "looks like a flake that was fixed — the exact inversion, with no error to signal it. " +
+          "The 200 cap drops the OLDEST rows for the same reason. Read the run off each row's " +
+          "`commit_sha`/`test_run_id`, never off its index: a run that recorded nothing under " +
+          "the description contributes no row and a description carried by two examples in one " +
+          "run contributes two, so `rows` is not one entry per run. " +
           "`branch` IS REQUIRED WITH IT, unlike every other argument here: `unstable_tests` is " +
           "served only for a branch-narrowed window, so this parameter sent alone leaves the " +
           "whole containing block `null` and there is nothing to drill into — not an empty " +

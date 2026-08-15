@@ -505,6 +505,39 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("discloses the run sequence's DIRECTION, which is the one ordering that changes the answer", () => {
+    // The sequence is served newest run first: the window is
+    // `Repository#recent_test_runs` (`created_at: :desc`) and
+    // `SpecObservation.outcome_sequence_in` preserves that order rather than
+    // re-sorting it. An agent reading `rows` front-to-back as run 1 onwards
+    // sees a regression as failures at the START of the window that have
+    // passed since — a fixed flake, the exact inversion — and if it then names
+    // a culprit commit it names the newest failing run's SHA instead of the one
+    // the failure began at. Nothing errors, which is why the prose has to say
+    // it: this is the only drill-in on the tool whose list direction is the
+    // payload rather than a presentation detail.
+    //
+    // What this guard is and is not: the direction is the SERVER's fact, so
+    // this cannot verify the ordering itself — only that the description an
+    // agent receives still discloses it. That is the honest limit here, and it
+    // is worth pinning because the failure mode is a silent re-wording, the
+    // same drift `test/readme.test.ts` exists to catch one surface over.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["unstable_test"] as { description?: string })?.description ?? "";
+
+    assert.match(
+      description,
+      /NEWEST RUN FIRST/,
+      "the parameter description must name which end of the sequence is the newest run",
+    );
+    assert.match(
+      description,
+      /LAST row of the leading failed block/,
+      "naming the direction is not enough — the description must state the consequence an " +
+        "agent acts on, that a failure's first run is the END of the leading failed block",
+    );
+  });
+
   it("blames the ARGUMENT for a bad type, not the deployment", async () => {
     // Note the context: no endpoint, no key, no `ENV` at all. The five
     // `optionalString` calls run before `requireApiConfig`, so this refusal
