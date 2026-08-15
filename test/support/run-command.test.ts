@@ -162,6 +162,131 @@ describe("runCommand — a child killed by a signal is not a run that passed", (
 });
 
 /**
+ * The half of "no verdict" that used to have no verdict AND no answer.
+ *
+ * Everything above settles on `close`, and `close` is not the process ending —
+ * it is the process ending AND every writer of its stdout/stderr pipes letting
+ * go. Those descriptors are inherited, so any grandchild is such a writer. That
+ * is not an exotic arrangement: `README.md` recommends `bundle exec
+ * specguard-lint`, which makes `bundle` the child and the linter a grandchild,
+ * and it is the shape most Ruby projects will configure.
+ *
+ * The timeout test above cannot see any of this. Its fixture is a DIRECT child
+ * with nothing below it, so killing the child closes the pipes and `close`
+ * arrives on cue. The guard was pinned to the subject and not to the axis the
+ * defect lives on: every fixture in this file was a leaf process.
+ *
+ * These four are the axis. Each carries an explicit per-test deadline, because
+ * the regression they guard against is a promise that NEVER settles — without a
+ * deadline a regression is a test run that hangs rather than one that fails, and
+ * a suite that hangs reports nothing at all.
+ */
+describe("runCommand — always settles, even when a grandchild holds the pipes", () => {
+  /**
+   * A child that hands its inherited stdout/stderr to a grandchild and then
+   * waits. `escapes` double-detaches the grandchild into its own session, which
+   * is how a grandchild survives a kill aimed at the child's process group.
+   */
+  function holdsPipes(grandchildMs: number, escapes: boolean, epilogue = "setTimeout(() => {}, 60_000);"): string {
+    return (
+      "const g = require('node:child_process')" +
+      `.spawn(process.execPath, ['-e', 'setTimeout(() => {}, ${grandchildMs})'], ` +
+      `{ stdio: ['ignore', 1, 2], detached: ${String(escapes)} });` +
+      (escapes ? "g.unref();" : "") +
+      epilogue
+    );
+  }
+
+  it("times out a run whose real work is a grandchild, instead of hanging forever", { timeout: 6_000 }, async () => {
+    // The README's topology. On the old code `child.kill` signalled only the
+    // direct child; the grandchild kept the write end of both pipes open, so
+    // `close` never fired, `finish` never ran, and this promise never settled —
+    // the timeout's own CommandError was constructed by nobody. The tool call
+    // did not fail. It never returned.
+    const error = await rejects(
+      runCommand(node(holdsPipes(60_000, false)), { timeoutMs: 300 }),
+      /did not finish within 300ms and was killed, so it produced no verdict/,
+    );
+
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
+  });
+
+  it("still settles when the grandchild escapes the process group entirely", { timeout: 6_000 }, async () => {
+    // Killing the group is the first half of the fix and it is not sufficient
+    // on its own: a grandchild that calls setsid (here, `detached`) is in no
+    // group we can name, and it goes on holding the pipes after the child is
+    // dead. `exit` — which needs nothing but the process — is what settles this
+    // one, a bounded grace later. A leaked descriptor costs a truncated tail
+    // instead of the caller's whole session.
+    //
+    // The grandchild outlives this test's own deadline ON PURPOSE. Give it a
+    // lifetime shorter than the deadline and the OLD code passes this test —
+    // `close` arrives late but it arrives, and the test reports success for a
+    // promise that only settled because the fixture stopped holding the pipe.
+    // The hold has to outlast the deadline for the assertion to be about the
+    // code under test.
+    const error = await rejects(
+      runCommand(node(holdsPipes(15_000, true)), { timeoutMs: 300 }),
+      /did not finish within 300ms and was killed, so it produced no verdict/,
+    );
+
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
+  });
+
+  it("reports the run it did get when the tail is unreachable, and says the tail is missing", { timeout: 6_000 }, async () => {
+    // No timeout here — a generous one that never fires. The child finishes and
+    // its exit code and output are real; only the pipes are stuck open by an
+    // escaped grandchild. That is a verdict, so it resolves with one, and
+    // `outputDrained` is the field that stops "everything it wrote" from being
+    // read off a stream that was never read to its end.
+    //
+    // The grandchild outlives the deadline here for the same reason as above.
+    const result = await runCommand(
+      node(holdsPipes(15_000, true, "process.stdout.write('partial', () => process.exit(7));")),
+      { timeoutMs: 60_000 },
+    );
+
+    assert.equal(result.code, 7);
+    assert.equal(result.signal, null);
+    assert.equal(result.stdout, "partial");
+    assert.equal(result.outputDrained, false);
+    // NOT the truncation flag. That one means "we hit MAX_OUTPUT_BYTES, ask for
+    // less output", which is advice that would not help here and names a cause
+    // that did not happen.
+    assert.equal(result.stdoutTruncated, false);
+  });
+
+  it("never calls a finished run a timeout because the deadline landed while its pipes drained", { timeout: 6_000 }, async () => {
+    // `exit` and `close` are separate events, so there is a window in which the
+    // process is already gone and the result is already complete. The old timer
+    // set `timedOut = true` unconditionally and threw the whole run away — exit
+    // code, document and all — to report that it never finished. Here the window
+    // is widened to hundreds of milliseconds by an escaped grandchild so the
+    // deadline lands inside it deterministically rather than by a race, but the
+    // rule under test is the one-token one: a kill that signalled nothing live
+    // is not a timeout.
+    //
+    // The only timing this depends on is the child reaching its `exit` before
+    // 300ms — a bare `node -e` that writes 11 bytes. If a loaded machine ever
+    // misses that, the group kill finds a live child and this fails LOUDLY with
+    // the timeout message rather than passing for the wrong reason. The other
+    // two edges are relative, not absolute: the grandchild releases the pipes
+    // 600ms after the child exits, comfortably inside the 1s grace, so `close`
+    // wins that race by the same margin however slowly the fixture starts.
+    const result = await runCommand(
+      node(holdsPipes(600, true, "process.stdout.write('{\"ok\":true}', () => process.exit(0));")),
+      { timeoutMs: 300 },
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, '{"ok":true}');
+    // The pipes did close in the end, so this is a fully drained result — the
+    // grace backstop above did not have to fire.
+    assert.equal(result.outputDrained, true);
+  });
+});
+
+/**
  * The finding this file was added for.
  *
  * Node surfaces a non-existent `cwd` as ENOENT on the spawn — the same code and

@@ -18,6 +18,23 @@ export interface CommandResult {
    */
   readonly stdoutTruncated: boolean;
   readonly stderrTruncated: boolean;
+  /**
+   * Whether the streams were read to their end before this result was produced.
+   *
+   * Normally true: the result is built when the pipes close, so everything the
+   * command wrote is here. It is false only on the backstop path below — the
+   * process has exited but something still holds its pipe open, so we answer
+   * with what was buffered rather than never answering at all.
+   *
+   * A SEPARATE field from `stdoutTruncated` rather than a second way to set it,
+   * because the two have different causes and different remedies, and the
+   * caller acts on the difference: `stdoutTruncated` means the output exceeded
+   * `MAX_OUTPUT_BYTES` and the fix is to ask for less (see
+   * `lint-intent-annotations.ts`'s "narrow the run with `paths`"), which would
+   * be advice about the wrong problem here. This tail was lost to a leaked file
+   * descriptor and asking for less output would not change it.
+   */
+  readonly outputDrained: boolean;
 }
 
 export interface RunCommandOptions {
@@ -43,6 +60,17 @@ export const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 /** Default ceiling on how long a wrapped command may run. */
 export const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
+
+/**
+ * How long `close` may lag `exit` before the result is produced without it.
+ *
+ * `exit` and `close` are two events, not one: `close` additionally waits for
+ * every writer of the child's stdout/stderr pipes to let go, and a process that
+ * is not the child can be holding them. Long enough that the ordinary
+ * milliseconds-apart drain is never cut short; short enough that a leaked
+ * descriptor costs a truncated tail instead of a call that never returns.
+ */
+export const EXIT_CLOSE_GRACE_MS = 1_000;
 
 /**
  * Runs a program with an argument LIST, never through a shell.
@@ -96,10 +124,16 @@ export const runCommand: RunCommand = (argv, options = {}) => {
     const stderr = new OutputBuffer();
     let settled = false;
     let timedOut = false;
+    let graceTimer: NodeJS.Timeout | undefined;
 
     const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
+      // Assigned from the kill's own answer rather than set unconditionally.
+      // `exit` and `close` are separate events, so a deadline that lands in the
+      // gap between them finds a process that is already gone — nothing to kill,
+      // and a result on its way. Claiming a timeout there would throw away a
+      // finished run, complete document and all, to report that it never
+      // finished. A kill that signalled nothing is not a timeout.
+      timedOut = killRun(child);
     }, timeoutMs);
     // `unref` so a hung command's timer cannot by itself hold the process open.
     timer.unref?.();
@@ -108,17 +142,19 @@ export const runCommand: RunCommand = (argv, options = {}) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
       fn();
     };
 
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-
-    child.on("error", (error: NodeJS.ErrnoException) => {
-      finish(() => reject(new CommandError(describeSpawnFailure(program, error, options))));
-    });
-
-    child.on("close", (code, signal) => {
+    /**
+     * The one place a result is produced, reached from `close` and from the
+     * grace backstop alike — so the two cannot drift into disagreeing about
+     * what a timeout is. `timedOut` still decides reject-vs-resolve on BOTH:
+     * our own deadline is this server's decision and has no verdict to hand
+     * back, while a signal from outside is a fact about the child the caller
+     * has to be able to act on.
+     */
+    const settleWith = (code: number | null, signal: NodeJS.Signals | null, drained: boolean) => {
       finish(() => {
         if (timedOut) {
           reject(
@@ -137,11 +173,89 @@ export const runCommand: RunCommand = (argv, options = {}) => {
           stderr: stderr.text(),
           stdoutTruncated: stdout.truncated,
           stderrTruncated: stderr.truncated,
+          outputDrained: drained,
         });
       });
+    };
+
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      finish(() => reject(new CommandError(describeSpawnFailure(program, error, options))));
     });
+
+    /**
+     * The backstop, and the reason this promise no longer depends on `close`.
+     *
+     * `close` fires only once the process has ended AND every writer of its
+     * stdout/stderr pipes has let go. Those descriptors are inherited, so a
+     * grandchild holds them: `bundle exec specguard-lint` — the configuration
+     * this project's README recommends — makes `bundle` the child and the linter
+     * a grandchild, and killing the group can still miss a great-grandchild that
+     * escaped it by double-forking. When that happens `close` never arrives, and
+     * with it as the only settle the promise never settles: in an MCP server
+     * that is a tool call that never returns, and therefore a calling agent that
+     * never returns.
+     *
+     * So `exit` — which needs nothing but the process — starts a short clock.
+     * The normal drain finishes in milliseconds and `close` wins the race; only
+     * a genuinely leaked descriptor reaches the timer, and it pays a truncated
+     * tail rather than the whole session.
+     */
+    child.on("exit", (code, signal) => {
+      if (settled) return;
+
+      graceTimer = setTimeout(() => {
+        // Released here rather than left to the garbage collector: the pipe is
+        // still open by definition on this path, so the two buffers behind it
+        // (up to MAX_OUTPUT_BYTES each) would be retained for the life of
+        // whatever is holding the descriptor.
+        child.stdout.destroy();
+        child.stderr.destroy();
+        settleWith(code, signal, false);
+      }, EXIT_CLOSE_GRACE_MS);
+      // Deliberately NOT `unref`'d, unlike the deadline above. That one is a
+      // ceiling on someone else's work and must never be the reason this process
+      // stays up; this one IS the settle — an unref'd timer only fires while
+      // something else holds the loop open, and the thing holding it here is the
+      // very pipe we are giving up on. It is bounded at EXIT_CLOSE_GRACE_MS and
+      // cleared by `finish`, so the most it can cost is one second of shutdown.
+    });
+
+    child.on("close", (code, signal) => settleWith(code, signal, true));
   });
 };
+
+/**
+ * Kills the whole run, and answers whether there was anything to kill.
+ *
+ * `child.kill()` signals the CHILD. With `bundle exec specguard-lint` the child
+ * is `bundle` and the thing doing the work is its grandchild, which survives —
+ * still running, and still holding the pipes that `close` waits on. `detached`
+ * in `spawnChild` makes the child a process-group leader precisely so this
+ * function can signal the negated pid and reach the whole tree.
+ *
+ * The return value is the answer to "was a live process signalled", which is
+ * what the caller needs to decide whether a timeout actually happened. ESRCH —
+ * the group is already gone — is the normal way to learn "no", so it falls back
+ * to `child.kill`, whose `false` says the same thing about the child alone and
+ * whose own liveness check is what makes this safe on a platform where the
+ * group kill is not available.
+ */
+function killRun(child: ReturnType<typeof spawnChild>): boolean {
+  const pid = child.pid;
+
+  // Unset when the spawn itself failed; there is no process and no group.
+  if (pid === undefined) return false;
+
+  try {
+    process.kill(-pid, "SIGKILL");
+    return true;
+  } catch {
+    return child.kill("SIGKILL");
+  }
+}
 
 /**
  * The one place `spawn` is called.
@@ -156,6 +270,11 @@ function spawnChild(program: string, args: readonly string[], options: RunComman
     // Explicitly off. Stated rather than defaulted, because this is the line
     // that keeps a model-supplied argument from reaching a shell.
     shell: false,
+    // A process group of its own, so the timeout can signal the whole run
+    // rather than only the process this server happens to have spawned — see
+    // `killRun`. Deliberately NOT paired with `child.unref()`: detaching is for
+    // the reach of the kill, not permission for a linter to outlive the server.
+    detached: true,
   });
 }
 

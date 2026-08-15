@@ -35,6 +35,7 @@ export function stubCommand(result: Partial<CommandResult> | ((argv: readonly st
         stderr: "",
         stdoutTruncated: false,
         stderrTruncated: false,
+        outputDrained: true,
         ...resolved,
       };
     },
