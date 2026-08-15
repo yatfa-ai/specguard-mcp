@@ -137,8 +137,17 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * `Api::V1::RepositoriesController#latest_test_run` had already chosen. This
  * one CHOOSES THAT RUN, which the controller states in those terms: `?branch=`
  * asks about a SERIES, this asks WHICH RUN. It is read once, in that memo, so
- * every run-grain block moves together — `latest_run` and its rollups, all
- * three drill-ins above, `shards`, both growth windows and `previous_test_run`.
+ * every run-grain block moves together — `latest_run` and its rollups, the
+ * three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and
+ * `repeated_description_examples`), `shards`, both growth windows and
+ * `previous_test_run`.
+ *
+ * That is three of the FOUR drill-ins above, and the excluded one is worth
+ * naming because it is the composition an agent will actually try:
+ * `unstable_test_runs` is read over the BRANCH WINDOW (`history_runs`), not off
+ * the anchored run, so it does not move with this parameter. Sent together,
+ * `?commit_sha=` and `?unstable_test=` answer about different things on
+ * purpose — one run, and the window that run sits in.
  *
  * Withholding it here withheld a capability that the tool was ALREADY
  * DISCLOSING THE NEED FOR. `branch`'s own description names the failure:
@@ -324,10 +333,14 @@ const getRepositoryOverview: ToolDefinition = {
           "OF ASK from every other argument here: the five above narrow what is served ABOUT a run " +
           "that was already chosen for you, and this one CHOOSES THAT RUN. `branch` asks about a " +
           "SERIES; this asks WHICH RUN. Use a sha exactly as served in " +
-          "`latest_run.commit_sha`, `history[].commit_sha` or `unstable_tests.unstable_test_runs[]" +
-          ".commit_sha`. " +
-          "Everything at run grain re-anchors together: `latest_run` and its five rollups, all " +
-          "three drill-ins above, `shards`, both per-area growth windows and `previous_test_run`. " +
+          "`latest_run.commit_sha`, `history[].commit_sha` or " +
+          "`unstable_tests.unstable_test_runs.rows[].commit_sha`. " +
+          "Everything at run grain re-anchors together: `latest_run` and its five rollups, the " +
+          "three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and " +
+          "`repeated_description_examples`), `shards`, both per-area growth windows and " +
+          "`previous_test_run`. `unstable_test_runs` is the one drill-in that does NOT move with " +
+          "it: it is read over the branch window rather than off the anchored run, so sending " +
+          "this with `unstable_test` still gives you that test across the whole window. " +
           "Use it when you need to be answered about a SPECIFIC run rather than whatever is " +
           "newest — after pushing a commit and waiting for CI, say, on a repository where anything " +
           "else may have pushed in between: `latest_run` otherwise names the repository's newest " +

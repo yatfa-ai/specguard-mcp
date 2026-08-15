@@ -109,10 +109,12 @@ branch window rather than between the last two runs.
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge — and
 `commit_sha` is the remedy: it names WHICH RUN to describe, where `branch` asks about a series. Every
-run-grain block re-anchors together (`latest_run` and its rollups, the three drill-ins, `shards`,
-both growth windows, `previous_test_run`); `history` does not, so the `history[0] == latest_run`
-identity holds on a default call and is **not** expected to hold under an explicit ask. A sha with no
-run — a stale bookmark, a pruned run, a commit whose CI never reported — does not error: the endpoint
+run-grain block re-anchors together (`latest_run` and its rollups, the three run-grain drill-ins —
+`spec_directory_files`, `spec_file_examples`, `repeated_description_examples` — `shards`, both growth
+windows, `previous_test_run`); `history` does not, so the `history[0] == latest_run` identity holds
+on a default call and is **not** expected to hold under an explicit ask. Nor does `unstable_test_runs`,
+which is read over the branch window rather than off the anchored run. A sha with no run — a stale
+bookmark, a pruned run, a commit whose CI never reported — does not error: the endpoint
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
 successful response is about the commit you named.
 

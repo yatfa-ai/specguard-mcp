@@ -633,6 +633,35 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("points `commit_sha` at response paths that actually exist", () => {
+    // The three guards above pin the FACTS. This one pins the PATH, because a
+    // description can state every fact correctly and still hand the agent a
+    // key that resolves to nothing — and that failure is invisible to a
+    // fact-shaped assertion, which is how it survived the first round here.
+    //
+    // The specific trap: `unstable_test_runs` is an OBJECT (`name`, `rows`,
+    // and the window's counters), not an array. Its shas live one level down,
+    // on `rows[]`. Writing `unstable_test_runs[].commit_sha` indexes the
+    // object and finds nothing, and it is precisely the path an agent has to
+    // follow to use this parameter for the flakiness work it was built for.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
+
+    assert.match(
+      description,
+      /`unstable_tests\.unstable_test_runs\.rows\[\]\.commit_sha`/,
+      "the description must name the sha's real home — `unstable_test_runs` is an object whose " +
+        "shas hang off `rows[]`, so the `[]` belongs after `rows` and nowhere else",
+    );
+    assert.doesNotMatch(
+      description,
+      /unstable_test_runs\[\]/,
+      "`unstable_test_runs[]` subscripts an object: this repo reserves `[]` for arrays " +
+        "(`unstable_tests.rows[].name` is written that way for exactly that reason), so the bare " +
+        "form is a path that resolves to nothing",
+    );
+  });
+
   it("blames the ARGUMENT for a bad type, not the deployment", async () => {
     // Note the context: no endpoint, no key, no `ENV` at all. The six
     // `optionalString` calls run before `requireApiConfig`, so this refusal
