@@ -104,9 +104,17 @@ branch window rather than between the last two runs.
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
+| `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
-busy repo may be on another branch. That is a property of the endpoint, not of this bridge.
+busy repo may be on another branch. That is a property of the endpoint, not of this bridge — and
+`commit_sha` is the remedy: it names WHICH RUN to describe, where `branch` asks about a series. Every
+run-grain block re-anchors together (`latest_run` and its rollups, the three drill-ins, `shards`,
+both growth windows, `previous_test_run`); `history` does not, so the `history[0] == latest_run`
+identity holds on a default call and is **not** expected to hold under an explicit ask. A sha with no
+run — a stale bookmark, a pruned run, a commit whose CI never reported — does not error: the endpoint
+falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
+successful response is about the commit you named.
 
 `branch` is also the gate on the two blocks read over that same window, and they are `null` without
 it: `unstable_tests` (which tests failed intermittently across the window rather than consistently)
