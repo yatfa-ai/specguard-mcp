@@ -164,7 +164,10 @@ The toolset fills in as more of SpecGuard lands. Adding one is two mechanical ed
 1. a new file under `src/tools/` that default-exports a `ToolDefinition`;
 2. one entry appended to the array in `src/tools/index.ts`.
 
-There is no third. `src/server.ts` iterates that array and contains no per-tool code — no `switch`,
+There is no third — no third *wiring* edit, at least: a tool that takes arguments also earns a
+`### ` section with an argument table above, since this README ships as the package's published
+documentation, and `test/readme.test.ts` derives that obligation from the registry so a parameter
+without a row fails the suite. `src/server.ts` iterates that array and contains no per-tool code — no `switch`,
 no hard-coded name — and everything a tool touches the world with (config, subprocesses, `fetch`) is
 injected, so a new tool is testable without a live deployment for free. The property tests in
 `test/tools/registry.test.ts` run over whatever the registry holds, so a tool added later is checked
