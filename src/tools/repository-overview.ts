@@ -145,8 +145,16 @@ const getRepositoryOverview: ToolDefinition = {
           "`total_seconds`/`recorded_count`/`timed_count`, plus the AREA's own `file_count`, " +
           "`recorded_count`, `timed_count` and the `limit` the row list was cut at (the totals " +
           "describe the whole area, not the returned page, so do not re-derive them from `rows`). " +
-          "Omit it and the key is `null`, meaning you did not ask — an area the run recorded " +
-          "nothing for is `rows: []` instead, not an error.",
+          "The one ask opens THREE blocks, each in its own grain: `spec_directory_files` for which " +
+          "files carry the area's wall clock, `directory_run_file_growth` for which of them changed " +
+          "SIZE since the previous run, and `directory_runtime_file_growth` for which of them " +
+          "changed TIME. The last two are the answer to the dead end the area-grain comparisons " +
+          "leave — `spec/models 412 → 459 (+47)`, but WHICH FILES did that — and they need no " +
+          "second parameter. " +
+          "Omit it and all three are `null`, meaning you did not ask — an area the run recorded " +
+          "nothing for is `rows: []` instead, not an error. The two growth blocks are additionally " +
+          "`null` when there is no previous run to compare this one against, which is the same " +
+          "'not measured' the area-grain comparisons report.",
       },
       spec_file: {
         type: "string",
