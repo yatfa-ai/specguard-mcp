@@ -124,15 +124,30 @@ export const runCommand: RunCommand = (argv, options = {}) => {
     const stderr = new OutputBuffer();
     let settled = false;
     let timedOut = false;
+    let exited = false;
     let graceTimer: NodeJS.Timeout | undefined;
 
     const timer = setTimeout(() => {
-      // Assigned from the kill's own answer rather than set unconditionally.
-      // `exit` and `close` are separate events, so a deadline that lands in the
-      // gap between them finds a process that is already gone — nothing to kill,
-      // and a result on its way. Claiming a timeout there would throw away a
-      // finished run, complete document and all, to report that it never
-      // finished. A kill that signalled nothing is not a timeout.
+      // Whether the RUN is still live — asked of the process, not of the kill.
+      // `exit` and `close` are separate events, so there is a window in which
+      // the process is already gone and a complete result is already on its way.
+      // A deadline landing in there has nothing to time out, and claiming one
+      // would throw the finished run away, exit code and document and all, to
+      // report that it never finished.
+      //
+      // `killRun`'s answer cannot be that test on its own, which is the trap
+      // this guard exists for. It reports whether anything in the process GROUP
+      // was signalled, and the group outlives the child by exactly the
+      // grandchild holding the pipes open — the same grandchild that made the
+      // window wide enough for a deadline to land in it at all. So on the
+      // topology this file is about, the kill SUCCEEDS after the child is gone,
+      // and a `timedOut` read off that answer calls a completed `code: 0` run a
+      // timeout. Only the child's own exit can contradict it.
+      //
+      // Returning rather than killing and discarding the answer: once the child
+      // has been reaped its pid is no longer ours to signal — see `killRun`.
+      if (exited) return;
+
       timedOut = killRun(child);
     }, timeoutMs);
     // `unref` so a hung command's timer cannot by itself hold the process open.
@@ -204,6 +219,11 @@ export const runCommand: RunCommand = (argv, options = {}) => {
      * tail rather than the whole session.
      */
     child.on("exit", (code, signal) => {
+      // Recorded before anything else, and read by the deadline above: from here
+      // on we hold a real `code`/`signal`, so whatever the timer may still find
+      // alive in the process group, this is not a run that produced no verdict.
+      exited = true;
+
       if (settled) return;
 
       graceTimer = setTimeout(() => {
@@ -237,11 +257,25 @@ export const runCommand: RunCommand = (argv, options = {}) => {
  * function can signal the negated pid and reach the whole tree.
  *
  * The return value is the answer to "was a live process signalled", which is
- * what the caller needs to decide whether a timeout actually happened. ESRCH —
- * the group is already gone — is the normal way to learn "no", so it falls back
- * to `child.kill`, whose `false` says the same thing about the child alone and
- * whose own liveness check is what makes this safe on a platform where the
- * group kill is not available.
+ * half of what the caller needs to decide whether a timeout actually happened —
+ * the other half is whether the CHILD has exited, because this group can outlive
+ * it. ESRCH — the group is already gone — is the normal way to learn "no", so it
+ * falls back to `child.kill`, whose `false` says the same thing about the child
+ * alone and whose own liveness check is what makes this safe on a platform where
+ * the group kill is not available.
+ *
+ * ONLY CALLED WHILE THE CHILD IS STILL LIVE, and that is a precondition rather
+ * than a convenience. `child.kill()` is safe by construction — Node reaped the
+ * child, so it knows the handle is spent and no-ops — but `process.kill(-pid)`
+ * is a raw signal at a number with no such check. After the reap that number is
+ * free, and on the one path where the group is ALSO empty (so ESRCH would have
+ * been the honest answer) a recycled pid that now leads some unrelated group
+ * would take a SIGKILL meant for a linter. It needs pid wraparound to land on a
+ * group leader, so it is vanishingly unlikely — but it is unrecoverable and
+ * aimed at a stranger, so the caller checks `exited` first rather than paying
+ * it. The cost of that choice is that stragglers outliving an already-exited
+ * child are left to leave on their own; the grace backstop settles regardless,
+ * and this is what `main` did too, where a kill after the reap was a no-op.
  */
 function killRun(child: ReturnType<typeof spawnChild>): boolean {
   const pid = child.pid;
@@ -272,8 +306,21 @@ function spawnChild(program: string, args: readonly string[], options: RunComman
     shell: false,
     // A process group of its own, so the timeout can signal the whole run
     // rather than only the process this server happens to have spawned — see
-    // `killRun`. Deliberately NOT paired with `child.unref()`: detaching is for
-    // the reach of the kill, not permission for a linter to outlive the server.
+    // `killRun`.
+    //
+    // Deliberately NOT paired with `child.unref()`, so the parent still waits on
+    // this handle rather than handing a linter permission to outlive the server.
+    // That is not the whole lifetime story though, and the honest version is
+    // that detaching buys the reach of the kill and PAYS for it here: a new
+    // group is also a new session, outside this server's controlling terminal,
+    // so a signal aimed at OUR group — an interactive Ctrl-C, a supervisor's
+    // `kill -- -PGID` — no longer reaches a lint run in flight. Nothing in
+    // `bin/specguard-mcp.ts` installs a SIGINT/SIGTERM handler to kill
+    // outstanding children at teardown, so such a run is now orphaned where it
+    // would previously have died alongside us. Worth it, because the failure
+    // being traded away is an agent that never returns rather than a stray
+    // process — but it is a trade, and a teardown handler is what would close
+    // it.
     detached: true,
   });
 }

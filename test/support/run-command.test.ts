@@ -176,7 +176,7 @@ describe("runCommand — a child killed by a signal is not a run that passed", (
  * arrives on cue. The guard was pinned to the subject and not to the axis the
  * defect lives on: every fixture in this file was a leaf process.
  *
- * These four are the axis. Each carries an explicit per-test deadline, because
+ * These five are the axis. Each carries an explicit per-test deadline, because
  * the regression they guard against is a promise that NEVER settles — without a
  * deadline a regression is a test run that hangs rather than one that fails, and
  * a suite that hangs reports nothing at all.
@@ -282,6 +282,35 @@ describe("runCommand — always settles, even when a grandchild holds the pipes"
     assert.equal(result.stdout, '{"ok":true}');
     // The pipes did close in the end, so this is a fully drained result — the
     // grace backstop above did not have to fire.
+    assert.equal(result.outputDrained, true);
+  });
+
+  it("applies that to the pipe-holder that stayed in the group — the shape the README actually produces", { timeout: 6_000 }, async () => {
+    // The test above with ONE argument flipped: the grandchild no longer calls
+    // setsid, so it is still in the child's process group. That is the ORDINARY
+    // arrangement — `bundle exec specguard-lint` leaving a helper that outlives
+    // `bundle` — and escaping the group is the exotic one. It needs its own test
+    // because the case above cannot see this axis at all, and the reason is
+    // worth stating precisely, since the two look like the same scenario.
+    //
+    // Up there the group is EMPTY by the time the deadline lands: the escaped
+    // grandchild took itself out of it and the child has exited. So the group
+    // kill raises ESRCH, reports "nothing was signalled", and the run resolves —
+    // for a reason that has nothing to do with whether it had finished. The
+    // fixture's `detached: true` is what makes it green, not the rule.
+    //
+    // Here the group kill would SUCCEED, because the grandchild is in it and
+    // very much alive. A `timedOut` read off the kill's answer therefore says
+    // this completed run never finished, and throws away a real `code: 0` and a
+    // whole document to say so. Only the child's own `exit` can contradict that,
+    // which is the thing under test.
+    const result = await runCommand(
+      node(holdsPipes(600, false, "process.stdout.write('{\"ok\":true}', () => process.exit(0));")),
+      { timeoutMs: 300 },
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, '{"ok":true}');
     assert.equal(result.outputDrained, true);
   });
 });
