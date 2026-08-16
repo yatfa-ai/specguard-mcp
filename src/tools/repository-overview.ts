@@ -201,10 +201,27 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * because each opens the rows behind a LINE of a ranking the client had already
  * read. This one opens a POPULATION rather than a pick: the figure it drills out
  * of is a SUBTRACTION on the run itself, and a subtraction has no rows to have
- * keys. So the server reads only whether the parameter was NAMED, which
- * `RequestedUnannotatedExamplesParam` states outright — the value is not read,
- * and THAT INCLUDES `false`: `?unannotated_examples=false` opens the block
- * exactly as `=true` does.
+ * keys, so there is nothing for the ask itself to NAME. So the server reads only
+ * whether the parameter was NAMED, which `RequestedUnannotatedExamplesParam`
+ * states outright — the value is not read, and THAT INCLUDES `false`:
+ * `?unannotated_examples=false` opens the block exactly as `=true` does.
+ *
+ * WHICH POPULATION IT OPENS IS NOT FIXED, and that is the half this file first
+ * got wrong. `specguard` `55e3a09` made `?spec_file=` and `?spec_directory=`
+ * narrow this block when either rides along with the flag — the same two
+ * parameters that open their own drill-ins beside it — so the ask has FOUR
+ * shapes rather than one: the whole run, one file, one area, or the AND of a
+ * file and an area. The flag still names nothing, because the narrowing is named
+ * by those two parameters and not by this one; what changed is that "the
+ * population" is no longer a definite article. `SpecObservation.unannotated_in`
+ * appends both predicates to the WHERE that the `COUNT(*) OVER ()` window of
+ * `UNANNOTATED_POPULATION_COUNTS` rides, so `recorded_count` counts the NARROWED
+ * population rather than the run's — and the controller echoes `spec_file` and
+ * `spec_directory` back INSIDE the block, as the server read them and `null`
+ * when not sent, for exactly that reason: `recorded_count` is the one figure
+ * here a client reconciles against `total_specs - annotated_specs`, and a
+ * silently narrowed count breaks that reconciliation. The echo is what makes the
+ * count's population readable, so both are stated in the schema together.
  *
  * That is a hazard on this side rather than a curiosity, and it is why the
  * argument is a BOOLEAN coerced with `optionalBoolean` and the query key is
@@ -217,14 +234,16 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * request. That matches how every other parameter here is declined: none of them
  * has an "off" value either.
  *
- * TWO THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
+ * THREE THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
  * `commit_sha` like everything else under `latest_run` — unlike `unstable_test`,
- * which does not. And a FULLY-ANNOTATED run answers `rows: []` /
+ * which does not. A FULLY-ANNOTATED run answers `rows: []` /
  * `recorded_count: 0` with 200, never a 404 and never the no-ask `null`: that is
  * the state the metric exists to reach, so an agent walking a repository to
  * completion must see the block go empty rather than watch it vanish at the
  * moment it succeeded and be unable to tell that from its own parameter having
- * been dropped.
+ * been dropped. And the pair above — that `spec_file`/`spec_directory` narrow
+ * this population when they ride along, and are echoed back so the client can
+ * tell which population `recorded_count` is of.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -298,6 +317,12 @@ const getRepositoryOverview: ToolDefinition = {
           "changed TIME. The last two are the answer to the dead end the area-grain comparisons " +
           "leave — `spec/models 412 → 459 (+47)`, but WHICH FILES did that — and they need no " +
           "second parameter. " +
+          "SENT TOGETHER WITH `unannotated_examples`, it also narrows THAT worklist to this area — " +
+          "its rows and its `recorded_count` both — and that block echoes the path back so you can " +
+          "see which population its count is of. That is a narrowing of a block the FLAG opened, " +
+          "not a fourth block this parameter opens. It narrows on the SAME equality this parameter " +
+          "already uses for its own blocks — the immediate parent directory, never a prefix, so " +
+          "`spec/models` does not reach `spec/models/orders`. " +
           "Omit it and all three are `null`, meaning you did not ask — an area the run recorded " +
           "nothing for is `rows: []` instead, not an error. The two growth blocks are additionally " +
           "`null` when there is no previous run to compare this one against, which is the same " +
@@ -314,6 +339,9 @@ const getRepositoryOverview: ToolDefinition = {
           "`duration_seconds` and `outcome`, plus the FILE's own `recorded_count` and " +
           "`timed_count` and the `limit` the row list was cut at (the totals describe the whole " +
           "file, not the returned page, so do not re-derive them from `rows`). " +
+          "SENT TOGETHER WITH `unannotated_examples`, it also narrows THAT worklist to this file — " +
+          "its rows and its `recorded_count` both — and that block echoes the path back so you can " +
+          "see which population its count is of. " +
           "Omit it and the key is `null`, meaning you did not ask — a file that matched nothing " +
           "is `rows: []` instead, not an error: a renamed or deleted spec file and a stale " +
           "bookmark are ordinary ways to arrive.",
@@ -418,27 +446,43 @@ const getRepositoryOverview: ToolDefinition = {
       unannotated_examples: {
         type: "boolean",
         description:
-          "Open the run's UNANNOTATED examples — the individual tests behind `latest_run`'s " +
+          "Open a run's UNANNOTATED examples — the individual tests behind `latest_run`'s " +
           "`total_specs` MINUS `annotated_specs`, the subtraction the dashboard renders as " +
           "\"SpecGuard cannot see the other N tests\". Every other population this endpoint reports " +
           "can be walked down to the examples it counts; annotation coverage was the exception, so " +
           "`annotated_ratio` told you how far you had to go and not one test to annotate. " +
           "THIS ONE IS A FLAG, NOT A NAME — the only argument here that takes `true` rather than a " +
           "value. The others open the rows behind a LINE of a ranking and so carry that line's key; " +
-          "this opens a POPULATION, and there is exactly one to ask for, so there is nothing to name " +
-          "and nothing echoed back. " +
-          "Asking populates `latest_run.unannotated_examples` — up to 100 of the run's unannotated " +
-          "examples, each with `name`, `file_path`, `line_number` and `spec_file_path` (FOUR fields: " +
-          "no `duration_seconds` and no `outcome`, unlike the per-example drill-ins above), plus the " +
-          "RUN's own `recorded_count` and the `limit` the row list was cut at. Do not re-derive " +
-          "`recorded_count` from `rows`: this population is routinely the WHOLE RUN — a repository " +
-          "that has just installed the gem has every test in it — so the cap is the normal case here " +
-          "rather than the exotic one. " +
+          "this opens a POPULATION, which is a subtraction on the run and has no line to name. " +
+          "WHICH population is still yours to choose, with parameters you already have: sent ALONE " +
+          "the flag opens the WHOLE RUN, and sent TOGETHER WITH `spec_file` or `spec_directory` it " +
+          "narrows to that file, that area, or — when both ride along — the AND of the two. Four " +
+          "shapes from one flag. Those two keep opening their own blocks as well; narrowing this " +
+          "one is additional, not instead. " +
+          "Asking populates `latest_run.unannotated_examples` — up to 100 of the unannotated " +
+          "examples OF WHATEVER YOU ASKED FOR, each with `name`, `file_path`, `line_number` and " +
+          "`spec_file_path` (FOUR fields: no `duration_seconds` and no `outcome`, unlike the " +
+          "per-example drill-ins above), plus that same population's own `recorded_count`, the " +
+          "`limit` the row list was cut at, and `spec_file`/`spec_directory` ECHOED BACK as the " +
+          "server READ them — `null` for each one you did not send. " +
+          "READ THE ECHO BEFORE YOU READ THE COUNT. `recorded_count` is the one figure here you " +
+          "would reconcile against `total_specs - annotated_specs`, and it counts the NARROWED " +
+          "population whenever either echo is non-null — so that reconciliation is expected to hold " +
+          "only when both echoes are `null`. The echo is what tells the two cases apart, which is " +
+          "why the server sends it. " +
+          "Do not re-derive `recorded_count` from `rows` in either case. Un-narrowed, this " +
+          "population is routinely the entire run — a repository that has just installed the gem " +
+          "has every test in it — so the cap is the normal case rather than the exotic one; a " +
+          "narrowed ask is cut at the same 100 and can reach it too. " +
           "It is at RUN GRAIN, so it MOVES WITH `commit_sha` like everything else under " +
           "`latest_run`, unlike `unstable_test` which does not. " +
           "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: it answers 200 with `rows: []` " +
           "and `recorded_count: 0`, because that is the state the metric exists to reach — so a " +
-          "repository walked to completion shows the block EMPTY rather than gone. " +
+          "repository walked to completion shows the block EMPTY rather than gone. A narrowing " +
+          "that matched nothing reads the SAME way and is never a 404: an unknown or renamed path, " +
+          "a file that is already fully annotated, and a contradictory file-and-area pair all " +
+          "answer `rows: []` with both narrowings echoed, which is an empty intersection rather " +
+          "than a dropped parameter. " +
           "Omit it and the key is `null`, meaning you did not ask. `false` means the same as " +
           "omitting it and sends nothing at all: declining is not sending, which is how every other " +
           "argument here is declined too — none of them has an \"off\" value.",

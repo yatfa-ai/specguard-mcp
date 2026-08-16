@@ -205,12 +205,21 @@ not name one of them either, so an agent told to raise annotation coverage learn
 go and not a single test to annotate. `unannotated_examples` is that rung. It is the one argument
 here that is a **flag rather than a name** — pass `true`, not a value — because it opens a
 *population* rather than a pick: `total_specs` minus `annotated_specs` is a subtraction, and a
-subtraction has no rows to have keys. `latest_run.unannotated_examples` opens with up to 100 of the
-run's unannotated examples (`name`, `file_path`, `line_number`, `spec_file_path` each — four fields,
-not the per-example drill-ins' six), plus the **run's** own `recorded_count` and the `limit` the row
-list was cut at. Do not re-derive that count from `rows`: this population is routinely the whole run
-— a repository that has just installed the gem has every test in it — so the cap fires as the normal
-case here rather than the exotic one. It is at run grain, so it moves with `commit_sha`.
+subtraction has no line to name. Which population is still yours to choose: sent alone the flag
+opens the whole run, and sent **together with** `spec_file` or `spec_directory` it narrows to that
+file, that area, or the AND of the two — those two keep opening their own blocks as well, so
+narrowing this one is additional rather than instead.
+`latest_run.unannotated_examples` opens with up to 100 of the unannotated examples **of whatever you
+asked for** (`name`, `file_path`, `line_number`, `spec_file_path` each — four fields, not the
+per-example drill-ins' six), plus that same population's own `recorded_count`, the `limit` the row
+list was cut at, and `spec_file`/`spec_directory` **echoed back** as the server read them — `null`
+for each one you did not send. Read the echo before the count: `recorded_count` is the figure you
+would reconcile against `total_specs - annotated_specs`, and it counts the *narrowed* population
+whenever either echo is non-null, so that reconciliation is expected to hold only when both are
+`null`. Do not re-derive that count from `rows` either way: un-narrowed, this population is
+routinely the entire run — a repository that has just installed the gem has every test in it — so
+the cap fires as the normal case here rather than the exotic one, and a narrowed ask is cut at the
+same 100. It is at run grain, so it moves with `commit_sha`.
 
 `false` means the same as omitting it and sends nothing at all. That matters more here than
 elsewhere: the server reads only whether the parameter was **named**, so `?unannotated_examples=false`
@@ -218,7 +227,10 @@ on the wire would open the block for a caller who asked for it not to be — dec
 which is how every other argument here is declined too. Omit it and the key is `null`, meaning you
 did not ask. A **fully-annotated run is not an error and not a `null`**: it answers 200 with
 `rows: []` and `recorded_count: 0`, because that is the state the metric exists to reach — walk a
-repository to completion and the block goes empty rather than vanishing.
+repository to completion and the block goes empty rather than vanishing. A narrowing that matched
+nothing reads the same way and is never a 404: an unknown or renamed path, an already fully-annotated
+file, and a contradictory file-and-area pair all answer `rows: []` with both narrowings echoed, which
+is an empty intersection rather than a dropped parameter.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
