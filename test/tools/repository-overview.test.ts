@@ -163,12 +163,21 @@ const GROUP_DRILLED_BODY = JSON.stringify({
  * FOUR FIELDS PER ROW, not the six the other per-example blocks carry: no
  * `duration_seconds` and no `outcome`. The difference is asserted rather than
  * structural, so a field added server-side to match the siblings goes red here.
+ *
+ * `spec_file` / `spec_directory` ARE PART OF THE BLOCK EVEN HERE, where neither
+ * was sent. The server emits both unconditionally — `null` spelling "you did not
+ * narrow" — so a fixture without them models a wire the server does not speak,
+ * and the pass-through assertion below would be comparing this file against
+ * itself while the real body carried two more keys. Their being `null` is what
+ * makes `recorded_count` reconcilable against `total_specs - annotated_specs`.
  */
 const UNANNOTATED_DRILLED_BODY = JSON.stringify({
   ...JSON.parse(BODY),
   latest_run: {
     ...JSON.parse(BODY).latest_run,
     unannotated_examples: {
+      spec_file: null,
+      spec_directory: null,
       rows: [
         {
           name: "validates the email format",
@@ -184,6 +193,44 @@ const UNANNOTATED_DRILLED_BODY = JSON.stringify({
         },
       ],
       recorded_count: 18_800,
+      limit: 100,
+    },
+  },
+});
+
+/**
+ * The SAME flag, NARROWED — `?unannotated_examples=` with `?spec_directory=`
+ * riding along, which is the shape `specguard` `55e3a09` added and the reason
+ * the two echo keys exist at all.
+ *
+ * The numbers are the point. `recorded_count` is 240, not `UNANNOTATED_DRILLED_BODY`'s
+ * 18_800: the `COUNT(*) OVER ()` window rides the WHERE, so a narrowed read
+ * counts the narrowed population. That is precisely the figure a client would
+ * otherwise reconcile against `total_specs - annotated_specs` (18_800) and find
+ * wrong by two orders of magnitude — so the echoed `spec_directory` is not
+ * decoration, it is the only thing in the body that says which population the
+ * count is of. A client reading the count without the echo silently concludes
+ * the suite is 98% annotated.
+ *
+ * `spec_file` stays `null` because only the area was sent: the two are echoed
+ * independently, and both would be populated had both ridden along.
+ */
+const UNANNOTATED_NARROWED_BODY = JSON.stringify({
+  ...JSON.parse(BODY),
+  latest_run: {
+    ...JSON.parse(BODY).latest_run,
+    unannotated_examples: {
+      spec_file: null,
+      spec_directory: "spec/models",
+      rows: [
+        {
+          name: "validates the email format",
+          file_path: "app/models/user.rb",
+          line_number: 42,
+          spec_file_path: "spec/models/user_spec.rb",
+        },
+      ],
+      recorded_count: 240,
       limit: 100,
     },
   },
@@ -206,7 +253,7 @@ const FULLY_ANNOTATED_BODY = JSON.stringify({
     ...JSON.parse(BODY).latest_run,
     annotated_specs: 20_000,
     annotated_ratio: 1.0,
-    unannotated_examples: { rows: [], recorded_count: 0, limit: 100 },
+    unannotated_examples: { spec_file: null, spec_directory: null, rows: [], recorded_count: 0, limit: 100 },
   },
 });
 
@@ -587,8 +634,59 @@ describe("get_repository_overview — the response it returns", () => {
     const drilled = latest["unannotated_examples"] as Record<string, unknown>;
 
     assert.notEqual(drilled, null, "an empty population is a block with no rows, never a null");
-    assert.deepEqual(drilled, { rows: [], recorded_count: 0, limit: 100 });
+    assert.deepEqual(drilled, {
+      spec_file: null,
+      spec_directory: null,
+      rows: [],
+      recorded_count: 0,
+      limit: 100,
+    });
     assert.equal(latest["annotated_ratio"], 1.0);
+  });
+
+  it("echoes both narrowings back, with a `recorded_count` scoped to the slice rather than the run", async () => {
+    // The half `55e3a09` added on the server AFTER this bridge began forwarding
+    // the flag: `?spec_file=`/`?spec_directory=` sent WITH it narrow the
+    // population, rows and `recorded_count` together, and the block echoes what
+    // the server narrowed on.
+    //
+    // Both halves have to survive the hop, and the count is the one that costs
+    // an agent its answer if it does not. `recorded_count` is the figure a
+    // client reconciles against `total_specs - annotated_specs` — 18_800 on this
+    // run — and here it is 240, because the ask was one directory. Read without
+    // the echo, that is "the suite is 98% annotated" rather than "this area is".
+    // So the echo is asserted as the thing that DISAMBIGUATES the count, not as
+    // a field that happens to be present.
+    const http = stubFetch({ body: UNANNOTATED_NARROWED_BODY });
+
+    const result = await getRepositoryOverview.run(
+      { unannotated_examples: true, spec_directory: "spec/models" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    // ONE request carrying both keys — the narrowing is a predicate on the same
+    // read, never a second call.
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?spec_directory=spec%2Fmodels&unannotated_examples=true",
+    );
+    assert.equal(http.requests.length, 1);
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    const drilled = latest["unannotated_examples"] as Record<string, unknown>;
+
+    assert.equal(drilled["spec_directory"], "spec/models");
+    // Echoed INDEPENDENTLY: only the area was sent, so the file half stays the
+    // "you did not narrow on this" null rather than being filled in to match.
+    assert.equal(drilled["spec_file"], null);
+
+    // Scoped to the slice, NOT the run — and demonstrably so, since the run's
+    // own unannotated population is on the same body.
+    assert.equal(drilled["recorded_count"], 240);
+    assert.equal(latest["total_specs"], 20_000);
+    assert.equal(latest["annotated_specs"], 1200);
+
+    assert.equal((drilled["rows"] as unknown[]).length, 1);
   });
 
   it("asks for no area, and gets back null, when none was named", async () => {
