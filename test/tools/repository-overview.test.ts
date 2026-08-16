@@ -809,6 +809,81 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("names every run-grain drill-in in `commit_sha`'s re-anchoring list, derived from the schema", () => {
+    // The instrument whose absence shipped a self-contradicting schema once.
+    // `commit_sha`'s description closes its enumeration — it lists what
+    // re-anchors and then names `unstable_test_runs` as "the one drill-in that
+    // does NOT move with it". A drill-in added to the tool and left out of that
+    // list is therefore not merely undocumented: the closed list plus the
+    // stated exception tells an agent it does NOT re-anchor, which is the
+    // opposite of true, while the new parameter's own description says it does.
+    // Two descriptions on the same `inputSchema` disagreeing about re-anchoring
+    // is the product's core artifact being wrong, and the composition an agent
+    // actually sends — a drill-in together with `commit_sha` — is exactly the
+    // one they disagree about.
+    //
+    // Nothing else here can see that. `test/readme.test.ts` derives its
+    // assertions from `TOOLS` and so catches a MISSING row; a stale ENUMERATION
+    // inside a description is prose, green under every existing guard. So this
+    // guard derives the obligation from the schema rather than transcribing the
+    // list a second time: every property that is not in the exception set below
+    // must have its response key named in `commit_sha`'s description. Adding a
+    // sixth drill-in without touching that prose fails here. Adding one that
+    // genuinely does not re-anchor still passes — but only by an explicit,
+    // reviewable edit to `NOT_RUN_GRAIN_DRILL_INS`, which is the point.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
+
+    // The three properties that are NOT run-grain drill-ins, each for a reason
+    // stated in its own description: `branch` narrows `history` (a series, not
+    // a run), `commit_sha` IS the anchor rather than something anchored, and
+    // `unstable_test` reads the branch window (`history_runs`) rather than the
+    // anchored run — the documented exception the sentence after the list names.
+    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test"]);
+
+    // The response key each drill-in parameter opens. Keys, not parameter
+    // names, because the description enumerates what MOVES — response blocks —
+    // and for three of the four the two spellings differ.
+    const RESPONSE_KEY: Record<string, string> = {
+      spec_directory: "spec_directory_files",
+      spec_file: "spec_file_examples",
+      repeated_description: "repeated_description_examples",
+      unannotated_examples: "unannotated_examples",
+    };
+
+    const drillIns = Object.keys(properties).filter((name) => !NOT_RUN_GRAIN_DRILL_INS.has(name));
+
+    // Guard the guard: a new parameter with no entry in the map above would
+    // otherwise be skipped silently, which is the same blind spot one level up.
+    assert.deepEqual(
+      drillIns.filter((name) => !(name in RESPONSE_KEY)),
+      [],
+      "every run-grain drill-in parameter needs its response key in RESPONSE_KEY, or an " +
+        "explicit entry in NOT_RUN_GRAIN_DRILL_INS saying why it does not re-anchor",
+    );
+
+    for (const name of drillIns) {
+      assert.ok(
+        description.includes(`\`${RESPONSE_KEY[name]}\``),
+        `\`commit_sha\`'s description must name \`${RESPONSE_KEY[name]}\` in its re-anchoring ` +
+          "list — the list is closed and followed by a stated exception, so a block left out of " +
+          "it reads to an agent as a block that does NOT move with the anchor",
+      );
+    }
+
+    // And the count in the prose, which is the half a per-name loop cannot see:
+    // the list can name all four while the sentence introducing it still says
+    // "three", and an agent reading a count that disagrees with the list it
+    // introduces has no way to tell which half is stale.
+    assert.match(
+      description,
+      new RegExp(`${["", "one", "two", "three", "four", "five", "six"][drillIns.length]} RUN-GRAIN drill-ins`, "i"),
+      `the description must introduce its list with the number of run-grain drill-ins the tool ` +
+        `actually documents (${drillIns.length}), not a count left over from before the last one ` +
+        "was added",
+    );
+  });
+
   it("points `commit_sha` at response paths that actually exist", () => {
     // The three guards above pin the FACTS. This one pins the PATH, because a
     // description can state every fact correctly and still hand the agent a

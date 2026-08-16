@@ -138,12 +138,13 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * one CHOOSES THAT RUN, which the controller states in those terms: `?branch=`
  * asks about a SERIES, this asks WHICH RUN. It is read once, in that memo, so
  * every run-grain block moves together — `latest_run` and its rollups, the
- * three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and
- * `repeated_description_examples`), `shards`, both growth windows and
+ * four RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`,
+ * `repeated_description_examples` and `unannotated_examples`, the flag-style
+ * rung documented below), `shards`, both growth windows and
  * `previous_test_run`.
  *
- * That is three of the FOUR drill-ins above, and the excluded one is worth
- * naming because it is the composition an agent will actually try:
+ * That is four of the FIVE drill-ins on this tool, and the excluded one is
+ * worth naming because it is the composition an agent will actually try:
  * `unstable_test_runs` is read over the BRANCH WINDOW (`history_runs`), not off
  * the anchored run, so it does not move with this parameter. Sent together,
  * `?commit_sha=` and `?unstable_test=` answer about different things on
@@ -383,9 +384,10 @@ const getRepositoryOverview: ToolDefinition = {
           "`latest_run.commit_sha`, `history[].commit_sha` or " +
           "`unstable_tests.unstable_test_runs.rows[].commit_sha`. " +
           "Everything at run grain re-anchors together: `latest_run` and its five rollups, the " +
-          "three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and " +
-          "`repeated_description_examples`), `shards`, both per-area growth windows and " +
-          "`previous_test_run`. `unstable_test_runs` is the one drill-in that does NOT move with " +
+          "four RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`, " +
+          "`repeated_description_examples` and `unannotated_examples`), `shards`, both per-area " +
+          "growth windows and `previous_test_run`. " +
+          "`unstable_test_runs` is the one drill-in that does NOT move with " +
           "it: it is read over the branch window rather than off the anchored run, so sending " +
           "this with `unstable_test` still gives you that test across the whole window. " +
           "Use it when you need to be answered about a SPECIFIC run rather than whatever is " +
