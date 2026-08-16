@@ -1,7 +1,7 @@
 import { requireApiConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 import { getJson } from "../support/specguard-api.js";
-import { optionalString } from "./args.js";
+import { optionalBoolean, optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -138,12 +138,13 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * one CHOOSES THAT RUN, which the controller states in those terms: `?branch=`
  * asks about a SERIES, this asks WHICH RUN. It is read once, in that memo, so
  * every run-grain block moves together — `latest_run` and its rollups, the
- * three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and
- * `repeated_description_examples`), `shards`, both growth windows and
+ * four RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`,
+ * `repeated_description_examples` and `unannotated_examples`, the flag-style
+ * rung documented below), `shards`, both growth windows and
  * `previous_test_run`.
  *
- * That is three of the FOUR drill-ins above, and the excluded one is worth
- * naming because it is the composition an agent will actually try:
+ * That is four of the FIVE drill-ins on this tool, and the excluded one is
+ * worth naming because it is the composition an agent will actually try:
  * `unstable_test_runs` is read over the BRANCH WINDOW (`history_runs`), not off
  * the anchored run, so it does not move with this parameter. Sent together,
  * `?commit_sha=` and `?unstable_test=` answer about different things on
@@ -179,6 +180,51 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * ask kept in `requested_commit_sha`, `commit_sha`/`branch` naming what was
  * actually served). Nothing else about the response looks unusual, which is why
  * the schema tells the agent to read `run_anchor.resolved`.
+ *
+ * == `unannotated_examples` is the one that is a FLAG rather than a name
+ *
+ *   `latest_run.total_specs` − `annotated_specs` → `latest_run.unannotated_examples`
+ *
+ * The argument for forwarding it is the ladder's again — the parameter was
+ * withheld by not being offered, `additionalProperties: false` refused it before
+ * a request was made, and `renderText` has therefore been serving
+ * `unannotated_examples: null` (the server's "you did not ask" spelling) to a
+ * client structurally incapable of asking. What is new is WHOSE question it
+ * answers. This is the adoption metric of Project Goals (SPGD-1): an agent told
+ * to raise annotation coverage was served `annotated_ratio` and a `null`, so it
+ * learned how far it had to go and could not name a single test to annotate. A
+ * plain `curl` user could.
+ *
+ * ONE THING DIFFERS FROM ALL SIX SIBLINGS, and it is the reason this forward is
+ * not a copy of the previous five. Every parameter above names a WHICH — which
+ * branch, which commit, which area, which file, which description, which test —
+ * because each opens the rows behind a LINE of a ranking the client had already
+ * read. This one opens a POPULATION rather than a pick: the figure it drills out
+ * of is a SUBTRACTION on the run itself, and a subtraction has no rows to have
+ * keys. So the server reads only whether the parameter was NAMED, which
+ * `RequestedUnannotatedExamplesParam` states outright — the value is not read,
+ * and THAT INCLUDES `false`: `?unannotated_examples=false` opens the block
+ * exactly as `=true` does.
+ *
+ * That is a hazard on this side rather than a curiosity, and it is why the
+ * argument is a BOOLEAN coerced with `optionalBoolean` and the query key is
+ * built rather than stringified. `getJson` omits only `undefined`, so
+ * `String(false)` would put `unannotated_examples=false` on the URL and open a
+ * hundred-row block for the one caller who asked explicitly for it NOT to be
+ * opened — the exact misreading the server's guard file exists to prevent, made
+ * on the other side of the wire. The key is sent as `"true"` on an affirmative
+ * ask and is `undefined` otherwise, so declining and omitting are the same wire
+ * request. That matches how every other parameter here is declined: none of them
+ * has an "off" value either.
+ *
+ * TWO THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
+ * `commit_sha` like everything else under `latest_run` — unlike `unstable_test`,
+ * which does not. And a FULLY-ANNOTATED run answers `rows: []` /
+ * `recorded_count: 0` with 200, never a 404 and never the no-ask `null`: that is
+ * the state the metric exists to reach, so an agent walking a repository to
+ * completion must see the block go empty rather than watch it vanish at the
+ * moment it succeeded and be unable to tell that from its own parameter having
+ * been dropped.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -210,6 +256,8 @@ const getRepositoryOverview: ToolDefinition = {
     "branch's: pass `commit_sha` to be answered about ONE named run instead — after pushing a " +
     "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
     "because an unknown sha falls back to the newest rather than erroring. " +
+    "Pass `unannotated_examples: true` to list the individual tests SpecGuard CANNOT see — the " +
+    "examples behind the annotated ratio, which is otherwise a percentage with nothing to act on. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, or to see annotation coverage. " +
@@ -336,9 +384,10 @@ const getRepositoryOverview: ToolDefinition = {
           "`latest_run.commit_sha`, `history[].commit_sha` or " +
           "`unstable_tests.unstable_test_runs.rows[].commit_sha`. " +
           "Everything at run grain re-anchors together: `latest_run` and its five rollups, the " +
-          "three RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples` and " +
-          "`repeated_description_examples`), `shards`, both per-area growth windows and " +
-          "`previous_test_run`. `unstable_test_runs` is the one drill-in that does NOT move with " +
+          "four RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`, " +
+          "`repeated_description_examples` and `unannotated_examples`), `shards`, both per-area " +
+          "growth windows and `previous_test_run`. " +
+          "`unstable_test_runs` is the one drill-in that does NOT move with " +
           "it: it is read over the branch window rather than off the anchored run, so sending " +
           "this with `unstable_test` still gives you that test across the whole window. " +
           "Use it when you need to be answered about a SPECIFIC run rather than whatever is " +
@@ -366,6 +415,34 @@ const getRepositoryOverview: ToolDefinition = {
           "whatever CI reported, so short and long forms both work — pass the sha back exactly as " +
           "it was served.",
       },
+      unannotated_examples: {
+        type: "boolean",
+        description:
+          "Open the run's UNANNOTATED examples — the individual tests behind `latest_run`'s " +
+          "`total_specs` MINUS `annotated_specs`, the subtraction the dashboard renders as " +
+          "\"SpecGuard cannot see the other N tests\". Every other population this endpoint reports " +
+          "can be walked down to the examples it counts; annotation coverage was the exception, so " +
+          "`annotated_ratio` told you how far you had to go and not one test to annotate. " +
+          "THIS ONE IS A FLAG, NOT A NAME — the only argument here that takes `true` rather than a " +
+          "value. The others open the rows behind a LINE of a ranking and so carry that line's key; " +
+          "this opens a POPULATION, and there is exactly one to ask for, so there is nothing to name " +
+          "and nothing echoed back. " +
+          "Asking populates `latest_run.unannotated_examples` — up to 100 of the run's unannotated " +
+          "examples, each with `name`, `file_path`, `line_number` and `spec_file_path` (FOUR fields: " +
+          "no `duration_seconds` and no `outcome`, unlike the per-example drill-ins above), plus the " +
+          "RUN's own `recorded_count` and the `limit` the row list was cut at. Do not re-derive " +
+          "`recorded_count` from `rows`: this population is routinely the WHOLE RUN — a repository " +
+          "that has just installed the gem has every test in it — so the cap is the normal case here " +
+          "rather than the exotic one. " +
+          "It is at RUN GRAIN, so it MOVES WITH `commit_sha` like everything else under " +
+          "`latest_run`, unlike `unstable_test` which does not. " +
+          "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: it answers 200 with `rows: []` " +
+          "and `recorded_count: 0`, because that is the state the metric exists to reach — so a " +
+          "repository walked to completion shows the block EMPTY rather than gone. " +
+          "Omit it and the key is `null`, meaning you did not ask. `false` means the same as " +
+          "omitting it and sends nothing at all: declining is not sending, which is how every other " +
+          "argument here is declined too — none of them has an \"off\" value.",
+      },
     },
     additionalProperties: false,
   },
@@ -380,6 +457,15 @@ const getRepositoryOverview: ToolDefinition = {
     );
     const unstableTest = optionalString(args["unstable_test"], "unstable_test");
     const commitSha = optionalString(args["commit_sha"], "commit_sha");
+    // A BOOLEAN, and deliberately not stringified below. The server reads only
+    // whether the key is PRESENT — `?unannotated_examples=false` opens the block
+    // exactly as `=true` does — and `getJson` omits only `undefined`, so sending
+    // `String(false)` would open a hundred-row block for the one caller who
+    // asked explicitly for it not to be. See this file's header.
+    const unannotatedExamples = optionalBoolean(
+      args["unannotated_examples"],
+      "unannotated_examples",
+    );
     const api = requireApiConfig(context.config);
 
     const body = await getJson(
@@ -392,6 +478,7 @@ const getRepositoryOverview: ToolDefinition = {
         repeated_description: repeatedDescription,
         unstable_test: unstableTest,
         commit_sha: commitSha,
+        unannotated_examples: unannotatedExamples === true ? "true" : undefined,
       },
       context.fetch,
     );
