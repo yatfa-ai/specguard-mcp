@@ -105,6 +105,7 @@ branch window rather than between the last two runs.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
+| `unannotated_examples` | `true` to list the individual tests SpecGuard cannot see — the examples behind the annotated ratio |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge — and
@@ -196,6 +197,27 @@ truncated sequence is still the recent runs. Read the run off each row's `commit
 and never off its index: a run that recorded nothing under the description contributes no row, and a
 description carried by two examples in one run contributes two, so `rows` is not one entry per run
 and its length is not the window's `run_count`.
+
+`annotated_ratio` is the product's adoption metric and it was the one population on this endpoint
+you could not walk down: the dashboard prints *"SpecGuard cannot see the other N tests"* and could
+not name one of them either, so an agent told to raise annotation coverage learned how far it had to
+go and not a single test to annotate. `unannotated_examples` is that rung. It is the one argument
+here that is a **flag rather than a name** — pass `true`, not a value — because it opens a
+*population* rather than a pick: `total_specs` minus `annotated_specs` is a subtraction, and a
+subtraction has no rows to have keys. `latest_run.unannotated_examples` opens with up to 100 of the
+run's unannotated examples (`name`, `file_path`, `line_number`, `spec_file_path` each — four fields,
+not the per-example drill-ins' six), plus the **run's** own `recorded_count` and the `limit` the row
+list was cut at. Do not re-derive that count from `rows`: this population is routinely the whole run
+— a repository that has just installed the gem has every test in it — so the cap fires as the normal
+case here rather than the exotic one. It is at run grain, so it moves with `commit_sha`.
+
+`false` means the same as omitting it and sends nothing at all. That matters more here than
+elsewhere: the server reads only whether the parameter was **named**, so `?unannotated_examples=false`
+on the wire would open the block for a caller who asked for it not to be — declining is not sending,
+which is how every other argument here is declined too. Omit it and the key is `null`, meaning you
+did not ask. A **fully-annotated run is not an error and not a `null`**: it answers 200 with
+`rows: []` and `recorded_count: 0`, because that is the state the metric exists to reach — walk a
+repository to completion and the block goes empty rather than vanishing.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.

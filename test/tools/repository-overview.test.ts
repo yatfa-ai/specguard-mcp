@@ -26,6 +26,10 @@ const BODY = JSON.stringify({
     // names a file, and only when `?repeated_description=` names a group.
     spec_file_examples: null,
     repeated_description_examples: null,
+    // And the flag-style one: populated only when `?unannotated_examples=` is
+    // sent at all. `null` here is "you did not ask" — NOT "there are none",
+    // which is served as a block with `rows: []`.
+    unannotated_examples: null,
   },
   history_window: { branch_scope: "all_branches", branch: null, limit: 10, returned: 1 },
   history: [],
@@ -141,6 +145,68 @@ const GROUP_DRILLED_BODY = JSON.stringify({
       timed_count: 71,
       limit: 25,
     },
+  },
+});
+
+/**
+ * `?unannotated_examples=` answered — the flag-style drill-in, and the ONE key
+ * that changes.
+ *
+ * Built on the same trap as its siblings and then some: `recorded_count` is
+ * 18_800 against 2 returned rows. That is not an exaggerated fixture — it is
+ * `total_specs` (20_000) minus `annotated_specs` (1200) off `BODY`, so the
+ * numbers agree with the run they describe. This population is routinely the
+ * whole run, which makes the `limit` cut the NORMAL case here rather than the
+ * exotic one, and a client folding `rows` would report 2 unannotated tests on a
+ * suite with eighteen thousand.
+ *
+ * FOUR FIELDS PER ROW, not the six the other per-example blocks carry: no
+ * `duration_seconds` and no `outcome`. The difference is asserted rather than
+ * structural, so a field added server-side to match the siblings goes red here.
+ */
+const UNANNOTATED_DRILLED_BODY = JSON.stringify({
+  ...JSON.parse(BODY),
+  latest_run: {
+    ...JSON.parse(BODY).latest_run,
+    unannotated_examples: {
+      rows: [
+        {
+          name: "validates the email format",
+          file_path: "app/models/user.rb",
+          line_number: 42,
+          spec_file_path: "spec/models/user_spec.rb",
+        },
+        {
+          name: "is valid",
+          file_path: "app/models/order.rb",
+          line_number: 9,
+          spec_file_path: "spec/models/order_spec.rb",
+        },
+      ],
+      recorded_count: 18_800,
+      limit: 100,
+    },
+  },
+});
+
+/**
+ * The SUCCESS state — every test in the run annotated — which is the state this
+ * whole metric exists to reach and is NOT spelled like an absence.
+ *
+ * `rows: []` with `recorded_count: 0`, HTTP 200, with the key an OBJECT. The
+ * server refuses to collapse this into the no-ask `null` for a stated reason: a
+ * client walking a repository to completion would otherwise watch the block
+ * vanish at the moment it succeeded, and could not tell that from its own
+ * parameter having been dropped on the way. This fixture is what makes that
+ * distinction testable on this side of the wire.
+ */
+const FULLY_ANNOTATED_BODY = JSON.stringify({
+  ...JSON.parse(BODY),
+  latest_run: {
+    ...JSON.parse(BODY).latest_run,
+    annotated_specs: 20_000,
+    annotated_ratio: 1.0,
+    unannotated_examples: { rows: [], recorded_count: 0, limit: 100 },
   },
 });
 
@@ -313,6 +379,52 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
 
+  it("passes ?unannotated_examples=true through when the block is asked for", async () => {
+    // Sent alongside `commit_sha` because the two compose the way an agent will
+    // actually use them: this block hangs off `latest_run`, so it is at RUN
+    // GRAIN and re-anchors with the sha. "Which tests are unannotated in the run
+    // I just pushed" is one call, and both keys have to survive onto the URL.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { unannotated_examples: true, commit_sha: "a1b2c3d" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?commit_sha=a1b2c3d&unannotated_examples=true",
+    );
+  });
+
+  it("sends NOTHING for `unannotated_examples: false`, rather than a value the server would read as an ask", async () => {
+    // THE ONE TEST ON THIS TOOL THAT IS NOT A COPY OF ITS SIBLINGS, and the
+    // reason the argument is a boolean coerced by `optionalBoolean` rather than
+    // a string.
+    //
+    // The server reads only whether the parameter was NAMED —
+    // `RequestedUnannotatedExamplesParam` says so outright: "THE VALUE IS NOT
+    // READ, AND THAT INCLUDES `false`", so `?unannotated_examples=false` opens
+    // the block exactly as `=true` does. And `getJson` omits a query entry only
+    // when it is `undefined`. Stringify the boolean naively and `false` lands on
+    // the URL as the four characters "false", which the server reads as an
+    // affirmative ask and answers with up to a hundred rows — for the ONE caller
+    // who asked explicitly for it not to be opened. Nothing errors; the response
+    // is simply bigger than the client said it wanted.
+    //
+    // So the assertion is the WHOLE URL, not the absence of a substring: a bare
+    // `doesNotMatch(/unannotated_examples/)` would also pass on a run() that
+    // dropped the parameter entirely, which is the opposite defect.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { unannotated_examples: false },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
   it("does not double the slash when the endpoint carries a trailing one", async () => {
     const http = stubFetch({ body: BODY });
 
@@ -419,6 +531,66 @@ describe("get_repository_overview — the response it returns", () => {
     assert.equal(latest["spec_file_examples"], null);
   });
 
+  it("hands back the run's unannotated examples populated when the flag was sent", async () => {
+    const result = await getRepositoryOverview.run(
+      { unannotated_examples: true },
+      toolContext({ env: ENV, fetch: stubFetch({ body: UNANNOTATED_DRILLED_BODY }).fetch }),
+    );
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    const drilled = latest["unannotated_examples"] as Record<string, unknown>;
+
+    assert.deepEqual(drilled, JSON.parse(UNANNOTATED_DRILLED_BODY).latest_run.unannotated_examples);
+
+    // The RUN's own population, NOT the returned page's — and here the two are
+    // three orders of magnitude apart, because this list is capped as the normal
+    // case rather than the exotic one.
+    assert.equal(drilled["recorded_count"], 18_800);
+    assert.equal((drilled["rows"] as unknown[]).length, 2);
+    assert.equal(drilled["limit"], 100);
+
+    // FOUR fields, not the per-example drill-ins' six. Asserted as a set so that
+    // a `duration_seconds` or `outcome` added upstream is visible here rather
+    // than passing silently under a `deepEqual` against a fixture updated to
+    // match it.
+    const rows = drilled["rows"] as Record<string, unknown>[];
+    assert.deepEqual(Object.keys(rows[0] ?? {}).sort(), [
+      "file_path",
+      "line_number",
+      "name",
+      "spec_file_path",
+    ]);
+
+    // Drilling this rung must not invent the others.
+    assert.equal(latest["spec_directory_files"], null);
+    assert.equal(latest["spec_file_examples"], null);
+    assert.equal(latest["repeated_description_examples"], null);
+  });
+
+  it("keeps a fully-annotated run's EMPTY block an object, which is not the same answer as null", async () => {
+    // The distinction the whole parameter turns on, and the one a pass-through
+    // is uniquely well placed to protect: `null` means "you did not ask" and
+    // `rows: []` means "you asked, and there are none" — the state the metric
+    // exists to reach, served 200 and never as a 404.
+    //
+    // Any convenience the bridge might grow — defaulting an empty block to
+    // `null`, dropping a key whose rows are empty — would collapse a repository
+    // that finished the work into one that never asked, and an agent walking
+    // annotation coverage to completion would read its own success as a dropped
+    // parameter. So the assertion is `notEqual(null)` FIRST, then the shape.
+    const result = await getRepositoryOverview.run(
+      { unannotated_examples: true },
+      toolContext({ env: ENV, fetch: stubFetch({ body: FULLY_ANNOTATED_BODY }).fetch }),
+    );
+
+    const latest = result.structured?.["latest_run"] as Record<string, unknown>;
+    const drilled = latest["unannotated_examples"] as Record<string, unknown>;
+
+    assert.notEqual(drilled, null, "an empty population is a block with no rows, never a null");
+    assert.deepEqual(drilled, { rows: [], recorded_count: 0, limit: 100 });
+    assert.equal(latest["annotated_ratio"], 1.0);
+  });
+
   it("asks for no area, and gets back null, when none was named", async () => {
     // The regression lock on the whole change, and it only means something if it
     // holds BOTH halves in the one place: the request must not carry a
@@ -442,6 +614,10 @@ describe("get_repository_overview — the response it returns", () => {
     // parameter would still be handed this canned body.
     assert.equal(latest["spec_file_examples"], null);
     assert.equal(latest["repeated_description_examples"], null);
+    // And the flag-style rung, whose `null` is the same "you did not ask" — the
+    // spelling every MCP call got before this parameter was forwarded, back when
+    // there was no way to ask at all.
+    assert.equal(latest["unannotated_examples"], null);
   });
 });
 
@@ -662,10 +838,92 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("rejects an unannotated_examples that is not a boolean, naming it", async () => {
+    // The STRING shape specifically, because it is the one an agent will
+    // actually produce: every other argument on this tool is a string, and
+    // `"false"` is the spelling a client copying the pattern reaches for. It is
+    // also the worst one to let through. The server reads only whether the
+    // parameter was named, so a forwarded `"false"` would open the block for a
+    // caller who spelled out the opposite — and unlike a bad `commit_sha`, there
+    // is no `run_anchor` anywhere in the response to disclose what happened.
+    // Refused before a request is made, so the ambiguity never reaches the wire.
+    await rejects(
+      getRepositoryOverview.run({ unannotated_examples: "false" }, toolContext({ env: ENV })),
+      /`unannotated_examples` must be a boolean/,
+    );
+  });
+
+  it("discloses what an agent cannot guess about `unannotated_examples` from the six siblings", () => {
+    // Same shape and same honest limit as the two guards above: these are the
+    // SERVER's facts, so nothing here verifies the endpoint's behaviour — only
+    // that the description an agent receives still discloses it.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const parameter = properties["unannotated_examples"] as {
+      type?: string;
+      description?: string;
+    };
+    const description = parameter?.description ?? "";
+
+    // 0. A BOOLEAN in the advertised schema, not merely in the coercion. This is
+    // the half a client reads before calling, and the six siblings are all
+    // strings — so an agent generalising from them sends `"true"`, which the
+    // coercion refuses. Advertising the type is what stops that call being made.
+    assert.equal(
+      parameter?.type,
+      "boolean",
+      "the schema must advertise a boolean: `false` MUST be expressible as a value that sends " +
+        "nothing, and a string parameter has no such value — the server reads any present key as " +
+        "an ask",
+    );
+
+    // 1. WHERE THE ANSWER LANDS. Two of the six siblings answer somewhere other
+    // than where their ranking sits, so the landing key is not inferable, and an
+    // agent that guesses `unannotated_examples` at the top level reads the
+    // absence of a key as an empty answer.
+    assert.match(
+      description,
+      /`latest_run\.unannotated_examples`/,
+      "the description must name the key the answer lands under",
+    );
+
+    // 2. IT MOVES WITH `commit_sha`. Whether a drill-in re-anchors is decided
+    // per block on this endpoint — `unstable_test_runs` is read over the branch
+    // window and does NOT move — so an agent that has read that exception has
+    // positive reason to doubt this one, and "which tests were unannotated in
+    // the run I just pushed" is the question it will ask.
+    assert.match(
+      description,
+      /MOVES WITH `commit_sha`/,
+      "the description must state that this block re-anchors with `commit_sha`, because its " +
+        "sibling `unstable_test_runs` explicitly does not",
+    );
+
+    // 3. THE SUCCESS STATE IS NOT AN ABSENCE. This is the one that costs an
+    // agent its answer silently: a fully-annotated run answers 200 with
+    // `rows: []`, and an agent expecting a 404 or a `null` to mean "done" reads
+    // the finished state as its own parameter having been dropped.
+    assert.match(
+      description,
+      /`rows: \[\]`/,
+      "the description must state that a fully-annotated run answers with an empty row list, " +
+        "not an error and not the no-ask `null` — that is the state the metric exists to reach",
+    );
+
+    // 4. `false` SENDS NOTHING. Stated because the alternative is a silent
+    // EXTRA answer rather than a missing one: nothing errors, the response is
+    // simply bigger than the client asked for, on every request it makes.
+    assert.match(
+      description,
+      /`false` means the same as omitting it/,
+      "the description must say that a false flag sends nothing at all, since the server would " +
+        "read a forwarded `false` as an affirmative ask",
+    );
+  });
+
   it("blames the ARGUMENT for a bad type, not the deployment", async () => {
-    // Note the context: no endpoint, no key, no `ENV` at all. The six
-    // `optionalString` calls run before `requireApiConfig`, so this refusal
-    // happens on a server where no deployment could have been contacted — which
+    // Note the context: no endpoint, no key, no `ENV` at all. The seven
+    // coercions run before `requireApiConfig`, so this refusal happens on a
+    // server where no deployment could have been contacted — which
     // is exactly why the class it throws matters.
     const error = await rejects(
       getRepositoryOverview.run({ branch: 7 }, toolContext()),
