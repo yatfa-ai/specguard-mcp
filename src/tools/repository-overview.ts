@@ -206,6 +206,17 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * states outright — the value is not read, and THAT INCLUDES `false`:
  * `?unannotated_examples=false` opens the block exactly as `=true` does.
  *
+ * That is a hazard on this side rather than a curiosity, and it is why the
+ * argument is a BOOLEAN coerced with `optionalBoolean` and the query key is
+ * built rather than stringified. `getJson` omits only `undefined`, so
+ * `String(false)` would put `unannotated_examples=false` on the URL and open a
+ * hundred-row block for the one caller who asked explicitly for it NOT to be
+ * opened — the exact misreading the server's guard file exists to prevent, made
+ * on the other side of the wire. The key is sent as `"true"` on an affirmative
+ * ask and is `undefined` otherwise, so declining and omitting are the same wire
+ * request. That matches how every other parameter here is declined: none of them
+ * has an "off" value either.
+ *
  * WHICH POPULATION IT OPENS IS NOT FIXED, and that is the half this file first
  * got wrong. `specguard` `55e3a09` made `?spec_file=` and `?spec_directory=`
  * narrow this block when either rides along with the flag — the same two
@@ -221,18 +232,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * when not sent, for exactly that reason: `recorded_count` is the one figure
  * here a client reconciles against `total_specs - annotated_specs`, and a
  * silently narrowed count breaks that reconciliation. The echo is what makes the
- * count's population readable, so both are stated in the schema together.
- *
- * That is a hazard on this side rather than a curiosity, and it is why the
- * argument is a BOOLEAN coerced with `optionalBoolean` and the query key is
- * built rather than stringified. `getJson` omits only `undefined`, so
- * `String(false)` would put `unannotated_examples=false` on the URL and open a
- * hundred-row block for the one caller who asked explicitly for it NOT to be
- * opened — the exact misreading the server's guard file exists to prevent, made
- * on the other side of the wire. The key is sent as `"true"` on an affirmative
- * ask and is `undefined` otherwise, so declining and omitting are the same wire
- * request. That matches how every other parameter here is declined: none of them
- * has an "off" value either.
+ * count's population readable.
  *
  * THREE THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
  * `commit_sha` like everything else under `latest_run` — unlike `unstable_test`,

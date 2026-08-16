@@ -208,18 +208,18 @@ here that is a **flag rather than a name** — pass `true`, not a value — beca
 subtraction has no line to name. Which population is still yours to choose: sent alone the flag
 opens the whole run, and sent **together with** `spec_file` or `spec_directory` it narrows to that
 file, that area, or the AND of the two — those two keep opening their own blocks as well, so
-narrowing this one is additional rather than instead.
-`latest_run.unannotated_examples` opens with up to 100 of the unannotated examples **of whatever you
-asked for** (`name`, `file_path`, `line_number`, `spec_file_path` each — four fields, not the
-per-example drill-ins' six), plus that same population's own `recorded_count`, the `limit` the row
-list was cut at, and `spec_file`/`spec_directory` **echoed back** as the server read them — `null`
-for each one you did not send. Read the echo before the count: `recorded_count` is the figure you
-would reconcile against `total_specs - annotated_specs`, and it counts the *narrowed* population
-whenever either echo is non-null, so that reconciliation is expected to hold only when both are
-`null`. Do not re-derive that count from `rows` either way: un-narrowed, this population is
-routinely the entire run — a repository that has just installed the gem has every test in it — so
-the cap fires as the normal case here rather than the exotic one, and a narrowed ask is cut at the
-same 100. It is at run grain, so it moves with `commit_sha`.
+narrowing this one is additional rather than instead. `latest_run.unannotated_examples` opens with
+up to 100 of the unannotated examples **of whatever you asked for** (`name`, `file_path`,
+`line_number`, `spec_file_path` each — four fields, not the per-example drill-ins' six), plus that
+same population's own `recorded_count`, the `limit` the row list was cut at, and
+`spec_file`/`spec_directory` **echoed back** as the server read them — `null` for each one you did
+not send. Read the echo before the count: `recorded_count` is the figure you would reconcile against
+`total_specs - annotated_specs`, and it counts the *narrowed* population whenever either echo is
+non-null, so that reconciliation is expected to hold only when both are `null`. Do not re-derive
+that count from `rows` either way: un-narrowed, this population is routinely the entire run — a
+repository that has just installed the gem has every test in it — so the cap fires as the normal
+case here rather than the exotic one, and a narrowed ask is cut at the same 100. It is at run grain,
+so it moves with `commit_sha`.
 
 `false` means the same as omitting it and sends nothing at all. That matters more here than
 elsewhere: the server reads only whether the parameter was **named**, so `?unannotated_examples=false`
