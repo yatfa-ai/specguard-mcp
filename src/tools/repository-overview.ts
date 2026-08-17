@@ -254,9 +254,12 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * differ for the same reason — the worklist is file-navigable, and the map is
  * `unannotated_count DESC, path ASC`: ranked by debt, with path as a tiebreak
  * only. A fully-annotated area is a REAL ROW here with `unannotated_count: 0`
- * against its real `recorded_count`, sorted last and therefore cut on any run
- * with more areas than the cap; and `directory_count` counts EVERY area the run
- * touched, not every area with debt, and never `rows.size`.
+ * against its real `recorded_count`, never an omission. Those rows sort last
+ * COLLECTIVELY, so on a run with more areas than the cap they are cut and never
+ * seen, but on a run inside the cap they ARE LISTED and listed is correct. So
+ * `rows.size` is not a count of areas WITH debt — read each row's
+ * `unannotated_count` for that; and `directory_count` counts EVERY area the run
+ * touched, not every area with debt, and never `rows.size` either.
  *
  * ⭐ THE TWO KEYS OF THIS ONE BLOCK DISAGREE IN TWO PLACES, ON PURPOSE, and both
  * are counting traps rather than curiosities. `serialized_unannotated_directories`
@@ -584,11 +587,10 @@ const getRepositoryOverview: ToolDefinition = {
           "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: the worklist answers 200 with " +
           "`rows: []` and `recorded_count: 0`, because that is the state the metric exists to " +
           "reach — so a repository walked to completion shows the block EMPTY rather than gone. " +
-          "A narrowing " +
-          "that matched nothing reads the SAME way and is never a 404: an unknown or renamed path, " +
-          "a file that is already fully annotated, and a contradictory file-and-area pair all " +
-          "answer `rows: []` with both narrowings echoed, which is an empty intersection rather " +
-          "than a dropped parameter. " +
+          "A narrowing that matched nothing reads the SAME way and is never a 404: an unknown or " +
+          "renamed path, a file that is already fully annotated, and a contradictory file-and-area " +
+          "pair all answer `rows: []` with both narrowings echoed, which is an empty intersection " +
+          "rather than a dropped parameter. " +
           "Omit the flag and BOTH keys are `null`, meaning you did not ask. `false` means the " +
           "same as omitting it and sends nothing at all: declining is not sending, which is how " +
           "every other argument here is declined too — none of them has an \"off\" value.",
