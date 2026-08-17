@@ -234,16 +234,89 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * silently narrowed count breaks that reconciliation. The echo is what makes the
  * count's population readable.
  *
- * THREE THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
+ * ⭐ AND THE ONE ASK NOW OPENS TWO BLOCKS, THE SECOND OF WHICH IS A RANKING.
+ * `specguard` `9df1b3d` added `latest_run.unannotated_directories` under this
+ * SAME flag — no new parameter, no new value, nothing extra for a client to send
+ * — so every call that already asks for the worklist is already being served the
+ * map beside it. It answers what the worklist cannot: the worklist is WHICH
+ * TESTS to go and annotate, and the map is WHERE THE DEBT IS, rolled up by area,
+ * which is what a reader picks the next `?spec_directory=` narrowing FROM. That
+ * is the same shape `spec_directory`'s own description states one parameter
+ * over — one ask, several blocks, each in its own grain — so it is said here in
+ * that form rather than in a new one.
+ *
+ * TWO CAPS UNDER ONE ASK, and the difference is the KIND of list rather than the
+ * grain. `UNANNOTATED_EXAMPLES_LIMIT` is 100 and `UNANNOTATED_DIRECTORIES_LIMIT`
+ * is 10, and the server's constant says why: the hundred caps a WORKLIST, sized
+ * for a batch somebody opens, annotates and re-delivers in one sitting; the ten
+ * caps a RANKING, which exists only to name where the debt is concentrated, and
+ * a reader who cannot pick from ten areas is not helped by eighty. The ORDERS
+ * differ for the same reason — the worklist is file-navigable, and the map is
+ * `unannotated_count DESC, path ASC`: ranked by debt, with path as a tiebreak
+ * only. A fully-annotated area is a REAL ROW here with `unannotated_count: 0`
+ * against its real `recorded_count`, never an omission. Those rows sort last
+ * COLLECTIVELY, so on a run with more areas than the cap they are cut and never
+ * seen, but on a run inside the cap they ARE LISTED and listed is correct. So
+ * `rows.size` is not a count of areas WITH debt — read each row's
+ * `unannotated_count` for that; and `directory_count` counts EVERY area the run
+ * touched, not every area with debt, and never `rows.size` either.
+ *
+ * ⭐ THE TWO KEYS OF THIS ONE BLOCK DISAGREE IN TWO PLACES, ON PURPOSE, and both
+ * are counting traps rather than curiosities. `serialized_unannotated_directories`
+ * discloses both at unusual length precisely because the machine-readable
+ * consumer is the one that would otherwise discover them by arithmetic — and
+ * this bridge IS that consumer.
+ *
+ * (a) SCOPE. `unannotated_examples.recorded_count` NARROWS with `?spec_file=` /
+ * `?spec_directory=`; `unannotated_directories` stays WHOLE-RUN under both. So
+ * under a narrowing the worklist's `recorded_count` is NOT the sum of the map's
+ * `unannotated_count`s, AND NEITHER FIGURE IS WRONG: the first counts the one
+ * area or file you named, the second ranks the whole run. The map is whole-run
+ * BY DESIGN, because it is the thing a client picks a narrowing FROM and a map
+ * that narrowed to the area you had already picked would answer nothing — one
+ * row, echoing the parameter back. The sum is short of the run's total whenever
+ * `directory_count > rows.size` besides, narrowing or no narrowing. This is why
+ * the reconciliation rule above is scoped to the WORKLIST's count and to that
+ * count alone.
+ *
+ * (b) NULL VERSUS EMPTY. On a run that recorded no per-example rows at all, with
+ * the flag sent, `unannotated_examples` is a PRESENT block with `rows: []` and
+ * `recorded_count: 0`, while `unannotated_directories` is `null`. That is not an
+ * inconsistency to iron out. The sibling's zero is ambiguous by construction —
+ * "fully annotated" and "recorded nothing at all" reach the same
+ * `recorded_count: 0` there — and this key is how a client tells them apart: a
+ * PRESENT map beside that zero means the run has a per-area grain and the zero
+ * is the SUCCESS state; a `null` map means the run recorded nothing and the zero
+ * is an ABSENCE of data. Serving `rows: []` here instead would spend a
+ * distinction a client has no other way to make.
+ *
+ * THE `commit_sha` ROSTERS above and in README.md CORRECTLY STAY AT FOUR, and
+ * the reason is the roster's UNIT, not anything about this block's shape. That
+ * roster carries ONE REPRESENTATIVE KEY PER DRILL-IN PARAMETER, not one entry
+ * per response key: `spec_directory` opens THREE blocks (see its own
+ * description below), yet only `spec_directory_files` is on the roster —
+ * `directory_run_file_growth` and `directory_runtime_file_growth` are absent
+ * from it for exactly this reason, and the guard in
+ * `test/tools/repository-overview.test.ts` enforces it that way, deriving the
+ * obligation from the schema's PARAMETERS and mapping each to the single key it
+ * represents. `unannotated_directories` is a SECOND BLOCK OF AN EXISTING
+ * PARAMETER'S ASK and adds no parameter, so it is not a roster entry. It is at
+ * run grain and does re-anchor, and is covered there by "`latest_run` and its
+ * rollups".
+ *
+ * FOUR THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
  * `commit_sha` like everything else under `latest_run` — unlike `unstable_test`,
  * which does not. A FULLY-ANNOTATED run answers `rows: []` /
  * `recorded_count: 0` with 200, never a 404 and never the no-ask `null`: that is
  * the state the metric exists to reach, so an agent walking a repository to
  * completion must see the block go empty rather than watch it vanish at the
  * moment it succeeded and be unable to tell that from its own parameter having
- * been dropped. And the pair above — that `spec_file`/`spec_directory` narrow
- * this population when they ride along, and are echoed back so the client can
- * tell which population `recorded_count` is of.
+ * been dropped. The pair above — that `spec_file`/`spec_directory` narrow this
+ * population when they ride along, and are echoed back so the client can tell
+ * which population `recorded_count` is of. And the second block this one ask
+ * opens, with its own cap, its own ranking order and both of the disagreements
+ * above, because a pass-through `renderText` puts that key in front of every
+ * agent whether or not anything here has named it.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -276,7 +349,8 @@ const getRepositoryOverview: ToolDefinition = {
     "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
     "because an unknown sha falls back to the newest rather than erroring. " +
     "Pass `unannotated_examples: true` to list the individual tests SpecGuard CANNOT see — the " +
-    "examples behind the annotated ratio, which is otherwise a percentage with nothing to act on. " +
+    "examples behind the annotated ratio, which is otherwise a percentage with nothing to act on — " +
+    "and, in the same answer, which AREAS of the suite carry the most of them. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, or to see annotation coverage. " +
@@ -465,27 +539,61 @@ const getRepositoryOverview: ToolDefinition = {
           "per-example drill-ins above), plus that same population's own `recorded_count`, the " +
           "`limit` the row list was cut at, and `spec_file`/`spec_directory` ECHOED BACK as the " +
           "server READ them — `null` for each one you did not send. " +
-          "READ THE ECHO BEFORE YOU READ THE COUNT. `recorded_count` is the one figure here you " +
-          "would reconcile against `total_specs - annotated_specs`, and it counts the NARROWED " +
-          "population whenever either echo is non-null — so that reconciliation is expected to hold " +
-          "only when both echoes are `null`. The echo is what tells the two cases apart, which is " +
-          "why the server sends it. " +
+          "READ THE ECHO BEFORE YOU READ THE COUNT. `unannotated_examples.recorded_count` — the " +
+          "WORKLIST's count, and only that one; the map below deliberately does not narrow — is " +
+          "the one figure here you would reconcile against `total_specs - annotated_specs`, and " +
+          "it counts the NARROWED population whenever either echo is non-null — so that " +
+          "reconciliation is expected to hold only when both echoes are `null`. The echo is what " +
+          "tells the two cases apart, which is why the server sends it. " +
           "Do not re-derive `recorded_count` from `rows` in either case. Un-narrowed, this " +
           "population is routinely the entire run — a repository that has just installed the gem " +
           "has every test in it — so the cap is the normal case rather than the exotic one; a " +
-          "narrowed ask is cut at the same 100 and can reach it too. " +
-          "It is at RUN GRAIN, so it MOVES WITH `commit_sha` like everything else under " +
-          "`latest_run`, unlike `unstable_test` which does not. " +
-          "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: it answers 200 with `rows: []` " +
-          "and `recorded_count: 0`, because that is the state the metric exists to reach — so a " +
-          "repository walked to completion shows the block EMPTY rather than gone. A narrowing " +
-          "that matched nothing reads the SAME way and is never a 404: an unknown or renamed path, " +
-          "a file that is already fully annotated, and a contradictory file-and-area pair all " +
-          "answer `rows: []` with both narrowings echoed, which is an empty intersection rather " +
-          "than a dropped parameter. " +
-          "Omit it and the key is `null`, meaning you did not ask. `false` means the same as " +
-          "omitting it and sends nothing at all: declining is not sending, which is how every other " +
-          "argument here is declined too — none of them has an \"off\" value.",
+          "narrowed ask is cut at the same 100. " +
+          "THE ONE ASK OPENS TWO BLOCKS, each in its own grain: `latest_run.unannotated_examples` " +
+          "for WHICH TESTS to go and annotate, and `latest_run.unannotated_directories` for WHERE " +
+          "THE DEBT IS — one run's annotation debt rolled up by code AREA, which is what you pick " +
+          "the next `spec_directory` narrowing FROM. Both come from this ONE flag: there is no " +
+          "second parameter to send and no new value. " +
+          "The map's rows carry `path`, `unannotated_count` and the `recorded_count` that area was " +
+          "counted against (the operands, never a fraction), plus `directory_count` — EVERY area " +
+          "the run touched, not every area with debt, and not `rows.size` — and its OWN `limit`, " +
+          "which is 10 and NOT the worklist's 100. Two caps under one ask, and the difference is " +
+          "the kind of list: 100 caps a WORKLIST to work through, 10 caps a RANKING to pick from. " +
+          "The orders differ for the same reason — the worklist is file-navigable, the map is " +
+          "ranked `unannotated_count` DESC with `path` as a tiebreak only. A fully-annotated area " +
+          "is a real ROW with `unannotated_count: 0`, never an omission. Those rows sort last " +
+          "COLLECTIVELY, so on a run with more areas than the cap they are cut and never seen, " +
+          "but on a run inside the cap they ARE LISTED and listed is correct. So `rows.size` is " +
+          "not a count of areas WITH debt — read each row's `unannotated_count`. " +
+          "THE TWO BLOCKS DISAGREE IN TWO PLACES, ON PURPOSE — do not reconcile them by " +
+          "arithmetic. " +
+          "(1) SCOPE: `spec_file`/`spec_directory` narrow the WORKLIST and its `recorded_count`, " +
+          "and the MAP stays WHOLE-RUN under both. So under a narrowing " +
+          "`unannotated_examples.recorded_count` is NOT the sum of " +
+          "`unannotated_directories.rows[].unannotated_count`, and NEITHER IS WRONG: one counts " +
+          "the area or file you named, the other ranks the whole run. The map is whole-run by " +
+          "design because it is what you choose a narrowing FROM — narrowed to the area you had " +
+          "already picked it would answer nothing. The sum is short of the run's total whenever " +
+          "`directory_count > rows.size` besides, narrowing or not. " +
+          "(2) NULL VERSUS EMPTY: on a run that recorded no per-example rows at all, with the flag " +
+          "sent, `unannotated_examples` is a PRESENT block with `rows: []` and `recorded_count: 0` " +
+          "while `unannotated_directories` is `null`. That is a signal, not an inconsistency — " +
+          "`recorded_count: 0` on the worklist means BOTH \"fully annotated\" and \"recorded " +
+          "nothing\", and the map is how you tell them apart: a present map beside that zero means " +
+          "the zero is the SUCCESS state, a `null` map means the run recorded nothing and the zero " +
+          "is an ABSENCE of data. " +
+          "BOTH BLOCKS ARE AT RUN GRAIN, so each MOVES WITH `commit_sha` like everything else " +
+          "under `latest_run`, unlike `unstable_test` which does not. " +
+          "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: the worklist answers 200 with " +
+          "`rows: []` and `recorded_count: 0`, because that is the state the metric exists to " +
+          "reach — so a repository walked to completion shows the block EMPTY rather than gone. " +
+          "A narrowing that matched nothing reads the SAME way and is never a 404: an unknown or " +
+          "renamed path, a file that is already fully annotated, and a contradictory file-and-area " +
+          "pair all answer `rows: []` with both narrowings echoed, which is an empty intersection " +
+          "rather than a dropped parameter. " +
+          "Omit the flag and BOTH keys are `null`, meaning you did not ask. `false` means the " +
+          "same as omitting it and sends nothing at all: declining is not sending, which is how " +
+          "every other argument here is declined too — none of them has an \"off\" value.",
       },
     },
     additionalProperties: false,
