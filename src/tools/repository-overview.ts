@@ -602,12 +602,13 @@ const getRepositoryOverview: ToolDefinition = {
           "about your commit. `resolved` is false in exactly one case — you named a sha and are " +
           "not being served it — so it is `true` on a plain call, where there was no ask to fail. " +
           "Omit it and `run_anchor` reads `source: \"default\"`, `requested_commit_sha: null`. " +
-          "A blank value is treated as NO ASK AT ALL rather than an error, but a value that is " +
-          "NOT A STRING IS REFUSED BY NAME (\"`commit_sha` must be a string\") before any request " +
-          "is made — so send a numeric-looking short sha such as `1234567` as a string, not as a " +
-          "number. No hex or length checking is done: `commit_sha` is a plain string column " +
-          "written from whatever CI reported, so short and long forms both work — pass the sha " +
-          "back exactly as it was served.",
+          "A blank value — or `null` — is treated as NO ASK AT ALL rather than an error, but a " +
+          "value of the WRONG TYPE (a number or an array, say) IS REFUSED BY NAME " +
+          "(\"`commit_sha` must be a string.\") before any request is made — so send a " +
+          "numeric-looking short sha such as `1234567` as a string, not as a number. No hex or " +
+          "length checking is done: `commit_sha` is a plain string column written from whatever " +
+          "CI reported, so short and long forms both work — pass the sha back exactly as it was " +
+          "served.",
       },
       unannotated_examples: {
         type: "boolean",

@@ -831,6 +831,70 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("sorts `commit_sha` values into refused and NO ASK correctly, and quotes the real message", async () => {
+    // The clause this guards shipped BACKWARDS once: it advertised a
+    // "non-string" value as "treated as NO ASK AT ALL rather than an error" —
+    // the exact semantics the test above refuses, and the silent wrong answer
+    // its comment describes. It stayed green for the reason every rotted claim
+    // does: no test read the prose. Its first correction then over-corrected to
+    // "a value that is NOT A STRING IS REFUSED", which is false in the other
+    // direction, because `null` is not a string and is NOT refused. Both
+    // failures are the same mistake — quantifying over a set whose members
+    // disagree — so this pins the PARTITION rather than either universal.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
+
+    // 1. THE PARTITION IS REAL, AND `null` IS ON THE NO-ASK SIDE.
+    // `optionalString` returns early for `null` (`args.ts`), so it reaches
+    // `getJson` as an omitted param, not an error. `null` is also the likeliest
+    // non-string an agent produces here, because the sha is OPTIONAL and the
+    // neighbouring sentence discusses the omitted case as
+    // `requested_commit_sha: null` — so an agent holding a nullable sha reads
+    // this clause specifically. It must not be promised a refusal it won't get.
+    for (const noAsk of [null, undefined, "   "]) {
+      const { fetch, requests } = stubFetch({ body: BODY });
+      await getRepositoryOverview.run(
+        { commit_sha: noAsk },
+        toolContext({ env: ENV, fetch }),
+      );
+      assert.equal(requests.length, 1, `\`${String(noAsk)}\` must not be refused`);
+      assert.doesNotMatch(
+        requests[0]!.url,
+        /commit_sha/,
+        `\`${String(noAsk)}\` must reach the endpoint as NO ASK — an omitted param, not an empty ` +
+          "one, which the server would read as a sha it cannot resolve",
+      );
+    }
+
+    assert.match(
+      description,
+      /`null`/,
+      "the description must place `null` on the NO ASK side by name; it is a non-string that is " +
+        "not refused, so any claim quantified over non-strings is false for the commonest case",
+    );
+
+    // 2. THE QUOTED MESSAGE IS THE EMITTED MESSAGE. The description promises an
+    // agent it will see a specific literal, and that literal is built in a
+    // DIFFERENT module (`optionalString`, `src/tools/args.ts`). Nothing joined
+    // the two, which is precisely the condition that let the original clause
+    // rot. Derive it from a real throw instead of restating it here, so a
+    // rewording in `args.ts` — reporting the type received, say, a plausible
+    // improvement — fails HERE rather than silently falsifying prompt material.
+    const emitted = (
+      await rejects(
+        getRepositoryOverview.run({ commit_sha: 1234567 }, toolContext({ env: ENV })),
+        /commit_sha/,
+      )
+    ).message;
+
+    assert.ok(
+      description.includes(emitted),
+      `the description must quote the message an agent actually receives ("${emitted}"), ` +
+        "verbatim and including its terminal period — it is offered as a quotation, so a " +
+        "paraphrase teaches the agent to look for text that never arrives",
+    );
+  });
+
   it("discloses the run sequence's DIRECTION, which is the one ordering that changes the answer", () => {
     // The sequence is served newest run first: the window is
     // `Repository#recent_test_runs` (`created_at: :desc`) and
