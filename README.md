@@ -268,6 +268,24 @@ that matched nothing reads the same way and is never a 404: an unknown or rename
 fully-annotated file, and a contradictory file-and-area pair all answer `rows: []` with both
 narrowings echoed, which is an empty intersection rather than a dropped parameter.
 
+**Two blocks come back on every response, and they take no argument at all.** They answer what every
+figure above silently depends on — is SpecGuard still being fed? `delivery_health` is why the data
+may be **stale**: `refusing` says deliveries are being turned away right now, `last_rejection_at`
+says since when, and each retained rejection carries the endpoint's own reasons and the client
+version that sent it. A `latest_run` from days ago beside a live rejection stream is a suite
+SpecGuard *stopped accepting*, not a suite nobody ran. `credential_health` covers the break that one
+structurally **cannot** see: a rejected key resolves no repository and writes no rejection row, so an
+authentication-broken pipeline is invisible to every rejection figure — it names any key that was
+**rotated** and has not authenticated since, the stranded secret some other CI job is still sending.
+A quiet answer is a **finding, not a gap**: `refusing: false` is "nothing was refused" and
+`rotated_and_unused: false` is "no key is stranded", and neither means "SpecGuard does not track
+that". Do **not** read `api_key.last_used_at` as evidence anything was *accepted* — it is stamped on
+the way in, before the payload is looked at, so a repository having every run thrown away still
+reports it seconds ago; the endpoint says so itself in `acceptance_reported_by` and
+`rotation_reported_by`, which name these two blocks. Every list is served beside a `*_window` block
+giving that list's order and the bound it was cut at, so a list sitting at its limit is a page rather
+than the whole set.
+
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
 

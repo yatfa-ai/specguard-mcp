@@ -317,6 +317,56 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * opens, with its own cap, its own ranking order and both of the disagreements
  * above, because a pass-through `renderText` puts that key in front of every
  * agent whether or not anything here has named it.
+ *
+ * == `delivery_health` and `credential_health` are that rule applied to the
+ * == blocks that say WHETHER TO BELIEVE THE REST
+ *
+ * The sentence directly above is the whole argument, and until now it was
+ * unapplied at the top level of the very same body. `Api::V1::RepositoriesController`
+ * serves both blocks UNCONDITIONALLY — it says "SERVED ON EVERY RESPONSE" in
+ * capitals at both sites — so `renderText` has been handing them to every MCP
+ * agent since they shipped, while this description enumerated the response in
+ * exhaustive detail and named neither.
+ *
+ * NOTHING HERE OPENS THEM, which is exactly why nothing here caught the
+ * omission. Every other block this file discusses arrived attached to a
+ * parameter, and the roster guard in `test/tools/repository-overview.test.ts`
+ * derives its obligation from `inputSchema.properties` — so a block that adds no
+ * property is structurally invisible to it, as `unannotated_directories` was one
+ * section up. The only other check on this string is a `length >= 80` floor. The
+ * schema is UNTOUCHED by this change for that reason: the two are response
+ * blocks, not asks, and a reader must not be able to infer a flag that does not
+ * exist.
+ *
+ * WHAT THEY ANSWER IS "WHY IS THIS DATA LYING TO ME", which is the one question
+ * an agent cannot answer from any other key here. `delivery_health` is the
+ * staleness verdict — `refusing?`, `last_rejection_at`, and the endpoint's own
+ * refusal reasons per retained delivery — and without it a `latest_run` that is
+ * days old reads as a suite nobody ran rather than a suite the platform stopped
+ * accepting. `credential_health` covers the one failure `delivery_health`
+ * structurally cannot: a 401 resolves no repository and writes no
+ * `IngestRejection` row, so an auth-broken pipeline leaves every rejection
+ * figure at zero. It reports the state anyway because it need not observe the
+ * 401 — it owns the key row and stamped the instant the token was retired.
+ *
+ * A QUIET ANSWER IS A POSITIVE FINDING, and that is stated outright rather than
+ * left to be inferred, on the controller's own reasoning at both sites: an agent
+ * that is served `refusing: false` must be able to tell "nothing was refused"
+ * from "SpecGuard does not track that", and the difference is not visible in the
+ * value. A human reads the dashboard panels for this; an agent reads only what
+ * this string told it to look for.
+ *
+ * TWO FURTHER KEYS ARE NAMED HERE FOR THE SAME REASON, both found by taking the
+ * membership question as a GREP over the endpoint's top-level keys rather than
+ * as a reading of this file. `api_key.last_used_at` is the claim the two health
+ * blocks exist to CORRECT — it is stamped on the way in, before the payload is
+ * looked at, so a repository whose every delivery is refused serves its freshest
+ * timestamp beside its stalest run, and the controller answers that with
+ * `acceptance_reported_by` / `rotation_reported_by` naming the keys that answer
+ * what it cannot. Naming the correction and not the claim would have been half a
+ * sentence. And the eight `*_window` blocks are a uniform family disclosing each
+ * list's order and the bound it was cut at, so they are named as a family in one
+ * clause: a list at its limit is a page, not the whole set.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -351,9 +401,29 @@ const getRepositoryOverview: ToolDefinition = {
     "Pass `unannotated_examples: true` to list the individual tests SpecGuard CANNOT see — the " +
     "examples behind the annotated ratio, which is otherwise a percentage with nothing to act on — " +
     "and, in the same answer, which AREAS of the suite carry the most of them. " +
+    "TWO BLOCKS COME BACK ON EVERY RESPONSE — no parameter to pass, no flag to set — and they " +
+    "answer what everything above silently depends on: is SpecGuard still being fed? " +
+    "`delivery_health` is why the figures may be STALE: `refusing` says deliveries are being turned " +
+    "away right now, `last_rejection_at` says since when, and each retained rejection carries the " +
+    "endpoint's own reasons and the client version that sent it. A `latest_run` from days ago " +
+    "beside a live rejection stream is a suite SpecGuard STOPPED ACCEPTING, not a suite nobody ran. " +
+    "`credential_health` covers the break that one structurally CANNOT see — a rejected key " +
+    "resolves no repository and writes no rejection row, so an authentication-broken pipeline is " +
+    "invisible to every rejection figure — by naming any key that was ROTATED and has not " +
+    "authenticated since: a stranded secret some other CI job is still sending. " +
+    "Read a quiet answer as a FINDING rather than a gap: `refusing: false` is 'nothing was refused' " +
+    "and `rotated_and_unused: false` is 'no key is stranded', and neither is 'SpecGuard does not " +
+    "track that'. " +
+    "Do NOT read `api_key.last_used_at` as evidence anything was ACCEPTED — it is stamped on the " +
+    "way in, before the payload is looked at, so a repository having every run thrown away still " +
+    "reports it seconds ago; `delivery_health` answers acceptance and `credential_health` answers " +
+    "rotation. " +
+    "Every list is served beside a `*_window` block naming that list's order and the bound it was " +
+    "cut at, so a list sitting at its limit is a page rather than the whole set. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
-    "duplicated coverage before refactoring, or to see annotation coverage. " +
+    "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
+    "SpecGuard holds is still being delivered before trusting any of it. " +
     "Needs SPECGUARD_ENDPOINT and SPECGUARD_API_KEY. " +
     "Figures are null where CI did not report them — a null is 'not measured', never zero.",
 
