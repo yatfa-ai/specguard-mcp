@@ -268,6 +268,32 @@ that matched nothing reads the same way and is never a 404: an unknown or rename
 fully-annotated file, and a contradictory file-and-area pair all answer `rows: []` with both
 narrowings echoed, which is an empty intersection rather than a dropped parameter.
 
+**Two blocks come back on every response, and they take no argument at all.** They answer what every
+figure above silently depends on — is SpecGuard still being fed? `delivery_health` is why the data
+may be **stale**: `refusing` compares stamps rather than reading a live wire — it is true when the
+newest refusal is newer than the newest *accepted* run, and true when nothing has ever been
+accepted, so a repository refused once and quiet since still answers `true`. Read it with
+`last_rejection_at` and judge recency yourself. Each retained rejection carries the endpoint's own
+reasons and, where the client reported one, the client
+version that sent it. A `latest_run` from days ago beside a live rejection stream is a suite
+SpecGuard *stopped accepting*, not a suite nobody ran. `credential_health` covers the break that one
+structurally **cannot** see: a rejected key resolves no repository and writes no rejection row, so an
+authentication-broken pipeline is invisible to every rejection figure — it names any key that was
+**rotated** and has not authenticated since, a secret some pipeline has not picked up.
+A quiet answer is a **finding, not a gap**: `refusing: false` is "nothing was refused" and
+`rotated_and_unused: false` is "no key is stranded", and neither means "SpecGuard does not track
+that". Do **not** read `api_key.last_used_at` as evidence anything was *accepted* — it is stamped on
+the way in, before the payload is looked at, so a repository having every run thrown away still
+reports it seconds ago; the endpoint says so itself in `acceptance_reported_by` and
+`rotation_reported_by`, which name these two blocks. Where a bound sits beside a list, the list is
+a **page and not the set**: `limit` next to `rows`, or on that list's `*_window` block, which is
+also where the *order* the cut was made in is named when the list has one. What announces the cut
+varies too — `truncated`, `bounded`, `returned` short of `limit`, or a `recorded_count` larger than
+the rows served — so read the bound beside the list in front of you and never take a full-looking
+ranking for the whole set. Where **no** bound sits beside a list, it is everything there was:
+`credential_health.keys` and both `latest_run.shards` lists are complete by construction, which is
+a finding and not a disclosure someone forgot.
+
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
 
