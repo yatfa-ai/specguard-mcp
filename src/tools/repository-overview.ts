@@ -378,6 +378,52 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * never asked how many have none. It sends an agent looking for a disclosure that does not exist
  * and leaves it unable to tell "complete by construction" from "silently cut", which is the exact
  * misreading the two blocks above were named to prevent.
+ *
+ * == `suite_size_measured`, `shard_count` and `timed_shard_count` are that rule
+ * == applied a FOURTH time, to the keys that say WHETHER TWO ROWS MAY BE
+ * == DIFFERENCED AT ALL
+ *
+ * The same argument, the same blind spot, the same remedy — and the remaining
+ * unapplied case. `serialized_history_row` in `Api::V1::RepositoriesController`
+ * puts all three on EVERY `history[]` row, and `suite_size_measured` is served a
+ * SECOND time on `latest_run`, deliberately from the same predicate so that a
+ * single response body cannot describe one row twice and disagree with itself
+ * (in the unfiltered window `history[0]` IS `latest_run`). Until now this string
+ * named none of the three, while selling history differencing outright: the
+ * `branch` parameter below tells an agent that consecutive all-branch rows "must
+ * not be differenced", which teaches the differencing and names only the one
+ * hazard that happens to be expressible as a parameter.
+ *
+ * THEY ARE ONE BLOCK BECAUSE THEY ARE ONE QUESTION. `suite_size_measured` says
+ * whether a row is a measurement at all; `shard_count` is the denominator of
+ * `total_specs` (a SUM over the shards RECORDED, and what `TestRun#assembled_like?`
+ * reads to decide differenceability); `timed_shard_count` is the denominator of
+ * `duration_seconds` (a MAX over the shards that REPORTED, whose absence lets a
+ * client report the controller's "70% speedup produced entirely by telemetry
+ * loss"). An agent that differences two rows without all three gets a number
+ * wearing a SHA and a timestamp that make it read as a checked fact.
+ *
+ * THE LAST SENTENCE OF THE DESCRIPTION WAS ALSO WRONG IN ITS REACH, not merely
+ * silent. "A null is 'not measured', never zero" routes a reader to NULLNESS as
+ * the measured/not-measured signal, but `TestRun#suite_size_measured?` is
+ * `total_specs_count.to_i.positive?` — so a run that reported zero tests serves a
+ * NON-NULL `total_specs: 0` beside `suite_size_measured: false`. A reader obeying
+ * the string's own stated rule reads that row as "measured, 0 tests" where the
+ * server says "not a measurement". The sentence's true content about nulls is
+ * kept; what is added is the bound, that the rule does not run backwards. The
+ * controller serialized the boolean rather than leaving the client to re-derive
+ * it from `total_specs` precisely so the two could not drift — and this bridge's
+ * silence was forcing every MCP agent into exactly that re-derivation.
+ *
+ * THE SCHEMA IS UNTOUCHED, for the reason stated one section up: these are
+ * RESPONSE keys, not asks, and a reader must not be able to infer a flag that
+ * does not exist. And NO GUARD CAN CATCH A REGRESSION OF THIS CHANGE — every
+ * roster guard in `test/tools/repository-overview.test.ts` opens with
+ * `inputSchema.properties` and derives its obligation from a PARAMETER, so a
+ * block that adds none is invisible to them by construction, and the only other
+ * check on this string is a `length >= 80` floor. That is why the reasoning is
+ * recorded here at this length: this comment is the only thing standing between
+ * these three keys and a silent re-wording that drops them again.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -440,12 +486,33 @@ const getRepositoryOverview: ToolDefinition = {
     "ranking for the whole set. Where NO bound sits beside a list, it is everything there was: " +
     "`credential_health.keys` and both `latest_run.shards` lists are complete by construction, " +
     "which is a FINDING and not a disclosure someone forgot. " +
+    "THREE MORE KEYS RIDE THE RESPONSE with no parameter to pass, and together they decide " +
+    "WHETHER TWO RUNS MAY BE DIFFERENCED AT ALL — which is what the history is for. " +
+    "`suite_size_measured` is served on `latest_run` AND on every `history[]` row, from the same " +
+    "predicate at both sites so one run cannot disagree with itself: `false` means that run " +
+    "reported NO tests, so its `total_specs` is a REPORT AND NOT A MEASUREMENT and a difference " +
+    "taken against it describes the report rather than the suite. Never difference across a row " +
+    "where it is false. " +
+    "`shard_count` and `timed_shard_count` ride every `history[]` row and are the two " +
+    "DENOMINATORS: difference `total_specs` only across rows of EQUAL `shard_count`, because that " +
+    "count is a SUM over the shards RECORDED, and difference `duration_seconds` only across rows " +
+    "of EQUAL `timed_shard_count`, because that figure is a MAX over the shards that REPORTED. " +
+    "Ignore the second and a run whose four shards all reported, differenced against a run whose " +
+    "two slowest were cancelled — identical `shard_count`, identical `suite_size_measured`, only " +
+    "`timed_shard_count` differing — reads as a 70% speedup produced entirely by telemetry loss. " +
+    "A half-reported run is the ORDINARY state, not an exotic one: every sharded run passes " +
+    "through it while its shards are still arriving, and a job cancelled after two of four shards " +
+    "leaves a half-sized row in the history permanently. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
     "SpecGuard holds is still being delivered before trusting any of it. " +
     "Needs SPECGUARD_ENDPOINT and SPECGUARD_API_KEY. " +
-    "Figures are null where CI did not report them — a null is 'not measured', never zero.",
+    "Figures are null where CI did not report them — a null is 'not measured', never zero. That " +
+    "rule is about NULLS and does not run backwards: a non-null figure is not thereby a " +
+    "measurement. A run that reported zero tests serves a real `total_specs: 0` beside " +
+    "`suite_size_measured: false`, so it is that boolean — never the nullness, and never a " +
+    "re-derivation of your own from `total_specs` — that says whether the row measured a suite.",
 
   inputSchema: {
     type: "object",
