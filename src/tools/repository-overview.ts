@@ -365,13 +365,19 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * `acceptance_reported_by` / `rotation_reported_by` naming the keys that answer
  * what it cannot. Naming the correction and not the claim would have been half a
  * sentence. And the truncation contract, which is NOT the uniform family it looks like from the
- * key names: only eight lists have a `*_window` sibling at all, every list under `latest_run`
- * carries an inline `limit` beside `rows` instead, four of those windows serve no bound of their
- * own, `rejections_window` serves a bound and no order, and `credential_health.keys` is unbounded
- * by design. So it is stated as "the cap is beside the list, wherever the list keeps it" rather
- * than as one rule — a false universal here would send an agent looking for a `*_window` that does
- * not exist, read its absence as nothing-to-disclose, and take a capped ranking for the whole set,
- * which is the exact misreading the two blocks above were named to prevent.
+ * key names: only eight lists have a `*_window` sibling at all, MOST lists under `latest_run`
+ * carry an inline `limit` beside `rows` instead, four of those windows serve no bound of their
+ * own, `rejections_window` serves a bound and no order, and the lists this census found carrying
+ * no bound anywhere are `credential_health.keys` and BOTH `latest_run.shards` lists (`rows`,
+ * ranked slowest-first off `TestRun#shard_durations`, and `per_shard`, in delivery order off
+ * `#shard_reports`), each complete by construction. So the rule is stated in the direction that
+ * stays true as the endpoint grows, and whose correctness does NOT depend on that list being
+ * exhaustive: a bound BESIDE a list means a page, and no bound means the whole set. Quantifying
+ * over the capped cases instead — "every ranking is capped, except..." — is what put a false
+ * universal here twice, because the census that produced it counted lists that HAVE a bound and
+ * never asked how many have none. It sends an agent looking for a disclosure that does not exist
+ * and leaves it unable to tell "complete by construction" from "silently cut", which is the exact
+ * misreading the two blocks above were named to prevent.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -418,7 +424,7 @@ const getRepositoryOverview: ToolDefinition = {
     "`credential_health` covers the break that one structurally CANNOT see — a rejected key " +
     "resolves no repository and writes no rejection row, so an authentication-broken pipeline is " +
     "invisible to every rejection figure — by naming any key that was ROTATED and has not " +
-    "authenticated since: a stranded secret some other CI job is still sending. " +
+    "authenticated since: a secret some pipeline has not picked up. " +
     "Read a quiet answer as a FINDING rather than a gap: `refusing: false` is 'nothing was refused' " +
     "and `rotated_and_unused: false` is 'no key is stranded', and neither is 'SpecGuard does not " +
     "track that'. " +
@@ -426,14 +432,14 @@ const getRepositoryOverview: ToolDefinition = {
     "way in, before the payload is looked at, so a repository having every run thrown away still " +
     "reports it seconds ago; `delivery_health` answers acceptance and `credential_health` answers " +
     "rotation. " +
-    "EVERY RANKING HERE IS CAPPED, and the cap is disclosed beside the list rather than in one " +
-    "uniform place: usually `limit` next to `rows`, sometimes on that list's `*_window` block, " +
-    "which is also where the ORDER the cut was made in is named when the list has one. What " +
-    "announces the truncation varies too — `truncated`, `bounded`, `returned` short of `limit`, or " +
-    "a `recorded_count` larger than the rows you were served — so check the bound sitting beside " +
-    "the list you are reading, and never take a full-looking ranking for the whole set. " +
-    "`credential_health.keys` is the deliberate exception: it is unbounded, because it lists what " +
-    "is WRONG and a repository has a handful of keys rather than a stream of them. " +
+    "Where a bound sits beside a list, the list is a PAGE and not the set: `limit` next to " +
+    "`rows`, or on that list's `*_window` block, which is also where the ORDER the cut was made " +
+    "in is named when the list has one. What announces the cut varies too — `truncated`, " +
+    "`bounded`, `returned` short of `limit`, or a `recorded_count` larger than the rows you were " +
+    "served — so read the bound beside the list in front of you and never take a full-looking " +
+    "ranking for the whole set. Where NO bound sits beside a list, it is everything there was: " +
+    "`credential_health.keys` and both `latest_run.shards` lists are complete by construction, " +
+    "which is a FINDING and not a disclosure someone forgot. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
