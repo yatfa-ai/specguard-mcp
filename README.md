@@ -270,8 +270,11 @@ narrowings echoed, which is an empty intersection rather than a dropped paramete
 
 **Two blocks come back on every response, and they take no argument at all.** They answer what every
 figure above silently depends on — is SpecGuard still being fed? `delivery_health` is why the data
-may be **stale**: `refusing` says deliveries are being turned away right now, `last_rejection_at`
-says since when, and each retained rejection carries the endpoint's own reasons and the client
+may be **stale**: `refusing` compares stamps rather than reading a live wire — it is true when the
+newest refusal is newer than the newest *accepted* run, and true when nothing has ever been
+accepted, so a repository refused once and quiet since still answers `true`. Read it with
+`last_rejection_at` and judge recency yourself. Each retained rejection carries the endpoint's own
+reasons and, where the client reported one, the client
 version that sent it. A `latest_run` from days ago beside a live rejection stream is a suite
 SpecGuard *stopped accepting*, not a suite nobody ran. `credential_health` covers the break that one
 structurally **cannot** see: a rejected key resolves no repository and writes no rejection row, so an
@@ -282,9 +285,14 @@ A quiet answer is a **finding, not a gap**: `refusing: false` is "nothing was re
 that". Do **not** read `api_key.last_used_at` as evidence anything was *accepted* — it is stamped on
 the way in, before the payload is looked at, so a repository having every run thrown away still
 reports it seconds ago; the endpoint says so itself in `acceptance_reported_by` and
-`rotation_reported_by`, which name these two blocks. Every list is served beside a `*_window` block
-giving that list's order and the bound it was cut at, so a list sitting at its limit is a page rather
-than the whole set.
+`rotation_reported_by`, which name these two blocks. **Every ranking here is capped**, and the cap
+is disclosed beside the list rather than in one uniform place: usually `limit` next to `rows`,
+sometimes on that list's `*_window` block, which is also where the *order* the cut was made in is
+named when the list has one. What announces the truncation varies too — `truncated`, `bounded`,
+`returned` short of `limit`, or a `recorded_count` larger than the rows served — so check the bound
+sitting beside the list you are reading, and never take a full-looking ranking for the whole set.
+`credential_health.keys` is the deliberate exception: it is unbounded, because it lists what is
+wrong and a repository has a handful of keys rather than a stream of them.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.

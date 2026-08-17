@@ -364,9 +364,14 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * timestamp beside its stalest run, and the controller answers that with
  * `acceptance_reported_by` / `rotation_reported_by` naming the keys that answer
  * what it cannot. Naming the correction and not the claim would have been half a
- * sentence. And the eight `*_window` blocks are a uniform family disclosing each
- * list's order and the bound it was cut at, so they are named as a family in one
- * clause: a list at its limit is a page, not the whole set.
+ * sentence. And the truncation contract, which is NOT the uniform family it looks like from the
+ * key names: only eight lists have a `*_window` sibling at all, every list under `latest_run`
+ * carries an inline `limit` beside `rows` instead, four of those windows serve no bound of their
+ * own, `rejections_window` serves a bound and no order, and `credential_health.keys` is unbounded
+ * by design. So it is stated as "the cap is beside the list, wherever the list keeps it" rather
+ * than as one rule — a false universal here would send an agent looking for a `*_window` that does
+ * not exist, read its absence as nothing-to-disclose, and take a capped ranking for the whole set,
+ * which is the exact misreading the two blocks above were named to prevent.
  */
 const getRepositoryOverview: ToolDefinition = {
   name: "get_repository_overview",
@@ -403,10 +408,13 @@ const getRepositoryOverview: ToolDefinition = {
     "and, in the same answer, which AREAS of the suite carry the most of them. " +
     "TWO BLOCKS COME BACK ON EVERY RESPONSE — no parameter to pass, no flag to set — and they " +
     "answer what everything above silently depends on: is SpecGuard still being fed? " +
-    "`delivery_health` is why the figures may be STALE: `refusing` says deliveries are being turned " +
-    "away right now, `last_rejection_at` says since when, and each retained rejection carries the " +
-    "endpoint's own reasons and the client version that sent it. A `latest_run` from days ago " +
-    "beside a live rejection stream is a suite SpecGuard STOPPED ACCEPTING, not a suite nobody ran. " +
+    "`delivery_health` is why the figures may be STALE: `refusing` is a comparison of stamps, not a " +
+    "live wire — true when the newest refusal is newer than the newest ACCEPTED run, and true when " +
+    "nothing has ever been accepted — so read it with `last_rejection_at` and judge recency " +
+    "yourself, because a repository refused once and quiet since still answers true. Each retained " +
+    "rejection carries the endpoint's own reasons and, where the client reported one, the client " +
+    "version that sent it. A `latest_run` from days ago beside a live rejection stream is a suite " +
+    "SpecGuard STOPPED ACCEPTING, not a suite nobody ran. " +
     "`credential_health` covers the break that one structurally CANNOT see — a rejected key " +
     "resolves no repository and writes no rejection row, so an authentication-broken pipeline is " +
     "invisible to every rejection figure — by naming any key that was ROTATED and has not " +
@@ -418,8 +426,14 @@ const getRepositoryOverview: ToolDefinition = {
     "way in, before the payload is looked at, so a repository having every run thrown away still " +
     "reports it seconds ago; `delivery_health` answers acceptance and `credential_health` answers " +
     "rotation. " +
-    "Every list is served beside a `*_window` block naming that list's order and the bound it was " +
-    "cut at, so a list sitting at its limit is a page rather than the whole set. " +
+    "EVERY RANKING HERE IS CAPPED, and the cap is disclosed beside the list rather than in one " +
+    "uniform place: usually `limit` next to `rows`, sometimes on that list's `*_window` block, " +
+    "which is also where the ORDER the cut was made in is named when the list has one. What " +
+    "announces the truncation varies too — `truncated`, `bounded`, `returned` short of `limit`, or " +
+    "a `recorded_count` larger than the rows you were served — so check the bound sitting beside " +
+    "the list you are reading, and never take a full-looking ranking for the whole set. " +
+    "`credential_health.keys` is the deliberate exception: it is unbounded, because it lists what " +
+    "is WRONG and a repository has a handful of keys rather than a stream of them. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
