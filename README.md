@@ -105,7 +105,7 @@ branch window rather than between the last two runs.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `unannotated_examples` | `true` to list the individual tests SpecGuard cannot see — the examples behind the annotated ratio |
+| `unannotated_examples` | `true` to list the individual tests SpecGuard cannot see — the examples behind the annotated ratio — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge — and
@@ -115,7 +115,10 @@ run-grain block re-anchors together (`latest_run` and its rollups, the four run-
 — `shards`, both growth windows, `previous_test_run`); `history` does not, so the
 `history[0] == latest_run` identity holds
 on a default call and is **not** expected to hold under an explicit ask. Nor does `unstable_test_runs`,
-which is read over the branch window rather than off the anchored run. A sha with no run — a stale
+which is read over the branch window rather than off the anchored run. (`unannotated_directories`,
+below, re-anchors too and is *not* a fifth drill-in — it is a ranking you pick a narrowing **from**,
+not the rows behind a line you had already picked, so it is covered above by *`latest_run` and its
+rollups* and the roster stays at four.) A sha with no run — a stale
 bookmark, a pruned run, a commit whose CI never reported — does not error: the endpoint
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
 successful response is about the commit you named.
@@ -213,19 +216,48 @@ up to 100 of the unannotated examples **of whatever you asked for** (`name`, `fi
 `line_number`, `spec_file_path` each — four fields, not the per-example drill-ins' six), plus that
 same population's own `recorded_count`, the `limit` the row list was cut at, and
 `spec_file`/`spec_directory` **echoed back** as the server read them — `null` for each one you did
-not send. Read the echo before the count: `recorded_count` is the figure you would reconcile against
+not send. Read the echo before the count: the **worklist's** `recorded_count` — and only that one,
+because the map below deliberately does not narrow — is the figure you would reconcile against
 `total_specs - annotated_specs`, and it counts the *narrowed* population whenever either echo is
 non-null, so that reconciliation is expected to hold only when both are `null`. Do not re-derive
 that count from `rows` either way: un-narrowed, this population is routinely the entire run — a
 repository that has just installed the gem has every test in it — so the cap fires as the normal
-case here rather than the exotic one, and a narrowed ask is cut at the same 100. It is at run grain,
-so it moves with `commit_sha`.
+case here rather than the exotic one, and a narrowed ask is cut at the same 100.
+
+That one ask opens **two** blocks, each in its own grain: `latest_run.unannotated_examples` for
+*which tests* to go and annotate, and `latest_run.unannotated_directories` for *where the debt is* —
+the run's annotation debt rolled up by code area, which is what you pick the next `spec_directory`
+narrowing **from**. Both come from the one flag; there is no second argument to send and no new
+value. The map's rows carry `path`, `unannotated_count` and the `recorded_count` that area was
+counted against (the operands, never a fraction), plus `directory_count` — **every** area the run
+touched, not every area with debt, and not `rows.size` — and its **own** `limit`, which is **10 and
+not the worklist's 100**. Two caps under one ask, and the difference is the kind of list: 100 caps a
+*worklist* to work through, 10 caps a *ranking* to pick from. The orders differ for the same reason —
+the worklist is file-navigable, the map is ranked `unannotated_count` descending with `path` as a
+tiebreak only. A fully-annotated area is a real row with `unannotated_count: 0`, sorted last, so it
+is cut on any run with more areas than the cap. Both blocks are at run grain, so both move with
+`commit_sha`.
+
+**The two blocks disagree in two places, on purpose — do not reconcile them by arithmetic.**
+*Scope:* `spec_file`/`spec_directory` narrow the **worklist** and its `recorded_count`, and the
+**map stays whole-run** under both. So under a narrowing `unannotated_examples.recorded_count` is
+*not* the sum of `unannotated_directories.rows[].unannotated_count`, and neither figure is wrong:
+one counts the area or file you named, the other ranks the whole run. The map is whole-run by design
+because it is the thing you choose a narrowing *from* — narrowed to the area you had already picked
+it would answer nothing. The sum is short of the run's total whenever `directory_count > rows.size`
+besides, narrowing or not. *Null versus empty:* on a run that recorded no per-example rows at all,
+with the flag sent, `unannotated_examples` is a **present** block with `rows: []` and
+`recorded_count: 0` while `unannotated_directories` is **`null`**. That is a signal rather than an
+inconsistency — `recorded_count: 0` on the worklist means *both* "fully annotated" and "recorded
+nothing", and the map is how you tell them apart: a present map beside that zero means the zero is
+the success state, a `null` map means the run recorded nothing and the zero is an absence of data.
 
 `false` means the same as omitting it and sends nothing at all. That matters more here than
 elsewhere: the server reads only whether the parameter was **named**, so `?unannotated_examples=false`
 on the wire would open the block for a caller who asked for it not to be — declining is not sending,
-which is how every other argument here is declined too. Omit it and the key is `null`, meaning you
-did not ask. A **fully-annotated run is not an error and not a `null`**: it answers 200 with
+which is how every other argument here is declined too. Omit the flag and **both** keys are `null`,
+meaning you
+did not ask. A **fully-annotated run is not an error and not a `null`**: the worklist answers 200 with
 `rows: []` and `recorded_count: 0`, because that is the state the metric exists to reach — walk a
 repository to completion and the block goes empty rather than vanishing. A narrowing that matched
 nothing reads the same way and is never a 404: an unknown or renamed path, an already fully-annotated
