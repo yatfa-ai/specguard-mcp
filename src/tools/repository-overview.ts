@@ -287,10 +287,19 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * is an ABSENCE of data. Serving `rows: []` here instead would spend a
  * distinction a client has no other way to make.
  *
- * IT IS NOT A DRILL-IN, which is why the `commit_sha` rosters above and in
- * README.md correctly stay at FOUR. It is at run grain and does re-anchor, so it
- * is covered there by "`latest_run` and its rollups": a drill-in in this file
- * means the rows behind a LINE of a ranking, and this is the ranking.
+ * THE `commit_sha` ROSTERS above and in README.md CORRECTLY STAY AT FOUR, and
+ * the reason is the roster's UNIT, not anything about this block's shape. That
+ * roster carries ONE REPRESENTATIVE KEY PER DRILL-IN PARAMETER, not one entry
+ * per response key: `spec_directory` opens THREE blocks (see its own
+ * description below), yet only `spec_directory_files` is on the roster —
+ * `directory_run_file_growth` and `directory_runtime_file_growth` are absent
+ * from it for exactly this reason, and the guard in
+ * `test/tools/repository-overview.test.ts` enforces it that way, deriving the
+ * obligation from the schema's PARAMETERS and mapping each to the single key it
+ * represents. `unannotated_directories` is a SECOND BLOCK OF AN EXISTING
+ * PARAMETER'S ASK and adds no parameter, so it is not a roster entry. It is at
+ * run grain and does re-anchor, and is covered there by "`latest_run` and its
+ * rollups".
  *
  * FOUR THINGS ARE STATED IN THE SCHEMA. It is at RUN GRAIN, so it moves with
  * `commit_sha` like everything else under `latest_run` — unlike `unstable_test`,
@@ -528,12 +537,11 @@ const getRepositoryOverview: ToolDefinition = {
           "`limit` the row list was cut at, and `spec_file`/`spec_directory` ECHOED BACK as the " +
           "server READ them — `null` for each one you did not send. " +
           "READ THE ECHO BEFORE YOU READ THE COUNT. `unannotated_examples.recorded_count` — the " +
-          "WORKLIST's count, and only that one; the map below deliberately does not narrow — is the " +
-          "one figure here you " +
-          "would reconcile against `total_specs - annotated_specs`, and it counts the NARROWED " +
-          "population whenever either echo is non-null — so that reconciliation is expected to hold " +
-          "only when both echoes are `null`. The echo is what tells the two cases apart, which is " +
-          "why the server sends it. " +
+          "WORKLIST's count, and only that one; the map below deliberately does not narrow — is " +
+          "the one figure here you would reconcile against `total_specs - annotated_specs`, and " +
+          "it counts the NARROWED population whenever either echo is non-null — so that " +
+          "reconciliation is expected to hold only when both echoes are `null`. The echo is what " +
+          "tells the two cases apart, which is why the server sends it. " +
           "Do not re-derive `recorded_count` from `rows` in either case. Un-narrowed, this " +
           "population is routinely the entire run — a repository that has just installed the gem " +
           "has every test in it — so the cap is the normal case rather than the exotic one; a " +
@@ -550,8 +558,10 @@ const getRepositoryOverview: ToolDefinition = {
           "the kind of list: 100 caps a WORKLIST to work through, 10 caps a RANKING to pick from. " +
           "The orders differ for the same reason — the worklist is file-navigable, the map is " +
           "ranked `unannotated_count` DESC with `path` as a tiebreak only. A fully-annotated area " +
-          "is a real row with `unannotated_count: 0`, sorted last, so it is cut on any run with " +
-          "more areas than the cap. " +
+          "is a real ROW with `unannotated_count: 0`, never an omission. Those rows sort last " +
+          "COLLECTIVELY, so on a run with more areas than the cap they are cut and never seen, " +
+          "but on a run inside the cap they ARE LISTED and listed is correct. So `rows.size` is " +
+          "not a count of areas WITH debt — read each row's `unannotated_count`. " +
           "THE TWO BLOCKS DISAGREE IN TWO PLACES, ON PURPOSE — do not reconcile them by " +
           "arithmetic. " +
           "(1) SCOPE: `spec_file`/`spec_directory` narrow the WORKLIST and its `recorded_count`, " +
@@ -572,17 +582,16 @@ const getRepositoryOverview: ToolDefinition = {
           "BOTH BLOCKS ARE AT RUN GRAIN, so each MOVES WITH `commit_sha` like everything else " +
           "under `latest_run`, unlike `unstable_test` which does not. " +
           "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: the worklist answers 200 with " +
-          "`rows: []` " +
-          "and `recorded_count: 0`, because that is the state the metric exists to reach — so a " +
-          "repository walked to completion shows the block EMPTY rather than gone. A narrowing " +
+          "`rows: []` and `recorded_count: 0`, because that is the state the metric exists to " +
+          "reach — so a repository walked to completion shows the block EMPTY rather than gone. " +
+          "A narrowing " +
           "that matched nothing reads the SAME way and is never a 404: an unknown or renamed path, " +
           "a file that is already fully annotated, and a contradictory file-and-area pair all " +
           "answer `rows: []` with both narrowings echoed, which is an empty intersection rather " +
           "than a dropped parameter. " +
-          "Omit the flag and BOTH keys are `null`, meaning you did not ask. `false` means the same " +
-          "as " +
-          "omitting it and sends nothing at all: declining is not sending, which is how every other " +
-          "argument here is declined too — none of them has an \"off\" value.",
+          "Omit the flag and BOTH keys are `null`, meaning you did not ask. `false` means the " +
+          "same as omitting it and sends nothing at all: declining is not sending, which is how " +
+          "every other argument here is declined too — none of them has an \"off\" value.",
       },
     },
     additionalProperties: false,

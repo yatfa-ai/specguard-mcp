@@ -116,9 +116,12 @@ run-grain block re-anchors together (`latest_run` and its rollups, the four run-
 `history[0] == latest_run` identity holds
 on a default call and is **not** expected to hold under an explicit ask. Nor does `unstable_test_runs`,
 which is read over the branch window rather than off the anchored run. (`unannotated_directories`,
-below, re-anchors too and is *not* a fifth drill-in — it is a ranking you pick a narrowing **from**,
-not the rows behind a line you had already picked, so it is covered above by *`latest_run` and its
-rollups* and the roster stays at four.) A sha with no run — a stale
+below, re-anchors too and is *not* a fifth drill-in: this roster carries one representative key per
+drill-in **parameter**, not one entry per response key — `spec_directory` opens three blocks and only
+`spec_directory_files` is listed, with `directory_run_file_growth` and `directory_runtime_file_growth`
+absent for the same reason. `unannotated_directories` is a second block of an existing parameter's ask
+and adds no parameter, so it is covered above by *`latest_run` and its rollups* and the roster stays at
+four.) A sha with no run — a stale
 bookmark, a pruned run, a commit whose CI never reported — does not error: the endpoint
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
 successful response is about the commit you named.
@@ -234,9 +237,11 @@ touched, not every area with debt, and not `rows.size` — and its **own** `limi
 not the worklist's 100**. Two caps under one ask, and the difference is the kind of list: 100 caps a
 *worklist* to work through, 10 caps a *ranking* to pick from. The orders differ for the same reason —
 the worklist is file-navigable, the map is ranked `unannotated_count` descending with `path` as a
-tiebreak only. A fully-annotated area is a real row with `unannotated_count: 0`, sorted last, so it
-is cut on any run with more areas than the cap. Both blocks are at run grain, so both move with
-`commit_sha`.
+tiebreak only. A fully-annotated area is a real **row** with `unannotated_count: 0`, never an
+omission; those rows sort last *collectively*, so on a run with more areas than the cap they are cut
+and never seen, but on a run inside the cap they *are* listed and listed is correct. So `rows.size` is
+not a count of areas *with* debt — read each row's `unannotated_count`. Both blocks are at run grain,
+so both move with `commit_sha`.
 
 **The two blocks disagree in two places, on purpose — do not reconcile them by arithmetic.**
 *Scope:* `spec_file`/`spec_directory` narrow the **worklist** and its `recorded_count`, and the
@@ -256,13 +261,12 @@ the success state, a `null` map means the run recorded nothing and the zero is a
 elsewhere: the server reads only whether the parameter was **named**, so `?unannotated_examples=false`
 on the wire would open the block for a caller who asked for it not to be — declining is not sending,
 which is how every other argument here is declined too. Omit the flag and **both** keys are `null`,
-meaning you
-did not ask. A **fully-annotated run is not an error and not a `null`**: the worklist answers 200 with
-`rows: []` and `recorded_count: 0`, because that is the state the metric exists to reach — walk a
-repository to completion and the block goes empty rather than vanishing. A narrowing that matched
-nothing reads the same way and is never a 404: an unknown or renamed path, an already fully-annotated
-file, and a contradictory file-and-area pair all answer `rows: []` with both narrowings echoed, which
-is an empty intersection rather than a dropped parameter.
+meaning you did not ask. A **fully-annotated run is not an error and not a `null`**: the worklist
+answers 200 with `rows: []` and `recorded_count: 0`, because that is the state the metric exists to
+reach — walk a repository to completion and the block goes empty rather than vanishing. A narrowing
+that matched nothing reads the same way and is never a 404: an unknown or renamed path, an already
+fully-annotated file, and a contradictory file-and-area pair all answer `rows: []` with both
+narrowings echoed, which is an empty intersection rather than a dropped parameter.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
