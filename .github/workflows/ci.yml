@@ -1,0 +1,52 @@
+# Test specguard-mcp on every push and pull request. Typecheck + the node:test
+# suite, nothing else — there is no lint step in this repo.
+#
+# The matrix is not decoration. `npm test` drives the runner with a glob
+# (`.test-build/test/**/*.test.js`), and glob support in `node --test` landed in
+# Node 22; before that the argument had to be a directory, and from Node 25 a
+# directory argument is no longer scanned at all — it is resolved as a module
+# and the run dies with MODULE_NOT_FOUND. One form does not cover every line, so
+# every line the project claims gets run.
+#
+# Note this is the DEVELOPMENT floor, not the consumer one: `engines.node` stays
+# at >=20 because a consumer only ever runs the compiled dist/, which has no such
+# constraint. Only the test runner needs 22+.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false        # a break on one line should not hide the others
+      matrix:
+        node: ['22', '24', '25']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` runs `prepare`, which builds dist/ — so the build is already
+      # exercised here and needs no separate step.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run the suite
+        run: npm test

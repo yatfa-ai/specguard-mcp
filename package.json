@@ -20,7 +20,7 @@
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "pretest": "tsc --project tsconfig.test.json",
-    "test": "node --test .test-build/test/",
+    "test": "node --test \".test-build/test/**/*.test.js\"",
     "prepare": "npm run build"
   },
   "dependencies": {

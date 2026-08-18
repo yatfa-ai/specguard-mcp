@@ -1,0 +1,156 @@
+# Release specguard-mcp to npm. Triggered manually from the Actions UI ("Run
+# workflow" button) — no tags, no push triggers. Click → run the suite → bump
+# patch version → publish to npm → publish a GitHub Release.
+#
+# Mirrors specguard-rspec's release workflow (one-click workflow_dispatch, patch
+# bump by script/bump-version.sh, github-actions[bot] commit, assets on the
+# vX.Y.Z tag, suite BEFORE the bump because a published version number is not
+# recoverable), with one deliberate difference: **there is no npm token here.**
+#
+# Authentication is npm Trusted Publishing (OIDC). GitHub Actions mints a
+# short-lived identity token from the `id-token: write` permission below, and
+# npm trades it for publish rights because the package's Trusted Publisher
+# config names this repository and this workflow filename. Nothing is stored in
+# repo secrets, so nothing can leak from them; classic npm tokens were removed
+# by the registry in December 2025 and granular write tokens expire every 90
+# days, which is the other half of why this is not token-based.
+#
+# Setup is DONE — this section is history, not a checklist. It is kept because
+# the one thing this workflow cannot do is the thing that had to happen first,
+# and a future maintainer starting a sibling package will hit the same wall:
+#
+#   - npm's Trusted Publisher config lives in a PACKAGE's settings page, and
+#     that page does not exist until the package does. There is no
+#     pending-publisher flow like PyPI's and no org-level equivalent, so OIDC
+#     cannot perform a package's first publish.
+#   - 0.1.0 was therefore published by hand, once, with a granular token that
+#     had "bypass 2FA" enabled — the option npm itself warns against. In a
+#     non-interactive context there is no alternative: the account requires 2FA
+#     to publish and no one is there to type an OTP. The token was revoked
+#     immediately afterwards.
+#   - The Trusted Publisher was then configured against this file
+#     (yatfa-ai/specguard-mcp, workflow `release.yml`), and publishing access
+#     set to "Require two-factor authentication and disallow tokens" — which
+#     makes the credential used for 0.1.0 impossible to use again, while
+#     leaving OIDC untouched.
+#
+# So: nothing to configure, and no secret to add. If this workflow ever fails
+# with ENEEDAUTH or a 404 that reads like the package is missing, suspect the
+# Trusted Publisher config (every field is case-sensitive, and npm does not
+# validate it when saved) or an npm too old to speak OIDC — not a missing token.
+#
+# Provenance is attached automatically — on GitHub Actions over OIDC with a
+# public repo and a public package, npm signs the publish without `--provenance`.
+# 0.1.0 is the sole version without an attestation; a local publish cannot
+# produce one, and it cannot be added retroactively.
+name: Release (Bump Version & Publish to npm)
+
+on:
+  workflow_dispatch:        # one-click from Actions UI; no inputs needed
+
+permissions:
+  contents: write           # bump commit + vX.Y.Z tag + GitHub Release
+  id-token: write           # the whole authentication story — see the header
+
+jobs:
+  release:
+    name: Test, bump, publish
+    runs-on: ubuntu-latest  # self-hosted runners cannot use trusted publishing
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0      # full history for the rebase-and-push, and tags
+                              # so bump-version.sh's tag-reuse check is real
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'          # LTS, and above the 22.14 OIDC floor
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Ensure npm supports trusted publishing
+        # Trusted publishing needs npm >= 11.5.1. Node 24 ships an 11.x that may
+        # predate it, and an npm too old to speak OIDC does not say so — it fails
+        # with a 404 or ENEEDAUTH that reads like a missing package or a missing
+        # login (npm/cli#9088). Upgrading unconditionally is cheaper than
+        # debugging that error later, from the far side of a committed bump.
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Before the bump on purpose: see the header. This is the last point at
+      # which failing is free.
+      - name: Run the suite
+        run: npm test
+
+      - name: Verify the tarball packs
+        # There is no credential to check for — OIDC either works or it does
+        # not, and it cannot be probed without publishing. What CAN be caught
+        # before the bump is a tarball that would not build or would ship empty,
+        # so pack it here and show what a consumer would receive.
+        run: npm publish --dry-run
+
+      - name: Configure Git
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version (commit + tag + push)
+        id: bump
+        run: |
+          # `npm ci` and the build/test compile leave artefacts behind; show what
+          # the tree looks like before the script's clean-tree check runs, so a
+          # refusal here is diagnosable from the log rather than only
+          # reproducible by re-running.
+          echo "--- git status ---"
+          git status --porcelain
+          echo "------------------"
+          chmod +x script/bump-version.sh
+          ./script/bump-version.sh
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        # No NODE_AUTH_TOKEN: the OIDC exchange happens inside npm itself.
+        # --access public because specguard-mcp is unscoped and public.
+        run: npm publish --access public
+
+      - name: Pack the tarball for the GitHub Release
+        id: pack
+        run: echo "tarball=$(npm pack --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.bump.outputs.tag }}" \
+            --title "${{ steps.bump.outputs.tag }}" \
+            --notes "Published to npm as \`specguard-mcp ${{ steps.bump.outputs.version }}\`, with build provenance.
+
+          \`\`\`json
+          {
+            \"mcpServers\": {
+              \"specguard\": {
+                \"command\": \"npx\",
+                \"args\": [\"specguard-mcp@${{ steps.bump.outputs.version }}\"],
+                \"env\": {
+                  \"SPECGUARD_API_KEY\": \"sgk_…\",
+                  \"SPECGUARD_ENDPOINT\": \"https://specguard.example.com\"
+                }
+              }
+            }
+          }
+          \`\`\`
+
+          The MCP bridge to SpecGuard: suite intelligence and \`@intent\` annotation linting, as tools an agent can call." \
+            "${{ steps.pack.outputs.tarball }}"
