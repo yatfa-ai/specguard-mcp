@@ -97,7 +97,15 @@ jobs:
         # not, and it cannot be probed without publishing. What CAN be caught
         # before the bump is a tarball that would not build or would ship empty,
         # so pack it here and show what a consumer would receive.
-        run: npm publish --dry-run
+        #
+        # `npm pack`, NOT `npm publish --dry-run`: the latter is not offline. It
+        # preflights the registry, and since this step runs before the bump it
+        # would be asking about the version that is already published — so it
+        # fails with "You cannot publish over the previously published versions"
+        # on every release from the second one onward. `npm pack --dry-run`
+        # builds the tarball and lists its contents without contacting npm,
+        # which is the whole of what this step is for.
+        run: npm pack --dry-run
 
       - name: Configure Git
         run: |
