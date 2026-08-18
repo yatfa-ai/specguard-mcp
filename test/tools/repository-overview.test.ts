@@ -1157,6 +1157,94 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  // ⭐ THE CORRECTION SPGD-711 MADE, guarded on the bridge because the bridge is
+  // where the wrong sentence was WRITTEN. The server serves figures; this tool's
+  // description is what tells an agent what they MEAN, and it used to tell it
+  // that `total_specs - annotated_specs` was the count of tests SpecGuard cannot
+  // see. That is annotation debt. On a suite that has never been annotated it is
+  // the whole suite, and almost every test in it has a `Class#method behavior`
+  // description SpecGuard reads perfectly well.
+  //
+  // Every assertion here is about a claim an agent would otherwise make on the
+  // product's behalf, in a report a human reads. None of them verifies server
+  // behaviour — same honest limit as the guards above.
+  it("tells an agent that unannotated is not the same as unreadable", () => {
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const parameter = properties["unannotated_examples"] as { description?: string };
+    const description = parameter?.description ?? "";
+
+    // 1. THE DISTINCTION ITSELF, stated where the worklist is described rather
+    // than left to be inferred from two new count keys.
+    assert.match(
+      description,
+      /UNANNOTATED IS NOT THE SAME AS UNREADABLE/,
+      "the flag's description must separate 'no @intent' from 'SpecGuard cannot read this', " +
+        "because the rows it opens are the first population and were captioned as the second",
+    );
+
+    // 2. WHICH FIGURE CARRIES THE CLAIM. An agent handed three counts needs to
+    // be told which one a "SpecGuard cannot see these" sentence may be built on,
+    // or it will keep building that sentence on `recorded_count`.
+    assert.match(
+      description,
+      /Only\s+"?\s*`unreadable_count` is a count of tests SpecGuard can say nothing about/,
+      "the description must name `unreadable_count` as the only figure that means blindness",
+    );
+
+    // 3. THE PER-ROW LABEL. Without it an agent has two counts and no way to say
+    // which of the hundred rows in front of it are which.
+    assert.match(
+      description,
+      /`reading`/,
+      "the description must name the per-row `reading` key, since the block mixes two states",
+    );
+
+    // 4. DERIVED IS WEAKER, AND WHY. The one claim that must never be softened:
+    // a bridge that reported a derived reading as an annotation would make the
+    // product's own adoption metric unreadable from the outside.
+    assert.match(
+      description,
+      /no preconditions/,
+      "the description must say what an authored @intent still buys over a derived reading",
+    );
+
+    // 5. THE CAP CANNOT HIDE THE DARK ROWS. The list is capped at 100 and the
+    // unreadable population is the small one — an agent that did not know the
+    // order would have to assume the corner it is looking for is past the cut.
+    assert.match(
+      description,
+      /UNREADABLE ROWS COME FIRST/,
+      "the description must state that unreadable rows lead the capped worklist",
+    );
+  });
+
+  // The same correction at the TOOL description's grain, which is what an agent
+  // reads before it decides whether to call at all — and the one place
+  // `intent_readings` can be advertised, since it rides every response and has
+  // no parameter of its own to hang a description on.
+  it("advertises the three readings on the tool description, with no flag to pass", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(
+      description,
+      /`latest_run\.intent_readings`/,
+      "the tool description must name the key, because it has no parameter to be documented under",
+    );
+    assert.match(
+      description,
+      /Never read `total_specs - annotated_specs` as that population/,
+      "the tool description must refuse the subtraction as a count of what SpecGuard cannot see — " +
+        "that is the reading this correction exists to end",
+    );
+    // And the old sentence is gone rather than merely outnumbered by new ones.
+    assert.doesNotMatch(
+      description,
+      /tests SpecGuard CANNOT see/,
+      "the tool description must no longer call the unannotated population the tests SpecGuard " +
+        "cannot see",
+    );
+  });
+
   it("blames the ARGUMENT for a bad type, not the deployment", async () => {
     // Note the context: no endpoint, no key, no `ENV` at all. The seven
     // coercions run before `requireApiConfig`, so this refusal happens on a
