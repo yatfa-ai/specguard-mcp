@@ -28,6 +28,28 @@ import { ConfigError } from "./errors.js";
  * too rather than left as a silent no-op for anyone who follows the ticket.
  * `SPECGUARD_ENDPOINT` wins when both are set and disagree, because it is the
  * one the rest of the toolchain is already reading.
+ *
+ * == TWO KEY VARIABLES, because SpecGuard has two credentials that refuse each
+ * == other
+ *
+ * `Api::BaseController` discriminates on the token's PREFIX *before any table is
+ * read*, and answers 401 on a mismatch without a lookup: `sgk_` names ONE
+ * repository (`GET /api/v1/repository`, `POST /api/v1/ingest`), `sgu_` names a
+ * PERSON (`GET /api/v1/repositories`). `UserApiKey::TOKEN_PREFIX` says the two
+ * prefixes are deliberately the same length so neither can be a prefix of the
+ * other — the mutual refusal is designed, not incidental.
+ *
+ * One variable therefore cannot serve both: whichever kind it holds, the tools
+ * needing the other kind 401. So there are two, read independently, and neither
+ * is required — an operator who only ever calls the repository tool sets only
+ * `SPECGUARD_API_KEY`, exactly as before this existed. Prefix-dispatching over a
+ * single variable was the alternative and it cannot work: an operator wanting
+ * both kinds of tool needs both keys present at once.
+ *
+ * Which variable a tool reads is then carried onto `ApiConfig` alongside the
+ * value — see `Credential` — for the same reason `endpointVariable` is: a
+ * diagnostic that names the wrong variable sends an operator to fix something
+ * they never set.
  */
 export interface Config {
   /** SpecGuard deployment root, trailing slash stripped. `undefined` when unset. */
@@ -42,8 +64,18 @@ export interface Config {
    * speak the one that was used.
    */
   readonly endpointVariable: EndpointVariable | undefined;
-  /** An `sgk_…` API key. `undefined` when unset. */
+  /** An `sgk_…` repository API key, from `SPECGUARD_API_KEY`. `undefined` when unset. */
   readonly apiKey: string | undefined;
+  /**
+   * An `sgu_…` user API key, from `SPECGUARD_USER_API_KEY`. `undefined` when unset.
+   *
+   * A SECOND slot rather than a second meaning for the first one — see the note
+   * at the top of this file. It is minted from the account page
+   * (`/account`) and speaks for a person; the repository key is minted per
+   * repository and speaks for one repository. Neither deployment endpoint will
+   * accept the other's token, so the two values live in two places here too.
+   */
+  readonly userApiKey: string | undefined;
   /**
    * The command that runs the `@intent` linter, already tokenised.
    *
@@ -86,6 +118,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     endpoint: endpointVariable === undefined ? undefined : normaliseEndpoint(env[endpointVariable]),
     endpointVariable,
     apiKey: presence(env["SPECGUARD_API_KEY"]),
+    userApiKey: presence(env["SPECGUARD_USER_API_KEY"]),
     lintCommand: lintCommand.length > 0 ? lintCommand : DEFAULT_LINT_COMMAND,
     requestTimeoutMs: positiveInteger(env["SPECGUARD_TIMEOUT_MS"]) ?? DEFAULT_REQUEST_TIMEOUT_MS,
   };
@@ -108,10 +141,83 @@ export interface ApiConfig {
    */
   readonly endpointVariable: EndpointVariable;
   readonly apiKey: string;
+  /**
+   * WHICH credential `apiKey` is — the variable it was read from, the prefix
+   * that variable is expected to hold, and how to say both in a sentence.
+   *
+   * Exactly the treatment `endpointVariable` above gets, applied to the other
+   * half, and for the same reason. `describeFailure` in
+   * `support/specguard-api.ts` used to hardcode "SPECGUARD_API_KEY must be an
+   * sgk_… key … keys are per-repository" into every 401, so the first
+   * user-scoped tool routed through `getJson` would have inherited three
+   * sentences that are all false of it — naming a variable its operator may
+   * never have set. Carrying the answer rather than re-deriving it per tool is
+   * what makes the next credential-scoped tool inherit correct naming the same
+   * way it inherits the URL check.
+   */
+  readonly credential: Credential;
   readonly requestTimeoutMs: number;
 }
 
 export type EndpointVariable = "SPECGUARD_ENDPOINT" | "SPECGUARD_URL";
+
+export type ApiKeyVariable = "SPECGUARD_API_KEY" | "SPECGUARD_USER_API_KEY";
+
+/**
+ * One of SpecGuard's two credential kinds, described well enough that a message
+ * about it can be written without knowing which one it is.
+ *
+ * The two prose fields are sentence FRAGMENTS rather than whole messages on
+ * purpose: the surrounding wording — "is not set in the MCP server's
+ * environment", "SpecGuard rejected the API key (401)" — is the same for both
+ * kinds and is written once, at the site that knows the situation. Only the
+ * parts that genuinely differ between an `sgk_` key and an `sgu_` key live
+ * here.
+ */
+export interface Credential {
+  /** The environment variable this kind of key is read from. */
+  readonly variable: ApiKeyVariable;
+  /** The prefix SpecGuard requires of it, checked before any table is read. */
+  readonly prefix: "sgk_" | "sgu_";
+  /** Completes "… issued from ___" in a message about the variable being unset. */
+  readonly issuedFrom: string;
+  /** Completes "… issued by <deployment> ___" in a message about a 401. */
+  readonly rejection: string;
+}
+
+/**
+ * The `sgk_` key: one repository, and the same variable CI already sets.
+ *
+ * The 401 wording is unchanged from when this was the only credential — it is
+ * accurate about this kind, and the reason a second kind exists is precisely
+ * that it was never accurate about the other.
+ */
+export const REPOSITORY_CREDENTIAL: Credential = {
+  variable: "SPECGUARD_API_KEY",
+  prefix: "sgk_",
+  issuedFrom: "issued from its API keys page",
+  rejection:
+    "for the repository you are asking about — keys are per-repository, and a " +
+    "revoked key reads the same as a wrong one",
+};
+
+/**
+ * The `sgu_` key: a person, and a variable nothing else in the toolchain reads.
+ *
+ * `specguard-rspec` ships runs with an `sgk_` key and has no notion of this one,
+ * so an operator who already has CI reporting to SpecGuard does NOT already
+ * have this variable — which is why the message says where to mint one rather
+ * than assuming it is lying around.
+ */
+export const USER_CREDENTIAL: Credential = {
+  variable: "SPECGUARD_USER_API_KEY",
+  prefix: "sgu_",
+  issuedFrom: "issued from your account page",
+  rejection:
+    "for your own SpecGuard account — a user key speaks for a person and lists what " +
+    "that person may open, an sgk_… repository key is refused here without a lookup, " +
+    "and a revoked key reads the same as a wrong one",
+};
 
 /**
  * The name to speak when no variable was set at all — the message is telling
@@ -120,11 +226,42 @@ export type EndpointVariable = "SPECGUARD_ENDPOINT" | "SPECGUARD_URL";
 const DEFAULT_ENDPOINT_VARIABLE: EndpointVariable = "SPECGUARD_ENDPOINT";
 
 /**
+ * What a tool needing the `sgk_` REPOSITORY key requires — the endpoint and
+ * `SPECGUARD_API_KEY`.
+ *
+ * Unchanged in name and in behaviour: every tool that reached the deployment
+ * before this file grew a second credential calls exactly this, and gets exactly
+ * what it got.
+ */
+export function requireApiConfig(config: Config): ApiConfig {
+  return requireCredentialledApiConfig(config, config.apiKey, REPOSITORY_CREDENTIAL);
+}
+
+/**
+ * What a tool needing the `sgu_` USER key requires — the endpoint and
+ * `SPECGUARD_USER_API_KEY`.
+ *
+ * A sibling rather than a flag on `requireApiConfig`, which is the shape
+ * `loadConfig`'s note at the top of this file already sanctioned: a tool asks
+ * for what IT needs, so a tool needing neither key is unaffected and startup
+ * still validates nothing. The two differ only in which value and which
+ * `Credential` they pass to the one implementation below, so a fix to the
+ * diagnostics reaches both and they cannot drift into describing the same
+ * situation differently.
+ */
+export function requireUserApiConfig(config: Config): ApiConfig {
+  return requireCredentialledApiConfig(config, config.userApiKey, USER_CREDENTIAL);
+}
+
+/**
  * Both halves or a legible failure — never one half and a surprise later.
  *
  * Reported together rather than one at a time: an operator who set neither
  * should learn that in one round trip instead of fixing a variable, re-calling,
- * and being told about the next one.
+ * and being told about the next one. That property is why the two `require*`
+ * entry points share this body rather than each doing their own presence check:
+ * "together" has to mean the endpoint AND whichever key the calling tool needs,
+ * and a per-tool check would report them one at a time again.
  *
  * The endpoint is also PARSED here, not merely counted as present. It is spent
  * later inside `new URL(...)` in the HTTP client, where a malformed value throws
@@ -135,28 +272,43 @@ const DEFAULT_ENDPOINT_VARIABLE: EndpointVariable = "SPECGUARD_ENDPOINT";
  * truth, and it sends an agent looking in the one place the problem is not.
  * Validating here rather than at the call site is deliberate: every HTTP-backed
  * tool added later comes through this function and inherits the check.
+ *
+ * The KEY is deliberately NOT validated against `credential.prefix` here. The
+ * deployment is the authority on whether a token is acceptable — it checks the
+ * prefix, then the digest, then whether the key is revoked — and a second,
+ * weaker copy of the first third of that rule on this side would refuse a token
+ * SpecGuard would have accepted the moment the platform mints a third prefix.
+ * The prefix is carried so a MESSAGE can name it, not so this file can enforce
+ * it; the 401 branch of `describeFailure` is where a wrong-kind key is
+ * diagnosed, with the deployment's own verdict in hand.
  */
-export function requireApiConfig(config: Config): ApiConfig {
+function requireCredentialledApiConfig(
+  config: Config,
+  apiKey: string | undefined,
+  credential: Credential,
+): ApiConfig {
   const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
 
   const missing: string[] = [];
   if (config.endpoint === undefined) missing.push(endpointVariable);
-  if (config.apiKey === undefined) missing.push("SPECGUARD_API_KEY");
+  if (apiKey === undefined) missing.push(credential.variable);
 
   if (missing.length > 0) {
     throw new ConfigError(
       `This tool talks to a SpecGuard deployment, and ${missing.join(" and ")} ` +
         `${missing.length === 1 ? "is" : "are"} not set in the MCP server's environment. ` +
         "Set them in your MCP client's server config " +
-        `(${endpointVariable} is your deployment's root URL, SPECGUARD_API_KEY an sgk_… key ` +
-        "issued from its API keys page). Tools that do not reach the deployment are unaffected.",
+        `(${endpointVariable} is your deployment's root URL, ${credential.variable} ` +
+        `an ${credential.prefix}… key ${credential.issuedFrom}). ` +
+        "Tools that do not reach the deployment are unaffected.",
     );
   }
 
   return {
     endpoint: requireHttpUrl(config.endpoint as string, endpointVariable),
     endpointVariable,
-    apiKey: config.apiKey as string,
+    apiKey: apiKey as string,
+    credential,
     requestTimeoutMs: config.requestTimeoutMs,
   };
 }

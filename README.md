@@ -11,7 +11,7 @@ its prompt.
 SpecGuard is built [primarily for AI coding agents](https://github.com/yatfa-ai/specguard); this
 bridge is how an agent reaches it without scraping a web UI.
 
-> **Status: bootstrap.** Two tools ship today, each wrapping a capability that already exists. The
+> **Status: bootstrap.** Three tools ship today, each wrapping a capability that already exists. The
 > toolset **grows gradually** — see [Adding a tool](#adding-a-tool). It is not published to npm yet;
 > install from a checkout.
 
@@ -34,12 +34,15 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
 `SPECGUARD_ENDPOINT` and `SPECGUARD_API_KEY` are the same variables
 [`specguard-rspec`](https://github.com/yatfa-ai/specguard-rspec) uses to ship a run, so a repository
-that already posts telemetry to SpecGuard already has them.
+that already posts telemetry to SpecGuard already has them. `SPECGUARD_USER_API_KEY` is **not** one
+of them — the gem has no notion of a user key — so that one is minted and set here for the first
+time.
 
 Register it with your MCP client — for Claude Code:
 
@@ -52,6 +55,7 @@ Register it with your MCP client — for Claude Code:
       "env": {
         "SPECGUARD_ENDPOINT": "https://specguard.example.com",
         "SPECGUARD_API_KEY": "sgk_…",
+        "SPECGUARD_USER_API_KEY": "sgu_…",
         "SPECGUARD_LINT_COMMAND": "bundle exec specguard-lint"
       }
     }
@@ -297,6 +301,37 @@ a finding and not a disclosure someone forgot.
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
 
+### `list_repositories`
+
+Lists the SpecGuard repositories the person behind `SPECGUARD_USER_API_KEY` may open — *what can I
+ask about*, which is the one question no other tool here can answer. `get_repository_overview` takes
+no repository because its `sgk_…` key **is** the repository, so without this an agent can only report
+on a repository somebody already named for it.
+
+**This tool takes no arguments** — and not as an omission. The credential is the whole of the scope:
+the endpoint takes no parameters, and which repositories are in the answer is decided by SpecGuard
+from the person the key speaks for (owned, plus shared with them through a membership). A repository
+they neither own nor were given access to never enters the response, so it cannot be filtered *in*
+from this side either.
+
+The body comes back as SpecGuard serves it — `{"repositories": […]}`, each entry carrying `id`,
+`full_name`, `name`, `registered_at` and `role`, ordered by `full_name` ascending. The first four are
+deliberately the same four fields, under the same names, that `get_repository_overview` serves in its
+own `repository` block, so a client that reads one reads the other. `role` is `owner` or `member`:
+the list mixes repositories this person owns with repositories somebody shared with them, and nothing
+else tells them apart — read it before assuming a repository is one you may administer. An empty list
+means no access, not an error.
+
+**It reads a different key from every other tool here.** `SPECGUARD_USER_API_KEY` (`sgu_…`), not
+`SPECGUARD_API_KEY` (`sgk_…`). SpecGuard refuses each credential in the other's place — the prefix
+decides which table is consulted before any of them is read — so the two are not interchangeable and
+setting one does not stand in for the other. Every message this tool produces names the variable
+*it* reads, so a `401` here never sends you to check the key `get_repository_overview` uses.
+
+Registering a repository, revoking keys and the rest of the user-scoped surface are not here yet.
+`POST /api/v1/repositories` exists on the platform; what this bridge does not yet have is a way to
+send a request body, and that arrives with the first tool that writes.
+
 ## How it works
 
 ```
@@ -306,11 +341,15 @@ agent  ⇄  specguard-mcp  ⇄  SpecGuard         (HTTP, the same API the dashbo
 
 The bridge is a **thin client**: it shells out and it calls the API, and it re-implements neither.
 It carries no knowledge of the OpenTestIntent schema, holds no copy of the linter's rules, and
-reshapes no response — both tools return the shape of the capability they wrap, so a field added
+reshapes no response — every tool returns the shape of the capability it wraps, so a field added
 upstream reaches the agent without a release here.
 
-Authorization and project scoping are enforced by SpecGuard, never by this bridge, using the same
-`sgk_…` keys CI uses to ingest runs. The bridge adds no credentials of its own and stores nothing.
+Authorization and project scoping are enforced by SpecGuard, never by this bridge, using keys you
+issue there — the same `sgk_…` keys CI uses to ingest runs, and, for the tools that answer to a
+person rather than to a repository, an `sgu_…` user key. Which of the two a request may carry is
+SpecGuard's decision and it is taken from the token's prefix, before any credential is looked up, so
+the bridge cannot widen either one's reach: it forwards the key the tool's own variable holds and
+reports what came back. It adds no credentials of its own and stores nothing.
 
 No argument ever reaches a shell: subprocesses are spawned with an argument list, so a path from a
 model is a path that does not exist rather than a command.
@@ -322,11 +361,13 @@ The toolset fills in as more of SpecGuard lands. Adding one is two mechanical ed
 1. a new file under `src/tools/` that default-exports a `ToolDefinition`;
 2. one entry appended to the array in `src/tools/index.ts`.
 
-There is no third — no third *wiring* edit, at least: every tool also earns a `### ` section with an
-argument table above, and every argument earns a row in that table, since this README ships as the
-package's published documentation, and `test/readme.test.ts` derives that obligation from the
-registry so a missing section or an undocumented parameter fails the suite. `src/server.ts` iterates
-that array and contains no per-tool code — no `switch`, no hard-coded name — and everything a tool
+There is no third — no third *wiring* edit, at least: every tool also earns a `### ` section above,
+and every argument earns a row in that section's table, since this README ships as the package's
+published documentation, and `test/readme.test.ts` derives that obligation from the registry so a
+missing section or an undocumented parameter fails the suite. A tool that genuinely takes no
+arguments (`list_repositories` is the first) still earns the section, and is named in that file's
+`ARGUMENT_LESS_TOOLS` — a deliberate line to add, rather than a floor relaxed for everyone.
+`src/server.ts` iterates that array and contains no per-tool code — no `switch`, no hard-coded name — and everything a tool
 touches the world with (config, subprocesses, `fetch`) is injected, so a new tool is testable
 without a live deployment for free. The property tests in `test/tools/registry.test.ts` run over
 whatever the registry holds, so a tool added later is checked by tests written today.
