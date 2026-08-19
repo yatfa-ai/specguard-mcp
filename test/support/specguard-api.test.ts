@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { loadConfig } from "../../src/config.js";
 import { ApiError, SpecGuardMcpError } from "../../src/errors.js";
-import { getJson, requireApiConfig } from "../../src/support/specguard-api.js";
-import { rejects, stubSlowFetch } from "./stubs.js";
+import { getJson, getJsonObject, requireApiConfig } from "../../src/support/specguard-api.js";
+import { rejects, stubFetch, stubSlowFetch } from "./stubs.js";
 
 /**
  * A 50ms budget, expressed the way an operator expresses it.
@@ -128,5 +128,67 @@ describe("getJson — one deadline across headers and body", () => {
       getJson(api("2000"), "/api/v1/repository", {}, stubSlowFetch(10, { status: 503, body: "upstream down" }).fetch),
       /503.*upstream down/s,
     );
+  });
+});
+
+/**
+ * The not-an-object guard belongs to the TRANSPORT, not to each tool that uses it.
+ *
+ * MCP hands a tool result back as an object, so a body that is an array or a
+ * bare scalar cannot be passed through — it surfaces as a protocol error rather
+ * than as something the agent can read. Every HTTP tool therefore needs this
+ * check, which is exactly why it must not live in any of them: it was written
+ * out twice, verbatim down to the sentence, before it moved here, and the third
+ * copy would have been the one that drifted.
+ *
+ * Asserted on `getJsonObject` itself rather than only through a tool, for the
+ * reason `requireApiConfig` is tested directly: a tool-level test proves the
+ * guard fires for THAT tool, and a tool added later inherits the function
+ * whether or not anyone writes a matching test for it. This is what that
+ * inheritance is worth.
+ */
+describe("getJsonObject — the object narrowing every HTTP tool inherits", () => {
+  const config = api("2000");
+
+  it("returns the object unchanged when the body is one", async () => {
+    // The guard must not be satisfiable by a function that rejects everything:
+    // a legitimate object is passed through untouched, not copied or reshaped.
+    const body = { repositories: [{ id: 1, full_name: "acme/app" }] };
+
+    const result = await getJsonObject(
+      config,
+      "/api/v1/repositories",
+      {},
+      stubFetch({ body: JSON.stringify(body) }).fetch,
+    );
+
+    assert.deepEqual(result, body);
+  });
+
+  // The three shapes `typeof body === "object"` alone would not settle. An array
+  // and `null` are BOTH typeof "object" in JavaScript, which is the whole reason
+  // the check has three clauses rather than one — drop either clause and the
+  // corresponding case below is the one that stops failing.
+  for (const [shape, body] of [
+    ["an array", "[]"],
+    ["null", "null"],
+    ["a bare scalar", "42"],
+  ] as const) {
+    it(`refuses ${shape}`, async () => {
+      await rejects(
+        getJsonObject(config, "/api/v1/repositories", {}, stubFetch({ body }).fetch),
+        /not an object/,
+      );
+    });
+  }
+
+  it("leaves getJson itself un-narrowed, so an array body stays reachable", async () => {
+    // Deliberately NOT the same function. An endpoint that legitimately serves a
+    // top-level array is a thing SpecGuard may add, and the raw transport must
+    // still be able to carry it — the rule is that no tool re-types the guard,
+    // not that objects are the only legal body.
+    const body = await getJson(config, "/api/v1/repositories", {}, stubFetch({ body: "[]" }).fetch);
+
+    assert.deepEqual(body, []);
   });
 });

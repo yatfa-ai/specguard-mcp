@@ -32,7 +32,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 
 | Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
-| `SPECGUARD_ENDPOINT` | `get_repository_overview` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
+| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
 | `SPECGUARD_USER_API_KEY` | `list_repositories` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
@@ -322,7 +322,7 @@ the list mixes repositories this person owns with repositories somebody shared w
 else tells them apart — read it before assuming a repository is one you may administer. An empty list
 means no access, not an error.
 
-**It reads a different key from every other tool here.** `SPECGUARD_USER_API_KEY` (`sgu_…`), not
+**It reads a different key from `get_repository_overview`.** `SPECGUARD_USER_API_KEY` (`sgu_…`), not
 `SPECGUARD_API_KEY` (`sgk_…`). SpecGuard refuses each credential in the other's place — the prefix
 decides which table is consulted before any of them is read — so the two are not interchangeable and
 setting one does not stand in for the other. Every message this tool produces names the variable

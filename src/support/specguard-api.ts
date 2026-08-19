@@ -36,6 +36,38 @@ export async function getJson(
   }
 }
 
+/**
+ * `getJson`, narrowed to the object every tool here actually asks it for.
+ *
+ * MCP hands a tool result back as an object, so an array or a bare JSON scalar
+ * is not something a tool can pass through: it surfaces as a protocol error
+ * rather than as something the agent can read. Every HTTP tool therefore
+ * needed the same three-clause guard, and the same sentence, immediately after
+ * its own `getJson` call — which made both the check and its wording the one
+ * thing each new tool had to remember to write for itself, and get identical.
+ *
+ * It belongs here for the reason `requireApiConfig` parses the endpoint rather
+ * than leaving that to callers: every HTTP-backed tool added later comes
+ * through this function and inherits the check, the same way it inherits the
+ * URL check and the 401 wording. `getJson` stays exported un-narrowed for an
+ * endpoint that legitimately serves an array — the point is not that objects
+ * are the only legal body, it is that no tool re-types this guard.
+ */
+export async function getJsonObject(
+  api: ApiConfig,
+  path: string,
+  query: Record<string, string | undefined>,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<Record<string, unknown>> {
+  const body = await getJson(api, path, query, fetchImpl);
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new ApiError("SpecGuard returned a JSON value that was not an object.");
+  }
+
+  return body as Record<string, unknown>;
+}
+
 /** A response and the body that came with it — never one without the other. */
 interface FetchedBody {
   readonly response: Response;

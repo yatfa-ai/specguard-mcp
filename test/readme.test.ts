@@ -189,14 +189,23 @@ describe("the published README", () => {
         );
       });
 
-      it("has arguments to check", () => {
+      it("has arguments to check", (t) => {
         // A tool with no properties would make the loop below empty and this
         // whole describe block a permanent, meaningless green. If an
         // argument-less tool is ever a real thing here, that is a deliberate
         // decision to encode — not something to let slip through as silence.
         // `ARGUMENT_LESS_TOOLS` is where that decision is written down; a tool
         // not in it still has to advertise something.
-        if (ARGUMENT_LESS_TOOLS.has(tool.name)) return;
+        //
+        // Reported as a SKIP, not as a bare return: this file's own rule is that
+        // "nothing to check" must never read as a pass, and an exempted tool
+        // returning early would print a green "has arguments to check" having
+        // asserted nothing — the exact shape the rule forbids, one level up. The
+        // three guards over the set itself are what make the exemption safe, so
+        // it costs nothing to say out loud in the runner output.
+        if (ARGUMENT_LESS_TOOLS.has(tool.name)) {
+          return t.skip("exempted by ARGUMENT_LESS_TOOLS — see the guards at the top of this file");
+        }
 
         assert.ok(
           parameters.length > 0,

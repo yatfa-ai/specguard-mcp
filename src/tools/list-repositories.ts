@@ -1,5 +1,4 @@
-import { ApiError } from "../errors.js";
-import { getJson, requireUserApiConfig } from "../support/specguard-api.js";
+import { getJsonObject, requireUserApiConfig } from "../support/specguard-api.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -87,26 +86,20 @@ const listRepositories: ToolDefinition = {
     "place.",
   inputSchema: {
     type: "object",
-    // No properties, deliberately — see this file's header. Still closed, so a
-    // client that invents an argument is refused here rather than having it
-    // silently dropped and being answered as if it had been honoured.
+    // No properties, deliberately — see this file's header. Still CLOSED rather
+    // than merely empty: `additionalProperties: false` is advertised in
+    // `tools/list`, so a client that honours the schema REJECTS an invented
+    // argument before the call is made. Nothing on this side refuses it —
+    // `server.ts` forwards `arguments` unvalidated and `run` ignores them — so
+    // an open schema would have the argument silently dropped and the call
+    // answered as if it had been honoured.
     additionalProperties: false,
   },
 
   async run(_args, context): Promise<ToolResult> {
     const api = requireUserApiConfig(context.config);
 
-    const body = await getJson(api, "/api/v1/repositories", {}, context.fetch);
-
-    // The same guard `get_repository_overview` applies, for the same reason: an
-    // array or a bare JSON scalar would otherwise be handed to a client that MCP
-    // requires an object from, and the failure would surface as a protocol error
-    // rather than as something the agent can read.
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
-      throw new ApiError("SpecGuard returned a JSON value that was not an object.");
-    }
-
-    const listing = body as Record<string, unknown>;
+    const listing = await getJsonObject(api, "/api/v1/repositories", {}, context.fetch);
 
     return {
       text: JSON.stringify(listing, null, 2),

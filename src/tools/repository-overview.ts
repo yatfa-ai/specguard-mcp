@@ -1,6 +1,5 @@
 import { requireApiConfig } from "../config.js";
-import { ApiError } from "../errors.js";
-import { getJson } from "../support/specguard-api.js";
+import { getJsonObject } from "../support/specguard-api.js";
 import { optionalBoolean, optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -780,7 +779,7 @@ const getRepositoryOverview: ToolDefinition = {
     );
     const api = requireApiConfig(context.config);
 
-    const body = await getJson(
+    const overview = await getJsonObject(
       api,
       "/api/v1/repository",
       {
@@ -794,12 +793,6 @@ const getRepositoryOverview: ToolDefinition = {
       },
       context.fetch,
     );
-
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
-      throw new ApiError("SpecGuard returned a JSON value that was not an object.");
-    }
-
-    const overview = body as Record<string, unknown>;
 
     return {
       text: renderText(overview),
