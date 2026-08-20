@@ -109,7 +109,7 @@ branch window rather than between the last two runs.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `unannotated_examples` | `true` to list the individual tests SpecGuard cannot see — the examples behind the annotated ratio — and, in the same answer, which areas carry the most of them |
+| `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge — and
@@ -210,9 +210,23 @@ description carried by two examples in one run contributes two, so `rows` is not
 and its length is not the window's `run_count`.
 
 `annotated_ratio` is the product's adoption metric and it was the one population on this endpoint
-you could not walk down: the dashboard prints *"SpecGuard cannot see the other N tests"* and could
+you could not walk down: the dashboard printed *"SpecGuard cannot see the other N tests"* and could
 not name one of them either, so an agent told to raise annotation coverage learned how far it had to
-go and not a single test to annotate. `unannotated_examples` is that rung. It is the one argument
+go and not a single test to annotate. `unannotated_examples` is that rung.
+
+**Unannotated is not the same as unreadable, and the difference is on every response.** A test
+called `Invoice#total sums the line items` has an entity, an action and a behavior in its own
+description, so SpecGuard reads it whether or not anybody annotated it.
+`latest_run.intent_readings` splits the run's examples into `authored` (an `@intent` a human wrote),
+`derived` (read from the description) and `unreadable` (neither), with the `recorded` population
+they were counted from — no flag to pass. **`unreadable` is the only figure on this endpoint that
+means tests SpecGuard can say nothing about.** `total_specs - annotated_specs` is annotation debt,
+which on a suite that has never been annotated is the whole suite and almost all of it readable;
+never render that subtraction as blindness. A derived reading is genuinely weaker than an authored
+one — no preconditions, a behavior written for a test runner's output rather than declared, and a
+layer inferred from the directory — so report it as inferred and never as equivalent. And
+`authored` never replaces `annotated_ratio`: "how much of this suite has a human-written intent" is
+still that figure, off the run's own counters. It is the one argument
 here that is a **flag rather than a name** — pass `true`, not a value — because it opens a
 *population* rather than a pick: `total_specs` minus `annotated_specs` is a subtraction, and a
 subtraction has no line to name. Which population is still yours to choose: sent alone the flag
@@ -220,8 +234,10 @@ opens the whole run, and sent **together with** `spec_file` or `spec_directory` 
 file, that area, or the AND of the two — those two keep opening their own blocks as well, so
 narrowing this one is additional rather than instead. `latest_run.unannotated_examples` opens with
 up to 100 of the unannotated examples **of whatever you asked for** (`name`, `file_path`,
-`line_number`, `spec_file_path` each — four fields, not the per-example drill-ins' six), plus that
-same population's own `recorded_count`, the `limit` the row list was cut at, and
+`line_number`, `spec_file_path`, `reading` and `derived_intent` each — six fields, and not the
+per-example drill-ins' six: no `duration_seconds` and no `outcome`), plus that
+same population's own `recorded_count`, `derived_count` and `unreadable_count`, the `limit` the row
+list was cut at, and
 `spec_file`/`spec_directory` **echoed back** as the server read them — `null` for each one you did
 not send. Read the echo before the count: the **worklist's** `recorded_count` — and only that one,
 because the map below deliberately does not narrow — is the figure you would reconcile against
@@ -235,13 +251,20 @@ That one ask opens **two** blocks, each in its own grain: `latest_run.unannotate
 *which tests* to go and annotate, and `latest_run.unannotated_directories` for *where the debt is* —
 the run's annotation debt rolled up by code area, which is what you pick the next `spec_directory`
 narrowing **from**. Both come from the one flag; there is no second argument to send and no new
-value. The map's rows carry `path`, `unannotated_count` and the `recorded_count` that area was
-counted against (the operands, never a fraction), plus `directory_count` — **every** area the run
+value. Each worklist row carries `reading` — `"derived"` or `"unreadable"` — and `derived_intent`,
+the `entity`/`action`/`behavior` SpecGuard got from the description or `null`; the **unreadable rows
+come first**, so the 100-row cap cannot hide them. The map's rows carry `path`,
+`unannotated_count`, the `recorded_count` that area was counted against, and the same three-way
+split — `authored_count`, `derived_count` and `unreadable_count`, which sum to `recorded_count`
+while the last two sum to `unannotated_count` (the operands, never a fraction), plus
+`directory_count` — **every** area the run
 touched, not every area with debt, and not `rows.size` — and its **own** `limit`, which is **10 and
 not the worklist's 100**. Two caps under one ask, and the difference is the kind of list: 100 caps a
 *worklist* to work through, 10 caps a *ranking* to pick from. The orders differ for the same reason —
-the worklist is file-navigable, the map is ranked `unannotated_count` descending with `path` as a
-tiebreak only. A fully-annotated area is a real **row** with `unannotated_count: 0`, never an
+the worklist is file-navigable within each reading, the map is ranked `unreadable_count` descending,
+then `unannotated_count` descending, with `path` as a tiebreak only — the areas SpecGuard cannot
+read lead, because a ten-row ranking led by debt on an unannotated suite is a ranking by area size
+and the dark corners never surface. A fully-annotated area is a real **row** with `unannotated_count: 0`, never an
 omission; those rows sort last *collectively*, so on a run with more areas than the cap they are cut
 and never seen, but on a run inside the cap they *are* listed and listed is correct. So `rows.size` is
 not a count of areas *with* debt — read each row's `unannotated_count`. Both blocks are at run grain,
