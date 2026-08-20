@@ -36,7 +36,16 @@ describe("an MCP client against the server", () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
-    assert.deepEqual(names, ["get_repository_overview", "lint_intent_annotations"]);
+    // Grown to three by SPGD-760, and grown rather than loosened to a subset
+    // check on purpose: this `deepEqual` is the pin that makes what the server
+    // promises an agent change only by a conscious decision (`src/tools/types.ts`
+    // says so, and `src/tools/index.ts` says why each of these three is here).
+    // A `.includes` would let the next tool advertise itself silently.
+    assert.deepEqual(names, [
+      "get_repository_overview",
+      "lint_intent_annotations",
+      "list_repositories",
+    ]);
 
     for (const tool of tools) {
       assert.ok(tool.description && tool.description.length > 0);
@@ -89,6 +98,37 @@ describe("an MCP client against the server", () => {
     assert.notEqual(result.isError, true);
     assert.deepEqual(result.structuredContent, body);
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+
+    await client.close();
+  });
+
+  it("calls the user-scoped tool with the OTHER key, from the same server", async () => {
+    // The seam SPGD-760 opened, driven through the real protocol rather than
+    // through the tool function: one server, one `loadConfig`, two credentials,
+    // and the tool that reads the second one must reach the wire carrying it.
+    // A unit test on the tool cannot show this — it is `createServer`'s single
+    // `Config` reaching two different `require*` helpers that is under test.
+    const body = { repositories: [{ full_name: "acme/app", role: "owner" }] };
+    const http = stubFetch({ body: JSON.stringify(body) });
+
+    const client = await connect({
+      config: loadConfig({
+        SPECGUARD_ENDPOINT: "https://sg.example.com",
+        SPECGUARD_API_KEY: "sgk_test",
+        SPECGUARD_USER_API_KEY: "sgu_test",
+      }),
+      fetch: http.fetch,
+    });
+
+    const result = await client.callTool({ name: "list_repositories", arguments: {} });
+
+    assert.notEqual(result.isError, true);
+    assert.deepEqual(result.structuredContent, body);
+    // Both halves: the user endpoint, and the user key — with the repository key
+    // also present in the same environment, so picking the wrong one is a
+    // failure this example can see rather than a value it never had.
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgu_test");
 
     await client.close();
   });

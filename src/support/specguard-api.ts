@@ -1,4 +1,4 @@
-import { requireApiConfig, type ApiConfig } from "../config.js";
+import { requireApiConfig, requireUserApiConfig, type ApiConfig } from "../config.js";
 import { ApiError } from "../errors.js";
 
 /**
@@ -34,6 +34,38 @@ export async function getJson(
       response.status,
     );
   }
+}
+
+/**
+ * `getJson`, narrowed to the object every tool here actually asks it for.
+ *
+ * MCP hands a tool result back as an object, so an array or a bare JSON scalar
+ * is not something a tool can pass through: it surfaces as a protocol error
+ * rather than as something the agent can read. Every HTTP tool therefore
+ * needed the same three-clause guard, and the same sentence, immediately after
+ * its own `getJson` call — which made both the check and its wording the one
+ * thing each new tool had to remember to write for itself, and get identical.
+ *
+ * It belongs here for the reason `requireApiConfig` parses the endpoint rather
+ * than leaving that to callers: every HTTP-backed tool added later comes
+ * through this function and inherits the check, the same way it inherits the
+ * URL check and the 401 wording. `getJson` stays exported un-narrowed for an
+ * endpoint that legitimately serves an array — the point is not that objects
+ * are the only legal body, it is that no tool re-types this guard.
+ */
+export async function getJsonObject(
+  api: ApiConfig,
+  path: string,
+  query: Record<string, string | undefined>,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<Record<string, unknown>> {
+  const body = await getJson(api, path, query, fetchImpl);
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new ApiError("SpecGuard returned a JSON value that was not an object.");
+  }
+
+  return body as Record<string, unknown>;
 }
 
 /** A response and the body that came with it — never one without the other. */
@@ -165,13 +197,24 @@ function timedOut(api: ApiConfig): ApiError {
  * hit, and because SpecGuard answers it deliberately flat — "a valid Bearer API
  * key is required", with no detail about why — so the useful half of the
  * diagnosis has to be supplied from this side.
+ *
+ * WHICH VARIABLE AND WHICH PREFIX ARE READ OFF `api.credential`, never spelled
+ * out here. SpecGuard has two credential kinds that refuse each other's tokens
+ * before any table is read, so this one branch is reached by tools reading two
+ * different variables — and the sentence it used to hardcode ("SPECGUARD_API_KEY
+ * must be an sgk_… key … keys are per-repository") is false in all three of its
+ * claims for a user-scoped tool, naming a variable its operator may never have
+ * touched. That is the same defect `endpointVariable` fixes one branch down, and
+ * it gets the same remedy rather than a second hardcoded string: a tool added
+ * later inherits correct naming from the `require*` helper it already calls.
  */
 function describeFailure(status: number, body: string, api: ApiConfig): ApiError {
   if (status === 401) {
+    const { variable, prefix, rejection } = api.credential;
+
     return new ApiError(
-      "SpecGuard rejected the API key (401). SPECGUARD_API_KEY must be an sgk_… key issued by " +
-        `${api.endpoint} for the repository you are asking about — keys are per-repository, and a ` +
-        "revoked key reads the same as a wrong one.",
+      `SpecGuard rejected the API key (401). ${variable} must be an ${prefix}… key issued by ` +
+        `${api.endpoint} ${rejection}.`,
       status,
     );
   }
@@ -190,4 +233,4 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
   );
 }
 
-export { requireApiConfig };
+export { requireApiConfig, requireUserApiConfig };

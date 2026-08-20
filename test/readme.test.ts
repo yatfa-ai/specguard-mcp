@@ -80,6 +80,26 @@ function sectionFor(toolName: string): string[] | null {
   return end === -1 ? body : body.slice(0, end);
 }
 
+/**
+ * The tools that genuinely take NO arguments — enumerated by hand, on purpose.
+ *
+ * The floor below demands a parameter per tool, because a tool whose schema
+ * advertises none would make its parameter loop empty and its whole `describe`
+ * block a permanent, meaningless green. `list_repositories` is the first real
+ * exception: the `sgu_` credential IS the entire scope of its answer and
+ * `GET /api/v1/repositories` takes no parameters, so there is nothing for an
+ * argument to select.
+ *
+ * That is a decision, so it is ENCODED rather than accommodated. Turning the
+ * floor into "zero parameters is fine" would have retired the guard for every
+ * tool at once, including the next one that forgets to declare its schema. A
+ * named set fails for any OTHER argument-less tool until somebody adds it here
+ * deliberately — and the two checks under `the argument-less tools` keep the set
+ * itself honest in both directions, so it cannot outlive the tools it names or
+ * quietly cover a tool that has since grown arguments.
+ */
+const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set(["list_repositories"]);
+
 /** Matches the argument table's row for one parameter: `| \`name\` | … |`. */
 function documentsParameter(section: string[], parameter: string): boolean {
   const escaped = parameter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -113,6 +133,46 @@ describe("the published README", () => {
     assert.ok(TOOLS.length >= 2, `only found ${TOOLS.length} tools in src/tools/index.ts`);
   });
 
+  describe("the argument-less tools", () => {
+    it("names only tools that are actually registered", () => {
+      // A stale name in the set is a hole with nothing in it: the exemption
+      // would sit there covering a tool that no longer exists, ready to be
+      // inherited by anything later given the same name.
+      const registered = new Set(TOOLS.map((tool) => tool.name));
+
+      for (const name of ARGUMENT_LESS_TOOLS) {
+        assert.ok(
+          registered.has(name),
+          `ARGUMENT_LESS_TOOLS names ${name}, which is not in the registry — remove it rather than leaving an exemption for a tool that does not exist`,
+        );
+      }
+    });
+
+    it("does not cover a tool that has since grown arguments", () => {
+      // The other direction, and the one that actually costs coverage: a tool
+      // listed here stops having its argument table checked, so the day it gains
+      // a parameter the README obligation silently lapses for it. That must fail
+      // HERE rather than never.
+      for (const tool of TOOLS.filter((candidate) => ARGUMENT_LESS_TOOLS.has(candidate.name))) {
+        assert.equal(
+          Object.keys(tool.inputSchema.properties ?? {}).length,
+          0,
+          `${tool.name} is exempted as argument-less but now advertises parameters — drop it from ARGUMENT_LESS_TOOLS so its argument table is checked again`,
+        );
+      }
+    });
+
+    it("leaves at least one tool whose parameters ARE checked", () => {
+      // The floor over the exemption itself. If every tool ended up exempted,
+      // the parameter loop below would run zero times across the whole registry
+      // and this file would be green having opened the README for nothing.
+      assert.ok(
+        TOOLS.some((tool) => Object.keys(tool.inputSchema.properties ?? {}).length > 0),
+        "every tool is argument-less, so no argument table is being verified at all",
+      );
+    });
+  });
+
   for (const tool of TOOLS) {
     describe(`the \`${tool.name}\` section`, () => {
       const parameters = Object.keys(tool.inputSchema.properties ?? {});
@@ -129,14 +189,27 @@ describe("the published README", () => {
         );
       });
 
-      it("has arguments to check", () => {
+      it("has arguments to check", (t) => {
         // A tool with no properties would make the loop below empty and this
         // whole describe block a permanent, meaningless green. If an
         // argument-less tool is ever a real thing here, that is a deliberate
         // decision to encode — not something to let slip through as silence.
+        // `ARGUMENT_LESS_TOOLS` is where that decision is written down; a tool
+        // not in it still has to advertise something.
+        //
+        // Reported as a SKIP, not as a bare return: this file's own rule is that
+        // "nothing to check" must never read as a pass, and an exempted tool
+        // returning early would print a green "has arguments to check" having
+        // asserted nothing — the exact shape the rule forbids, one level up. The
+        // three guards over the set itself are what make the exemption safe, so
+        // it costs nothing to say out loud in the runner output.
+        if (ARGUMENT_LESS_TOOLS.has(tool.name)) {
+          return t.skip("exempted by ARGUMENT_LESS_TOOLS — see the guards at the top of this file");
+        }
+
         assert.ok(
           parameters.length > 0,
-          `${tool.name} advertises no inputSchema.properties, so nothing here is being verified`,
+          `${tool.name} advertises no inputSchema.properties, so nothing here is being verified. If it genuinely takes none, add it to ARGUMENT_LESS_TOOLS at the top of this file — deliberately, and with a section in README.md that says so`,
         );
       });
 

@@ -5,6 +5,7 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   loadConfig,
   requireApiConfig,
+  requireUserApiConfig,
   tokenise,
 } from "../src/config.js";
 import { ConfigError } from "../src/errors.js";
@@ -15,8 +16,64 @@ describe("loadConfig", () => {
 
     assert.equal(config.endpoint, undefined);
     assert.equal(config.apiKey, undefined);
+    assert.equal(config.userApiKey, undefined);
     assert.deepEqual(config.lintCommand, DEFAULT_LINT_COMMAND);
     assert.equal(config.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+  });
+
+  /**
+   * The property, over the whole variable set rather than over the two that
+   * happened to be interesting when it was written.
+   *
+   * A templated MCP client `env` block with every key present and only some
+   * filled in is the ordinary way to produce this, and "never throws" is what
+   * keeps the lint tool — which needs none of these — reachable for an operator
+   * whose deployment config is half-written. Every variable this file reads is
+   * enumerated, so a variable added later is covered by extending one array.
+   */
+  it("never throws when EVERY variable is present but blank, and reads none of them", () => {
+    const variables = [
+      "SPECGUARD_ENDPOINT",
+      "SPECGUARD_URL",
+      "SPECGUARD_API_KEY",
+      "SPECGUARD_USER_API_KEY",
+      "SPECGUARD_LINT_COMMAND",
+      "SPECGUARD_TIMEOUT_MS",
+    ];
+
+    for (const blank of ["", "   ", "\t"]) {
+      const env: NodeJS.ProcessEnv = {};
+      for (const name of variables) env[name] = blank;
+
+      const config = loadConfig(env);
+
+      assert.equal(config.endpoint, undefined);
+      assert.equal(config.endpointVariable, undefined);
+      assert.equal(config.apiKey, undefined);
+      assert.equal(config.userApiKey, undefined);
+      assert.deepEqual(config.lintCommand, DEFAULT_LINT_COMMAND);
+      assert.equal(config.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+    }
+  });
+
+  /**
+   * Two slots, read independently — because SpecGuard's two credentials refuse
+   * each other's endpoints before any table is read, so an operator using both
+   * kinds of tool needs both values present at once.
+   */
+  it("reads the user key from its own variable, and applies the same blank-is-unset rule", () => {
+    assert.equal(loadConfig({ SPECGUARD_USER_API_KEY: "sgu_abc" }).userApiKey, "sgu_abc");
+    assert.equal(loadConfig({ SPECGUARD_USER_API_KEY: "   " }).userApiKey, undefined);
+
+    // Neither variable is read for the other: setting one must never look like
+    // setting both, which is the whole reason there are two.
+    const repositoryOnly = loadConfig({ SPECGUARD_API_KEY: "sgk_abc" });
+    assert.equal(repositoryOnly.apiKey, "sgk_abc");
+    assert.equal(repositoryOnly.userApiKey, undefined);
+
+    const userOnly = loadConfig({ SPECGUARD_USER_API_KEY: "sgu_abc" });
+    assert.equal(userOnly.apiKey, undefined);
+    assert.equal(userOnly.userApiKey, "sgu_abc");
   });
 
   it("reads SPECGUARD_ENDPOINT, the name the shipped gem already uses", () => {
@@ -200,6 +257,102 @@ describe("requireApiConfig", () => {
         assert.match(error.message, /SPECGUARD_ENDPOINT is not set/);
         return true;
       },
+    );
+  });
+
+  it("carries WHICH credential it resolved, for the messages downstream", () => {
+    // The other half of the `endpointVariable` treatment: the 401 branch of
+    // `describeFailure` is shared by every HTTP-backed tool, so it has to be
+    // told which variable and which prefix this particular caller reads rather
+    // than spelling one of them out.
+    const api = requireApiConfig(
+      loadConfig({ SPECGUARD_ENDPOINT: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_abc" }),
+    );
+
+    assert.equal(api.credential.variable, "SPECGUARD_API_KEY");
+    assert.equal(api.credential.prefix, "sgk_");
+  });
+});
+
+/**
+ * The second slot, and the property that makes it a slot rather than a rename:
+ * each helper reads its OWN variable and is blind to the other's.
+ *
+ * SpecGuard discriminates on the token prefix before it reads a table and
+ * answers 401 on a mismatch, so a helper that fell back to the other variable
+ * would turn a legible "that one is not set" into a remote refusal an operator
+ * has to decode.
+ */
+describe("requireUserApiConfig", () => {
+  const ENDPOINT = { SPECGUARD_ENDPOINT: "https://sg.example.com" };
+
+  it("returns the user key and says which credential it is", () => {
+    const api = requireUserApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_USER_API_KEY: "sgu_abc" }));
+
+    assert.equal(api.endpoint, "https://sg.example.com");
+    assert.equal(api.apiKey, "sgu_abc");
+    assert.equal(api.credential.variable, "SPECGUARD_USER_API_KEY");
+    assert.equal(api.credential.prefix, "sgu_");
+  });
+
+  it("never falls back to the repository key, and never lends the user key to the other helper", () => {
+    // Both directions, because either fallback alone would make one of the two
+    // tools silently 401 at the deployment instead of failing here by name.
+    assert.throws(
+      () => requireUserApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_API_KEY: "sgk_abc" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_USER_API_KEY is not set/);
+        assert.match(error.message, /an sgu_… key/);
+        return true;
+      },
+    );
+
+    assert.throws(
+      () => requireApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_USER_API_KEY: "sgu_abc" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_API_KEY is not set/);
+        assert.match(error.message, /an sgk_… key/);
+        return true;
+      },
+    );
+  });
+
+  it("names both missing halves in one message, exactly as its sibling does", () => {
+    assert.throws(
+      () => requireUserApiConfig(loadConfig({})),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT and SPECGUARD_USER_API_KEY are not set/);
+        return true;
+      },
+    );
+  });
+
+  it("inherits the endpoint parse, rather than re-deriving a weaker one", () => {
+    // The check `requireApiConfig` documents at length — a malformed endpoint
+    // must be a ConfigError here and not a bare TypeError inside `new URL` two
+    // layers down, where the error boundary reads it as a bug in the bridge.
+    assert.throws(
+      () =>
+        requireUserApiConfig(
+          loadConfig({ SPECGUARD_ENDPOINT: "sg.example.com", SPECGUARD_USER_API_KEY: "sgu_abc" }),
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT is not a usable URL/);
+        return true;
+      },
+    );
+  });
+
+  it("speaks the endpoint spelling the operator chose", () => {
+    assert.equal(
+      requireUserApiConfig(
+        loadConfig({ SPECGUARD_URL: "https://sg.example.com", SPECGUARD_USER_API_KEY: "sgu_abc" }),
+      ).endpointVariable,
+      "SPECGUARD_URL",
     );
   });
 });
