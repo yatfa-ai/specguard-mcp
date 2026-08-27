@@ -113,9 +113,12 @@ const liveChildren = new Set<LiveChild>();
 /**
  * The pids of every run currently spawned and not yet reaped.
  *
- * Exported for the teardown handler's diagnostics and for the tests that assert
- * this set cannot leak — a registry that grew by one per call would be a slow
- * memory leak in a long-lived server, and it is only checkable from outside.
+ * Exported for the teardown handler's diagnostics. A PROJECTION, not the set:
+ * it drops entries whose spawn never produced a process, because a `undefined`
+ * pid is not something a diagnostic can name or a caller can signal.
+ *
+ * That filter makes it the WRONG observer for asserting the set does not leak —
+ * see `outstandingRunCount`.
  */
 export function outstandingRunPids(): readonly number[] {
   const pids: number[] = [];
@@ -123,6 +126,25 @@ export function outstandingRunPids(): readonly number[] {
     if (child.pid !== undefined) pids.push(child.pid);
   }
   return pids;
+}
+
+/**
+ * How many runs are registered, counting those whose spawn produced no pid.
+ *
+ * The unfiltered companion to `outstandingRunPids`, and the one a leak test must
+ * use. The distinction is not pedantic: the spawn-failure path registers a child
+ * whose `pid` is `undefined`, so it is invisible to `outstandingRunPids` BY
+ * EXACTLY THE PROPERTY THAT MAKES IT A LEAK. A test asserting that path through
+ * the pid projection holds whether or not the deregistration happens, and would
+ * stay green if a refactor dropped it.
+ *
+ * The leak is memory-only — `killRun` returns `false` for an undefined pid, so a
+ * stranded entry is skipped by the drain rather than mis-signalled — but it is
+ * one entry per failed spawn for the life of the server, and it is only ever
+ * observable from outside. Hence a reader of the set itself.
+ */
+export function outstandingRunCount(): number {
+  return liveChildren.size;
 }
 
 /**

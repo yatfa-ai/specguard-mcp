@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { CommandError } from "../../src/errors.js";
 import {
   MAX_OUTPUT_BYTES,
-  outstandingRunPids,
+  outstandingRunCount,
   runCommand,
   type CommandResult,
 } from "../../src/support/run-command.js";
@@ -433,8 +433,15 @@ describe("runCommand — bounded output", () => {
  *     the path where the group is also empty a recycled pid leading some
  *     unrelated group would take a SIGKILL meant for a linter.
  *
- * Both are checkable only from outside, which is what `outstandingRunPids`
+ * Both are checkable only from outside, which is what `outstandingRunCount`
  * exists for.
+ *
+ * These assert through `outstandingRunCount` and deliberately NOT through
+ * `outstandingRunPids`. The latter filters out entries whose `pid` is
+ * `undefined`, which is exactly what a spawn-failure entry is — so a leak on
+ * that path is invisible to the pid projection BY THE VERY PROPERTY THAT MAKES
+ * IT A LEAK, and a test written against it passes whether or not the code
+ * deregisters. Reading the set's own size is what makes these bite.
  */
 describe("runCommand — the registry teardown drains", () => {
   /**
@@ -461,16 +468,16 @@ describe("runCommand — the registry teardown drains", () => {
     // Asserted across SUCCESSIVE calls rather than one, because the failure this
     // guards is cumulative: a deregistration that never happened looks identical
     // to a correct one after a single run, and only shows up as a set that grows.
-    const before = outstandingRunPids().length;
+    const before = outstandingRunCount();
 
     for (let i = 0; i < 3; i++) {
       const result = await runCommand(node("process.stdout.write('ok'); process.exit(0)"));
 
       assert.equal(result.code, 0);
       assert.equal(
-        outstandingRunPids().length,
+        outstandingRunCount(),
         before,
-        `run ${i + 1} left an entry behind — the registry grew to ${outstandingRunPids().length}`,
+        `run ${i + 1} left an entry behind — the registry grew to ${outstandingRunCount()}`,
       );
     }
   });
@@ -481,14 +488,26 @@ describe("runCommand — the registry teardown drains", () => {
     // follow `error`, so the deregistration that covers every other run does not
     // cover this one. Left in, it would sit in the set for the life of the
     // server as an entry the drain can only skip.
-    const before = outstandingRunPids().length;
+    //
+    // Asserted through `outstandingRunCount` — the SET's size — and not through
+    // `outstandingRunPids`, which is the whole point of this test. That helper
+    // skips entries with an undefined pid, and an undefined pid is precisely
+    // what this path registers, so the leak it guards is invisible to it: the
+    // pid-projection assertion held identically with and without the
+    // deregistration, and certified nothing.
+    const before = outstandingRunCount();
 
     await rejects(
       runCommand(["specguard-lint-does-not-exist-9f3a"]),
       /is not on this server's PATH/,
     );
 
-    assert.equal(outstandingRunPids().length, before);
+    assert.equal(
+      outstandingRunCount(),
+      before,
+      "the failed spawn stayed in the registry — one stranded entry per failed spawn, " +
+        "for the life of the server, and invisible to every pid-based observer",
+    );
   });
 
   it("drops the entry when the child is REAPED, not when the promise settles", { timeout: 6_000 }, async () => {
@@ -509,7 +528,7 @@ describe("runCommand — the registry teardown drains", () => {
     //
     // The grandchild outlives this test's deadline on purpose, per the convention
     // above — it is what holds the pipes open and keeps the two instants apart.
-    const before = outstandingRunPids().length;
+    const before = outstandingRunCount();
 
     const pending = runCommand(
       node(escapingPipeHolder(15_000, "process.stdout.write('partial', () => process.exit(3));")),
@@ -523,7 +542,7 @@ describe("runCommand — the registry teardown drains", () => {
     let emptiedWhilePending = false;
     for (let i = 0; i < 60; i++) {
       await new Promise((resolve) => setTimeout(resolve, 10));
-      if (outstandingRunPids().length === before && !settled) {
+      if (outstandingRunCount() === before && !settled) {
         emptiedWhilePending = true;
         break;
       }
@@ -538,6 +557,6 @@ describe("runCommand — the registry teardown drains", () => {
 
     const result = await pending;
     assert.equal(result.code, 3);
-    assert.equal(outstandingRunPids().length, before);
+    assert.equal(outstandingRunCount(), before);
   });
 });
