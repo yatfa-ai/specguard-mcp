@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "../src/server.js";
+import { installTeardown } from "../src/support/teardown.js";
 
 /**
  * The stdio entrypoint — the only place a transport is named.
@@ -22,6 +23,11 @@ import { createServer } from "../src/server.js";
  * it.
  */
 async function main(): Promise<void> {
+  // Installed BEFORE the transport is connected, so there is no window in which
+  // the server is accepting tool calls — and therefore spawning runs — with no
+  // handler to clean them up.
+  installTeardown();
+
   const server = createServer();
   await server.connect(new StdioServerTransport());
   process.stderr.write("specguard-mcp: ready on stdio\n");
