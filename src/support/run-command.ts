@@ -81,6 +81,101 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
  */
 export const EXIT_CLOSE_GRACE_MS = 1_000;
 
+type LiveChild = ReturnType<typeof spawnChild>;
+
+/**
+ * The runs that are spawned and not yet reaped.
+ *
+ * This exists because `detached: true` below buys the reach of the timeout kill
+ * and PAYS for it: a detached child is in a new session, outside this server's
+ * controlling terminal, so a signal aimed at OUR group — an interactive Ctrl-C,
+ * a supervisor's `kill -- -PGID` — no longer reaches a lint run in flight. The
+ * run is then orphaned, and orphaned WITHOUT A DEADLINE: the 120s ceiling is a
+ * parent-side `setTimeout`, so killing the parent destroys the only thing that
+ * was going to stop it. On a 20k-example suite that is a full lint's worth of
+ * CPU held by a process attached to nothing. `killOutstandingRuns` is the
+ * teardown path that closes it, and this set is what tells it whom to signal.
+ *
+ * MEMBERSHIP MEANS "NOT YET REAPED", and that is load-bearing rather than
+ * descriptive: `killRun` signals a raw negated pid, which has no liveness check
+ * of its own, so a stale entry is a SIGKILL aimed at whatever recycled that pid.
+ * Entries are therefore removed on the child's own `exit` — the reap — and NOT
+ * at settle, which on the grace-backstop path happens up to EXIT_CLOSE_GRACE_MS
+ * later. Deleting at settle would leave exactly the window in which a drain
+ * would signal a freed pid.
+ *
+ * The accepted consequence is the one this file already takes at `killRun`: a
+ * straggler outliving an already-exited child is not killed at teardown. That
+ * trade is deliberate and is not widened here.
+ */
+const liveChildren = new Set<LiveChild>();
+
+/**
+ * The pids of every run currently spawned and not yet reaped.
+ *
+ * Exported for the teardown handler's diagnostics. A PROJECTION, not the set:
+ * it drops entries whose spawn never produced a process, because a `undefined`
+ * pid is not something a diagnostic can name or a caller can signal.
+ *
+ * That filter makes it the WRONG observer for asserting the set does not leak —
+ * see `outstandingRunCount`.
+ */
+export function outstandingRunPids(): readonly number[] {
+  const pids: number[] = [];
+  for (const child of liveChildren) {
+    if (child.pid !== undefined) pids.push(child.pid);
+  }
+  return pids;
+}
+
+/**
+ * How many runs are registered, counting those whose spawn produced no pid.
+ *
+ * The unfiltered companion to `outstandingRunPids`, and the one a leak test must
+ * use. The distinction is not pedantic: the spawn-failure path registers a child
+ * whose `pid` is `undefined`, so it is invisible to `outstandingRunPids` BY
+ * EXACTLY THE PROPERTY THAT MAKES IT A LEAK. A test asserting that path through
+ * the pid projection holds whether or not the deregistration happens, and would
+ * stay green if a refactor dropped it.
+ *
+ * The leak is memory-only — `killRun` returns `false` for an undefined pid, so a
+ * stranded entry is skipped by the drain rather than mis-signalled — but it is
+ * one entry per failed spawn for the life of the server, and it is only ever
+ * observable from outside. Hence a reader of the set itself.
+ */
+export function outstandingRunCount(): number {
+  return liveChildren.size;
+}
+
+/**
+ * Kills every run still in flight, and answers how many it signalled.
+ *
+ * The teardown path. SYNCHRONOUS AND UNBOUNDED BY NOTHING — it sends signals and
+ * returns, it never waits for a child to die. That is deliberate: this runs from
+ * a SIGINT/SIGTERM handler, where anything that waits is something that can hang
+ * the shutdown it was supposed to perform. SIGKILL is not refusable, so there is
+ * no acknowledgement worth waiting for.
+ *
+ * It reuses `killRun` rather than re-deriving the kill, so the group-vs-child
+ * fallback and the spawn-failure guard have exactly one implementation. The set
+ * is snapshotted before iterating because `killRun` can drive an `exit` that
+ * mutates it.
+ */
+export function killOutstandingRuns(): number {
+  const children = [...liveChildren];
+  let signalled = 0;
+
+  for (const child of children) {
+    // Removed FIRST, so the entry is gone even if the kill throws. A registry
+    // that kept a child it had already tried to kill would hand a second drain
+    // the same stale pid.
+    liveChildren.delete(child);
+    if (killRun(child)) signalled += 1;
+  }
+
+  return signalled;
+}
+
 /**
  * Runs a program with an argument LIST, never through a shell.
  *
@@ -206,6 +301,12 @@ export const runCommand: RunCommand = (argv, options = {}) => {
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
 
     child.on("error", (error: NodeJS.ErrnoException) => {
+      // The spawn-failure path: there is no process, and `child.pid` is
+      // `undefined`, so this entry can never be a legitimate kill target. Dropped
+      // here because `exit` does not always follow an `error` — leaving it would
+      // strand an unkillable entry in the registry for the life of the server.
+      liveChildren.delete(child);
+
       finish(() => reject(new CommandError(describeSpawnFailure(program, error, options))));
     });
 
@@ -232,6 +333,21 @@ export const runCommand: RunCommand = (argv, options = {}) => {
       // on we hold a real `code`/`signal`, so whatever the timer may still find
       // alive in the process group, this is not a run that produced no verdict.
       exited = true;
+
+      // Deregistered HERE — at the reap, alongside `exited`, and deliberately not
+      // at the settle below. The two are not the same instant: on the grace
+      // backstop `exit` fires and `settleWith` follows up to EXIT_CLOSE_GRACE_MS
+      // later, so a registry keyed on settle would hold a child whose pid the
+      // kernel has already freed, and a teardown drain landing in that window
+      // would fire `process.kill(-pid)` at whatever now owns that number. That
+      // is the unrecoverable, aimed-at-a-stranger hazard `killRun` documents and
+      // refuses to pay; membership must mean "not yet reaped" so its precondition
+      // holds by construction.
+      //
+      // Placed BEFORE the `settled` early-return for the same reason: the
+      // already-settled path is a reap too, and returning first would leak the
+      // entry.
+      liveChildren.delete(child);
 
       if (settled) return;
 
@@ -307,7 +423,7 @@ function killRun(child: ReturnType<typeof spawnChild>): boolean {
  * promise losing the child's type.
  */
 function spawnChild(program: string, args: readonly string[], options: RunCommandOptions) {
-  return spawn(program, [...args], {
+  const child = spawn(program, [...args], {
     cwd: options.cwd,
     stdio: ["ignore", "pipe", "pipe"],
     // Explicitly off. Stated rather than defaulted, because this is the line
@@ -323,15 +439,25 @@ function spawnChild(program: string, args: readonly string[], options: RunComman
     // that detaching buys the reach of the kill and PAYS for it here: a new
     // group is also a new session, outside this server's controlling terminal,
     // so a signal aimed at OUR group — an interactive Ctrl-C, a supervisor's
-    // `kill -- -PGID` — no longer reaches a lint run in flight. Nothing in
-    // `bin/specguard-mcp.ts` installs a SIGINT/SIGTERM handler to kill
-    // outstanding children at teardown, so such a run is now orphaned where it
-    // would previously have died alongside us. Worth it, because the failure
-    // being traded away is an agent that never returns rather than a stray
-    // process — but it is a trade, and a teardown handler is what would close
-    // it.
+    // `kill -- -PGID` — no longer reaches a lint run in flight. Such a run would
+    // be orphaned where it would previously have died alongside us, and orphaned
+    // without a deadline, since the ceiling above is a parent-side timer.
+    //
+    // That is the debt this line used to carry, and it is now PAID rather than
+    // merely disclosed: the run is registered in `liveChildren` below, and
+    // `bin/specguard-mcp.ts` installs SIGINT/SIGTERM handlers that call
+    // `killOutstandingRuns` before exiting. The trade the kill's reach was
+    // bought with is closed; do not remove either half without restoring the
+    // other.
     detached: true,
   });
+
+  // Registered at the single spawn call site, so a run cannot enter the world
+  // unregistered. Removed again on the child's own `exit` — see `liveChildren`
+  // for why the reap, and not the settle, is the moment that matters.
+  liveChildren.add(child);
+
+  return child;
 }
 
 /**

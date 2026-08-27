@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { CommandError } from "../../src/errors.js";
 import {
   MAX_OUTPUT_BYTES,
+  outstandingRunCount,
   runCommand,
   type CommandResult,
 } from "../../src/support/run-command.js";
@@ -412,5 +413,150 @@ describe("runCommand — bounded output", () => {
       result.stdout.length <= MAX_OUTPUT_BYTES + 64,
       `expected the buffer to stop near ${MAX_OUTPUT_BYTES} bytes, got ${result.stdout.length}`,
     );
+  });
+});
+
+/**
+ * The registry the teardown handler drains.
+ *
+ * `killOutstandingRuns` (see `src/support/teardown.ts` and the teardown suite)
+ * can only kill what this set knows about, and it kills by RAW NEGATED PID —
+ * `process.kill(-pid)`, which has no liveness check of its own. So the set has
+ * two obligations that are invisible from the teardown test alone, and both are
+ * asserted here:
+ *
+ *   - it must not LEAK. A server that gained an entry per lint run would grow a
+ *     list of dead pids for its whole life, and hand the next drain a fistful of
+ *     numbers that no longer mean anything.
+ *   - membership must mean NOT YET REAPED. `killRun` documents this as a
+ *     precondition rather than a nicety: after the reap the pid is free, and on
+ *     the path where the group is also empty a recycled pid leading some
+ *     unrelated group would take a SIGKILL meant for a linter.
+ *
+ * Both are checkable only from outside, which is what `outstandingRunCount`
+ * exists for.
+ *
+ * These assert through `outstandingRunCount` and deliberately NOT through
+ * `outstandingRunPids`. The latter filters out entries whose `pid` is
+ * `undefined`, which is exactly what a spawn-failure entry is — so a leak on
+ * that path is invisible to the pid projection BY THE VERY PROPERTY THAT MAKES
+ * IT A LEAK, and a test written against it passes whether or not the code
+ * deregisters. Reading the set's own size is what makes these bite.
+ */
+describe("runCommand — the registry teardown drains", () => {
+  /**
+   * A child that hands its inherited stdout/stderr to a grandchild in its OWN
+   * session, and then exits.
+   *
+   * The same shape as `holdsPipes(..., escapes: true)` above, restated here
+   * because that one is scoped to its own suite. The escape is what matters: it
+   * keeps the pipes open after the child is reaped, which is what holds `exit`
+   * and the settle apart long enough to tell which of the two the registry is
+   * keyed to.
+   */
+  function escapingPipeHolder(grandchildMs: number, epilogue: string): string {
+    return (
+      "const g = require('node:child_process')" +
+      `.spawn(process.execPath, ['-e', 'setTimeout(() => {}, ${grandchildMs})'], ` +
+      "{ stdio: ['ignore', 1, 2], detached: true });" +
+      "g.unref();" +
+      epilogue
+    );
+  }
+
+  it("is empty once a run has settled, and stays empty across successive runs", { timeout: 6_000 }, async () => {
+    // Asserted across SUCCESSIVE calls rather than one, because the failure this
+    // guards is cumulative: a deregistration that never happened looks identical
+    // to a correct one after a single run, and only shows up as a set that grows.
+    const before = outstandingRunCount();
+
+    for (let i = 0; i < 3; i++) {
+      const result = await runCommand(node("process.stdout.write('ok'); process.exit(0)"));
+
+      assert.equal(result.code, 0);
+      assert.equal(
+        outstandingRunCount(),
+        before,
+        `run ${i + 1} left an entry behind — the registry grew to ${outstandingRunCount()}`,
+      );
+    }
+  });
+
+  it("keeps nothing for a spawn that never produced a process", { timeout: 6_000 }, async () => {
+    // The `error` path. There is no process here and `child.pid` is undefined, so
+    // this entry could never be a legitimate kill target — but `exit` does not
+    // follow `error`, so the deregistration that covers every other run does not
+    // cover this one. Left in, it would sit in the set for the life of the
+    // server as an entry the drain can only skip.
+    //
+    // Asserted through `outstandingRunCount` — the SET's size — and not through
+    // `outstandingRunPids`, which is the whole point of this test. That helper
+    // skips entries with an undefined pid, and an undefined pid is precisely
+    // what this path registers, so the leak it guards is invisible to it: the
+    // pid-projection assertion held identically with and without the
+    // deregistration, and certified nothing.
+    const before = outstandingRunCount();
+
+    await rejects(
+      runCommand(["specguard-lint-does-not-exist-9f3a"]),
+      /is not on this server's PATH/,
+    );
+
+    assert.equal(
+      outstandingRunCount(),
+      before,
+      "the failed spawn stayed in the registry — one stranded entry per failed spawn, " +
+        "for the life of the server, and invisible to every pid-based observer",
+    );
+  });
+
+  it("drops the entry when the child is REAPED, not when the promise settles", { timeout: 6_000 }, async () => {
+    // The distinction the whole registry turns on, and the one a test written
+    // against the settle would miss.
+    //
+    // These are not the same instant. An escaped grandchild holds the pipes open,
+    // so `close` never comes and the run settles on the grace backstop — up to
+    // EXIT_CLOSE_GRACE_MS AFTER the child's own `exit`. Deregistering at settle
+    // would therefore leave a window, a whole second wide, in which the child is
+    // already reaped and its pid already free while the registry still offers it
+    // to the drain as a kill target. That is precisely the "SIGKILL aimed at a
+    // stranger" hazard `killRun` refuses to pay.
+    //
+    // So: watch the registry WHILE the promise is still pending. The child exits
+    // almost immediately; the promise cannot settle for ~1s after that. If the
+    // entry is gone before the await returns, deregistration is keyed to the reap.
+    //
+    // The grandchild outlives this test's deadline on purpose, per the convention
+    // above — it is what holds the pipes open and keeps the two instants apart.
+    const before = outstandingRunCount();
+
+    const pending = runCommand(
+      node(escapingPipeHolder(15_000, "process.stdout.write('partial', () => process.exit(3));")),
+      { timeoutMs: 60_000 },
+    );
+
+    // Poll for the registry to drain while the promise is demonstrably unsettled.
+    let settled = false;
+    void pending.then(() => (settled = true));
+
+    let emptiedWhilePending = false;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (outstandingRunCount() === before && !settled) {
+        emptiedWhilePending = true;
+        break;
+      }
+      if (settled) break;
+    }
+
+    assert.ok(
+      emptiedWhilePending,
+      "the entry was still registered when the promise settled — deregistration is keyed to the settle, " +
+        "so a drain landing in the grace window would signal an already-reaped pid",
+    );
+
+    const result = await pending;
+    assert.equal(result.code, 3);
+    assert.equal(outstandingRunCount(), before);
   });
 });
