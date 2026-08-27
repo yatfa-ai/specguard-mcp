@@ -454,9 +454,17 @@ const getRepositoryOverview: ToolDefinition = {
     "branch's: pass `commit_sha` to be answered about ONE named run instead — after pushing a " +
     "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
     "because an unknown sha falls back to the newest rather than erroring. " +
-    "Pass `unannotated_examples: true` to list the individual tests SpecGuard CANNOT see — the " +
+    "Pass `unannotated_examples: true` to list the individual tests carrying no `@intent` — the " +
     "examples behind the annotated ratio, which is otherwise a percentage with nothing to act on — " +
     "and, in the same answer, which AREAS of the suite carry the most of them. " +
+    "HOW MUCH OF THE SUITE SPECGUARD CAN READ IS A DIFFERENT QUESTION FROM HOW MUCH IS ANNOTATED, " +
+    "and `latest_run.intent_readings` answers it on every response with no flag to pass. A test " +
+    "written in the ordinary `Class#method behavior` shape yields an entity, an action and a " +
+    "behavior from its own description, so SpecGuard reads it even with no annotation: " +
+    "`intent_readings.derived` counts those, `authored` counts the annotated ones, and `unreadable` " +
+    "is the ONLY figure on this endpoint that means tests SpecGuard can say nothing about. Never " +
+    "read `total_specs - annotated_specs` as that population — on a suite that has never been " +
+    "annotated it is the whole suite, and almost all of it is readable. " +
     "TWO BLOCKS COME BACK ON EVERY RESPONSE — no parameter to pass, no flag to set — and they " +
     "answer what everything above silently depends on: is SpecGuard still being fed? " +
     "`delivery_health` is why the figures may be STALE: `refusing` is a comparison of stamps, not a " +
@@ -680,10 +688,22 @@ const getRepositoryOverview: ToolDefinition = {
         type: "boolean",
         description:
           "Open a run's UNANNOTATED examples — the individual tests behind `latest_run`'s " +
-          "`total_specs` MINUS `annotated_specs`, the subtraction the dashboard renders as " +
-          "\"SpecGuard cannot see the other N tests\". Every other population this endpoint reports " +
+          "`total_specs` MINUS `annotated_specs`. Every other population this endpoint reports " +
           "can be walked down to the examples it counts; annotation coverage was the exception, so " +
           "`annotated_ratio` told you how far you had to go and not one test to annotate. " +
+          "UNANNOTATED IS NOT THE SAME AS UNREADABLE, and this block reports both. Every row here " +
+          "lacks an `@intent`, which is exact — and most of them SpecGuard READS anyway, from the " +
+          "test's own description. Each row carries `reading` (`\"derived\"` or `\"unreadable\"`) and " +
+          "`derived_intent` (the `entity`/`action`/`behavior` it got, or `null`), and the block " +
+          "carries `derived_count` and `unreadable_count` beside `recorded_count`. Only " +
+          "`unreadable_count` is a count of tests SpecGuard can say nothing about; treat the rest " +
+          "as annotation debt, not as blindness. THE UNREADABLE ROWS COME FIRST in the list, ahead " +
+          "of the derived ones, so the cap cannot hide them. " +
+          "A derived reading is WEAKER than an authored one and must never be presented as " +
+          "equivalent: it carries no preconditions, its behavior is prose somebody wrote for a test " +
+          "runner's output rather than a declared statement of what the test is for, and its layer " +
+          "is inferred from the directory rather than declared — which is why `derived_intent` " +
+          "carries no `layer` key at all. " +
           "THIS ONE IS A FLAG, NOT A NAME — the only argument here that takes `true` rather than a " +
           "value. The others open the rows behind a LINE of a ranking and so carry that line's key; " +
           "this opens a POPULATION, which is a subtraction on the run and has no line to name. " +
@@ -694,8 +714,9 @@ const getRepositoryOverview: ToolDefinition = {
           "one is additional, not instead. " +
           "Asking populates `latest_run.unannotated_examples` — up to 100 of the unannotated " +
           "examples OF WHATEVER YOU ASKED FOR, each with `name`, `file_path`, `line_number` and " +
-          "`spec_file_path` (FOUR fields: no `duration_seconds` and no `outcome`, unlike the " +
-          "per-example drill-ins above), plus that same population's own `recorded_count`, the " +
+          "`spec_file_path`, `reading` and `derived_intent` (SIX fields: no `duration_seconds` and " +
+          "no `outcome`, unlike the per-example drill-ins above), plus that same population's own " +
+          "`recorded_count`, `derived_count` and `unreadable_count`, the " +
           "`limit` the row list was cut at, and `spec_file`/`spec_directory` ECHOED BACK as the " +
           "server READ them — `null` for each one you did not send. " +
           "READ THE ECHO BEFORE YOU READ THE COUNT. `unannotated_examples.recorded_count` — the " +
@@ -713,13 +734,17 @@ const getRepositoryOverview: ToolDefinition = {
           "THE DEBT IS — one run's annotation debt rolled up by code AREA, which is what you pick " +
           "the next `spec_directory` narrowing FROM. Both come from this ONE flag: there is no " +
           "second parameter to send and no new value. " +
-          "The map's rows carry `path`, `unannotated_count` and the `recorded_count` that area was " +
-          "counted against (the operands, never a fraction), plus `directory_count` — EVERY area " +
+          "The map's rows carry `path`, `unannotated_count`, the `recorded_count` that area was " +
+          "counted against, and the same three-way split as the worklist — `authored_count`, " +
+          "`derived_count` and `unreadable_count`, which sum to `recorded_count` while the last two " +
+          "sum to `unannotated_count` (the operands, never a fraction), plus `directory_count` — EVERY area " +
           "the run touched, not every area with debt, and not `rows.size` — and its OWN `limit`, " +
           "which is 10 and NOT the worklist's 100. Two caps under one ask, and the difference is " +
           "the kind of list: 100 caps a WORKLIST to work through, 10 caps a RANKING to pick from. " +
           "The orders differ for the same reason — the worklist is file-navigable, the map is " +
-          "ranked `unannotated_count` DESC with `path` as a tiebreak only. A fully-annotated area " +
+          "ranked `unreadable_count` DESC, then `unannotated_count` DESC, with `path` as a tiebreak " +
+          "only — the areas SpecGuard cannot read lead, because a ten-row ranking led by debt on an " +
+          "unannotated suite is a ranking by area SIZE and the dark corners never surface. A fully-annotated area " +
           "is a real ROW with `unannotated_count: 0`, never an omission. Those rows sort last " +
           "COLLECTIVELY, so on a run with more areas than the cap they are cut and never seen, " +
           "but on a run inside the cap they ARE LISTED and listed is correct. So `rows.size` is " +
