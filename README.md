@@ -11,9 +11,9 @@ its prompt.
 SpecGuard is built [primarily for AI coding agents](https://github.com/yatfa-ai/specguard); this
 bridge is how an agent reaches it without scraping a web UI.
 
-> **Status: bootstrap.** Three tools ship today, each wrapping a capability that already exists. The
-> toolset **grows gradually** — see [Adding a tool](#adding-a-tool). It is not published to npm yet;
-> install from a checkout.
+> **Status: bootstrap.** A small set of tools ships today, each wrapping a capability that already
+> exists — see [The tools](#the-tools) for what is in it. The toolset **grows gradually** — see
+> [Adding a tool](#adding-a-tool). It is not published to npm yet; install from a checkout.
 
 ## Install
 
