@@ -1,3 +1,4 @@
+import addRepository from "./add-repository.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
 import getRepositoryOverview from "./repository-overview.js";
@@ -45,18 +46,32 @@ import type { ToolDefinition } from "./types.js";
  * and fails on use, which is worse than not offering the tool, because the
  * agent has already committed to a plan by the time it finds out.
  *
- * The user-scoped WRITE endpoints are absent for a different reason, and it is
- * worth stating so nobody re-derives the wrong one: `POST /api/v1/repositories`
- * exists on the platform today. What this bridge does not have is a way to call
- * it — `support/specguard-api.ts` offers `getJson`, which hardcodes
- * `method: "GET"` and takes no body. That transport lands with the first write
- * tool, designed against a real request body and a real 4xx surface, rather
- * than being invented here for a tool that does not yet exist.
+ * == The fourth: the first tool that WRITES
+ *
+ *   - `add_repository` wraps `POST /api/v1/repositories` (shipped:
+ *     `specguard/config/routes.rb`, `Api::V1::UserRepositoriesController#create`).
+ *
+ * The endpoint had shipped for a while; what this bridge lacked was a way to
+ * CALL it — `support/specguard-api.ts` offered only `getJson`, which hardcoded
+ * `method: "GET"` and took no body. The reservation recorded here was that the
+ * write transport should land WITH the first write tool, designed against a real
+ * request body and a real 4xx surface rather than invented for a caller that did
+ * not exist. That is what happened: `postJson`/`postJsonObject` arrived with
+ * this entry, sharing `fetchWithTimeout` with the read path rather than standing
+ * beside it, and `describeFailure` grew the `400` branch that surfaces
+ * SpecGuard's own refusal sentence — the modal answer this endpoint gives.
+ *
+ * The standing rule is unchanged and still binding, which is what keeps the rest
+ * of the user-scoped write surface out: `DELETE /api/v1/repositories/:id` and
+ * the API-key endpoints (SPGD-754) are NOT on `origin/main`, so they may not be
+ * wrapped here however useful a tool for them would be. What moved was the
+ * platform, not the bar.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
   getRepositoryOverview,
   listRepositories,
+  addRepository,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";

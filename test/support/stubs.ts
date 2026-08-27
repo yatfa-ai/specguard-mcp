@@ -42,9 +42,28 @@ export function stubCommand(result: Partial<CommandResult> | ((argv: readonly st
   };
 }
 
+/**
+ * A recorded HTTP call — the whole request, not just where it was sent.
+ *
+ * `url` and `headers` alone were enough while every tool here read; they stop
+ * being enough the moment one writes. A stub that cannot observe the METHOD or
+ * the BODY is structurally incapable of failing a write tool that sent a `GET`,
+ * sent nothing, or nested its parameters under a key the platform does not read
+ * — the assertion would be "a request was made to the right URL", which a
+ * broken implementation satisfies exactly as well as a correct one.
+ *
+ * Recorded in `record()`, which BOTH `stubFetch` and `stubSlowFetch` share, so
+ * the split-phase stub can assert on a request body too. That matters because
+ * `stubSlowFetch` is the only one that can hold the two phases of a call apart,
+ * and the write path has to be shown bounded across both.
+ */
 export interface RecordedRequest {
   readonly url: string;
   readonly headers: Record<string, string>;
+  /** Upper-cased, and defaulted the way `fetch` itself defaults it. */
+  readonly method: string;
+  /** The request body as it went on the wire, or `undefined` when there was none. */
+  readonly body: string | undefined;
 }
 
 export interface StubFetch {
@@ -107,12 +126,34 @@ export function stubSlowFetch(
   return { fetch: impl, requests };
 }
 
+/**
+ * The one place a request is captured, shared by both stubs above.
+ *
+ * `method` is defaulted to `GET` here rather than left `undefined`, because that
+ * is what `fetch` itself does with an omitted method — a test asserting
+ * `method === "GET"` should pass against a call that simply did not say, since
+ * on the wire those are the same request. It is upper-cased for the same reason:
+ * `fetch` normalises the verb, so a stub that reported `"post"` would make an
+ * assertion fail over a difference the deployment never sees.
+ *
+ * `body` is narrowed to a string. Every body this bridge sends is a serialized
+ * JSON string, so that is the only shape worth recording faithfully; anything
+ * else (a stream, a `FormData`) is left `undefined` rather than stringified into
+ * `"[object Object]"`, which would read in an assertion failure as a body that
+ * was sent rather than as one this stub cannot see.
+ */
 function record(requests: RecordedRequest[], input: unknown, init?: RequestInit): void {
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) {
     headers[key.toLowerCase()] = value;
   }
-  requests.push({ url: String(input), headers });
+
+  requests.push({
+    url: String(input),
+    headers,
+    method: (init?.method ?? "GET").toUpperCase(),
+    body: typeof init?.body === "string" ? init.body : undefined,
+  });
 }
 
 /** A `ToolContext` with everything stubbed; each part is overridable per test. */

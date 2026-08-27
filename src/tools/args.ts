@@ -57,6 +57,37 @@ export function optionalString(value: unknown, field: string): string | undefine
   return trimmed === "" ? undefined : trimmed;
 }
 
+/**
+ * A non-blank string, and nothing else will do.
+ *
+ * The mandatory counterpart of `optionalString`, and it belongs here for the
+ * reason stated above rather than in the first tool that needs one: "is it
+ * present and a non-blank string" is a check about the SHAPE of a value, whose
+ * failure is always `ArgumentError`. Hand-rolling it inside a tool is the exact
+ * copy-paste this file was created to end — and the copy would have to re-pick
+ * the error class, which is the one thing the two `optionalString` copies got
+ * wrong.
+ *
+ * Trimmed like its optional sibling, and for the same reason: a value an agent
+ * produced by concatenating strings arrives with whitespace that is not part of
+ * what it meant to send.
+ *
+ * The two refusals are separate sentences on purpose. "You sent a number" and
+ * "you sent nothing" are different mistakes with different fixes, and a single
+ * message covering both would leave the agent to work out which it made.
+ */
+export function requireString(value: unknown, field: string): string {
+  if (value === undefined || value === null) {
+    throw new ArgumentError(`\`${field}\` is required.`);
+  }
+  if (typeof value !== "string") throw new ArgumentError(`\`${field}\` must be a string.`);
+
+  const trimmed = value.trim();
+  if (trimmed === "") throw new ArgumentError(`\`${field}\` must not be blank.`);
+
+  return trimmed;
+}
+
 export function optionalBoolean(value: unknown, field: string): boolean | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "boolean") throw new ArgumentError(`\`${field}\` must be a boolean.`);

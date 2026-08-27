@@ -15,13 +15,20 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * answer, and it is the whole of what this tool does.
  *
  * It is also the tool that proves the second credential slot works end to end,
- * which is why it ships alone. The registry's standing rule (`tools/index.ts`)
- * is that a tool in `tools/list` is a promise an agent acts on, so the other
- * user-scoped endpoints wait for the transport they need: `POST /api/v1/repositories`
- * EXISTS on the platform today, and `getJson` hardcodes `method: "GET"` and
- * takes no body, so registering a repository is blocked on a write transport
- * rather than on a missing endpoint. That transport belongs with the first write
- * tool, where it can be designed against a real body and a real 4xx surface.
+ * which is why it shipped alone. It no longer IS alone: `add_repository`
+ * (SPGD-764) reads the same `sgu_` key and wraps `POST /api/v1/repositories`,
+ * which arrived once this bridge had a write transport to call it with —
+ * `postJson`/`postJsonObject` in `support/specguard-api.ts`, landed with that
+ * tool and designed against a real request body and a real 4xx surface, exactly
+ * as the reservation recorded here asked. The registry's standing rule
+ * (`tools/index.ts`) is unchanged and still binding: a tool in `tools/list` is a
+ * promise an agent acts on, so the REST of the user-scoped surface — removing a
+ * repository, minting or revoking keys — stays out until those endpoints ship.
+ *
+ * What this tool still uniquely answers is the question above: which
+ * repositories there ARE. `add_repository` extends that surface rather than
+ * replacing it, and the two share a handle — the `full_name` reported here is
+ * the `full_name` that one takes.
  *
  * == It reads the OTHER key, and that is the point
  *

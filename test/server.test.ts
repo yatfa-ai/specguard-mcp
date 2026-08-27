@@ -36,12 +36,19 @@ describe("an MCP client against the server", () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
-    // Grown to three by SPGD-760, and grown rather than loosened to a subset
-    // check on purpose: this `deepEqual` is the pin that makes what the server
-    // promises an agent change only by a conscious decision (`src/tools/types.ts`
-    // says so, and `src/tools/index.ts` says why each of these three is here).
-    // A `.includes` would let the next tool advertise itself silently.
+    // Grown to three by SPGD-760 and to four by SPGD-764, and grown rather than
+    // loosened to a subset check on purpose: this `deepEqual` is the pin that
+    // makes what the server promises an agent change only by a conscious
+    // decision (`src/tools/types.ts` says so, and `src/tools/index.ts` says why
+    // each of these four is here). A `.includes` would let the next tool
+    // advertise itself silently.
+    //
+    // `add_repository` is the first name on this list that WRITES, which is the
+    // strongest argument the pin has ever had: the set of tools an agent may
+    // discover now includes one that changes state at the deployment, so a tool
+    // arriving here unnoticed is no longer merely an undocumented read.
     assert.deepEqual(names, [
+      "add_repository",
       "get_repository_overview",
       "lint_intent_annotations",
       "list_repositories",
