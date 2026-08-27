@@ -20,7 +20,77 @@ export async function getJson(
     if (value !== undefined) url.searchParams.set(key, value);
   }
 
-  const { response, body } = await fetchWithTimeout(url, api, fetchImpl);
+  return requestJson(url, api, fetchImpl, { method: "GET" });
+}
+
+/**
+ * `POST` with a JSON body — the write half of the transport, and deliberately
+ * the SAME function underneath.
+ *
+ * It shares `fetchWithTimeout` rather than standing beside it. The one-total-
+ * budget deadline, the explicit race, the `unref`'d timer, the abort and the
+ * "reached and stopped" vs "could not reach" split are the expensive part of
+ * this module and every argument for them is written above them — none of it is
+ * about the verb. A second transport re-deriving them is how the two come to
+ * disagree about what `SPECGUARD_TIMEOUT_MS` bounds, and the write path is the
+ * one where a call that never returns costs the most: the agent has already
+ * committed to a registration by the time it hangs.
+ *
+ * The body is serialized HERE rather than taken as a string, so no caller can
+ * send a body whose `Content-Type` says JSON and whose bytes are not.
+ */
+export async function postJson(
+  api: ApiConfig,
+  path: string,
+  body: Record<string, unknown>,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<unknown> {
+  return requestJson(new URL(`${api.endpoint}${path}`), api, fetchImpl, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * `postJson`, narrowed exactly as `getJsonObject` narrows `getJson`.
+ *
+ * The write path needs the same guard for the same reason, and the reason is not
+ * about reading: `ToolResult.structured` is a `Record<string, unknown>`, so a
+ * body that is an array or a bare scalar is not something a tool can pass
+ * through whichever verb fetched it. Shipping only the raw `postJson` would
+ * leave the first write tool to re-type the three-clause check and its sentence
+ * — which is precisely the duplication `getJsonObject`'s header says no tool
+ * should have to repeat.
+ *
+ * The pair is mirrored rather than collapsed for the reason the read pair is:
+ * `postJson` stays exported un-narrowed for an endpoint that legitimately
+ * answers with an array.
+ */
+export async function postJsonObject(
+  api: ApiConfig,
+  path: string,
+  body: Record<string, unknown>,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<Record<string, unknown>> {
+  return asJsonObject(await postJson(api, path, body, fetchImpl));
+}
+
+/**
+ * Everything both verbs do with a response, in one place.
+ *
+ * Extracted when the write path landed rather than copied into it: the status
+ * check, the "reached and refused" hand-off to `describeFailure` and the
+ * not-JSON sentence are identical for a `GET` and a `POST`, and the not-JSON
+ * sentence in particular is a diagnosis an operator acts on — a second copy is a
+ * second wording waiting to drift from this one.
+ */
+async function requestJson(
+  url: URL,
+  api: ApiConfig,
+  fetchImpl: typeof globalThis.fetch,
+  request: RequestSpec,
+): Promise<unknown> {
+  const { response, body } = await fetchWithTimeout(url, api, fetchImpl, request);
 
   if (!response.ok) throw describeFailure(response.status, body, api);
 
@@ -34,6 +104,15 @@ export async function getJson(
       response.status,
     );
   }
+}
+
+/** The three-clause guard both `*JsonObject` narrowings share. */
+function asJsonObject(body: unknown): Record<string, unknown> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new ApiError("SpecGuard returned a JSON value that was not an object.");
+  }
+
+  return body as Record<string, unknown>;
 }
 
 /**
@@ -59,13 +138,7 @@ export async function getJsonObject(
   query: Record<string, string | undefined>,
   fetchImpl: typeof globalThis.fetch,
 ): Promise<Record<string, unknown>> {
-  const body = await getJson(api, path, query, fetchImpl);
-
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new ApiError("SpecGuard returned a JSON value that was not an object.");
-  }
-
-  return body as Record<string, unknown>;
+  return asJsonObject(await getJson(api, path, query, fetchImpl));
 }
 
 /** A response and the body that came with it — never one without the other. */
@@ -83,6 +156,20 @@ interface FetchedBody {
  * mode `errors.ts` exists to avoid.
  */
 const TIMED_OUT = Symbol("specguard-api deadline");
+
+/**
+ * The verb and body of one call — what differs between a read and a write, and
+ * the whole of what differs.
+ *
+ * Deliberately narrow: everything else about a request (the deadline, the
+ * credential, the `Accept` and `User-Agent` headers, the abort) is a property of
+ * this transport rather than of an individual call, and stays where it is
+ * argued for rather than becoming something each caller can vary.
+ */
+interface RequestSpec {
+  readonly method: "GET" | "POST";
+  readonly body?: string;
+}
 
 /**
  * Headers AND body under ONE deadline.
@@ -118,6 +205,7 @@ async function fetchWithTimeout(
   url: URL,
   api: ApiConfig,
   fetchImpl: typeof globalThis.fetch,
+  request: RequestSpec,
 ): Promise<FetchedBody> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -135,12 +223,17 @@ async function fetchWithTimeout(
   try {
     const response = await Promise.race([
       fetchImpl(url, {
-        method: "GET",
+        method: request.method,
         headers: {
           Authorization: `Bearer ${api.apiKey}`,
           Accept: "application/json",
           "User-Agent": "specguard-mcp",
+          // Sent only when there IS a body. A `Content-Type` on a GET announces
+          // a payload that is not there, and some deployments and proxies treat
+          // that as a malformed request rather than as a harmless header.
+          ...(request.body === undefined ? {} : { "Content-Type": "application/json" }),
         },
+        ...(request.body === undefined ? {} : { body: request.body }),
         signal: controller.signal,
       }),
       deadline,
@@ -227,10 +320,62 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
     );
   }
 
+  if (status === 400) {
+    const message = badRequestMessage(body);
+    if (message !== undefined) return new ApiError(message, status);
+  }
+
   return new ApiError(
     `SpecGuard answered ${status}${body.trim() === "" ? "" : `: ${body.trim().slice(0, 500)}`}`,
     status,
   );
+}
+
+/**
+ * The sentence SpecGuard already wrote, or nothing.
+ *
+ * `Api::BaseController#render_bad_request` is a CONTRACT, not an ad-hoc body:
+ * `{error:, message:, details:}`, where `details` carries every validation
+ * failure and `message` repeats the first "so a client that reads only the two
+ * conventional keys still learns which spec is at fault". Both callers of it on
+ * `origin/main` route here, so this branch serves the API surface rather than
+ * one tool.
+ *
+ * SURFACING IT IS THE OPPOSITE OF RESHAPING IT. The generic branch below turns
+ * the most useful sentence in this direction —
+ *
+ *   "cannot be registered from an API key — SpecGuard has no current record of
+ *    your GitHub permissions. Sign in to SpecGuard in a browser and reconnect
+ *    GitHub, then try again."
+ *
+ * — into a JSON blob glued to "SpecGuard answered 400" and truncated at 500
+ * characters. That sentence names the operator's exact next move, and it is the
+ * MODAL first answer this endpoint gives: `GrantVerifier` fails closed on a
+ * missing or stale grant, which is every person who has not opened SpecGuard in
+ * a browser since the feature shipped. `:not_administered`, `:not_in_installation`
+ * and "has already been taken" arrive the same way. This branch does not author
+ * a sentence the way the 401 and 404 branches must — it stops DISCARDING one.
+ *
+ * Returns `undefined` rather than a fallback string, so the decision about what
+ * to say when the body is not that shape stays in one place. A 400 from
+ * somewhere that is not this contract — a proxy's HTML, a bare string, JSON
+ * whose `message` is absent or is not a string — still gets the generic
+ * sentence, which at least shows the operator what actually came back.
+ */
+function badRequestMessage(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+
+  const message = (parsed as Record<string, unknown>)["message"];
+  if (typeof message !== "string" || message.trim() === "") return undefined;
+
+  return `SpecGuard refused the request (400): ${message.trim()}`;
 }
 
 export { requireApiConfig, requireUserApiConfig };

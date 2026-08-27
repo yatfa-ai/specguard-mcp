@@ -351,9 +351,52 @@ decides which table is consulted before any of them is read — so the two are n
 setting one does not stand in for the other. Every message this tool produces names the variable
 *it* reads, so a `401` here never sends you to check the key `get_repository_overview` uses.
 
-Registering a repository, revoking keys and the rest of the user-scoped surface are not here yet.
-`POST /api/v1/repositories` exists on the platform; what this bridge does not yet have is a way to
-send a request body, and that arrives with the first tool that writes.
+Registering a repository is now `add_repository`, below — it reads the same `sgu_…` key and takes the
+`full_name` this tool reports. Revoking keys and the rest of the user-scoped surface are still absent,
+because their endpoints have not shipped: a tool here is a promise the agent will act on, so it waits
+for the capability rather than the other way round.
+
+### `add_repository`
+
+Registers a GitHub repository with SpecGuard for the person behind `SPECGUARD_USER_API_KEY`, and
+returns the repository together with its **first CI API key** — the `sgk_…` key that repository's CI
+will use to ingest runs, minted in the same call so a fresh registration is usable without a second
+trip through the browser.
+
+| argument | |
+| --- | --- |
+| `full_name` | the repository to register, as `org/repo` (for example `acme/billing`) — the same handle `list_repositories` reports. Not a URL, not a bare repository name |
+
+The body comes back as SpecGuard serves it: a `repository` block (`id`, `full_name`, `name`,
+`registered_at` — deliberately the same four fields `get_repository_overview` serves in its own
+`repository` block) and an `api_key` block (`name`, `token`, `hint`, `created_at`).
+
+> ⚠️ **`api_key.token` is shown once and never again.** Nothing stores it and no endpoint can
+> re-serve it. Capture it from this response — an agent should hand it straight to the person it is
+> working for. A key that is lost is replaced from SpecGuard's API-keys page in a browser, not from
+> here.
+
+> ⚠️ **This tool is not idempotent, and it writes.** If the call exceeds `SPECGUARD_TIMEOUT_MS` the
+> bridge gives up, but the registration may still have succeeded on the server — taking its one-time
+> token into a response nobody received. The retry is then refused with `has already been taken`,
+> which is the honest answer rather than a bug. Do not retry a timeout blindly; check
+> `list_repositories`, and recover the key in the browser.
+
+**It needs a current record of your GitHub permissions, and only a browser creates one.** SpecGuard
+decides whether you may register a repository from a stored grant, and fails closed when that grant
+is missing or stale — which is every person who has not signed in and connected GitHub recently. That
+refusal arrives as SpecGuard's own sentence, verbatim, naming the fix: *sign in to SpecGuard in a
+browser and reconnect GitHub, then try again*. No argument to this tool substitutes for it. The same
+path carries the other refusals — a repository the SpecGuard GitHub App is not installed on, one you
+do not administer, one already registered.
+
+**The `org/repo` format is not re-checked here.** This bridge verifies only that you passed a
+non-blank string; SpecGuard validates the name and refuses an unusable one in its own words. A second
+format rule on this side would be free to drift from the one that actually decides, and would surface
+as this bridge rejecting a name the platform would have accepted.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and a
+different one from the `sgk_…` key `get_repository_overview` uses.
 
 ## How it works
 
