@@ -463,3 +463,90 @@ describe("a 400 that carries SpecGuard's own refusal", () => {
     assert.doesNotMatch(error.message, /refused the request/);
   });
 });
+
+/**
+ * THE 403 BRANCH — the same contract under the status `not_granted` is rendered at.
+ *
+ * `Api::V1::UserRepositoriesController#render_not_granted` renders
+ * `{error: "not_granted", message:, grant:}` — the same `{error, message}` shape
+ * the 400 branch reads, at a status `describeFailure` previously could not
+ * speak. This is the MODAL first answer `registrable_repositories` gives (a nil
+ * grant is every person who has not opened SpecGuard in a browser since the
+ * feature shipped), and the sentence it carries names the operator's exact next
+ * move — so it gets the identical remedy the 400 branch established, via the
+ * one generalised extractor rather than a second copy beside it.
+ *
+ * Asserted in BOTH directions, for the same reason the 400 block is: a branch
+ * that surfaced `message` whenever it found one would pass the first test
+ * alone; what must hold is that a 403 which is NOT this contract still falls
+ * back to showing the operator what actually came back.
+ */
+describe("a 403 that carries SpecGuard's own refusal", () => {
+  const config = api("2000");
+
+  /** Verbatim from `InstallationRepositories::MESSAGES.fetch(:not_granted)`, prefixed as the controller prefixes it. */
+  const NOT_GRANTED =
+    "Your repositories cannot be registered from an API key — SpecGuard has no current record of " +
+    "your GitHub permissions. Sign in to SpecGuard in a browser and reconnect GitHub, then try " +
+    "again.";
+
+  function refused(body: string) {
+    return stubFetch({ status: 403, body }).fetch;
+  }
+
+  it("surfaces the message verbatim through \"then try again\", and does not bury it in the body it came from", async () => {
+    const error = await rejects(
+      getJson(
+        config,
+        "/api/v1/repositories/registrable",
+        {},
+        refused(JSON.stringify({ error: "not_granted", message: NOT_GRANTED, grant: null })),
+      ),
+      /Sign in to SpecGuard in a browser and reconnect GitHub/,
+    );
+
+    // The whole sentence, not a prefix of it — the actionable half is at the END,
+    // which is precisely what a 500-char truncation of a JSON blob would cut.
+    assert.match(error.message, new RegExp(NOT_GRANTED.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+    // And NOT rendered as the raw document. `"error":"not_granted"` appearing
+    // here would mean the body was echoed rather than read. The `grant` block
+    // is simply ignored by the extractor, exactly as `details` is on the 400.
+    assert.doesNotMatch(error.message, /"error"/);
+    assert.doesNotMatch(error.message, /"grant"/);
+    assert.equal((error as ApiError).status, 403);
+  });
+
+  for (const [shape, body] of [
+    ["not JSON at all", "<html><body>Forbidden</body></html>"],
+    ["JSON without a message", '{"error":"not_granted","grant":null}'],
+    ["JSON whose message is not a string", '{"error":"not_granted","message":{"nested":"thing"}}'],
+    ["JSON whose message is blank", '{"error":"not_granted","message":"   "}'],
+    ["a JSON array", '["not_granted"]'],
+  ] as const) {
+    it(`falls back to the generic sentence for a 403 that is ${shape}`, async () => {
+      // The other direction. A proxy's HTML error page is still worth showing an
+      // operator — what must not happen is the branch inventing a sentence, or
+      // swallowing the body because it could not find the key it hoped for.
+      const error = await rejects(
+        getJson(config, "/api/v1/repositories/registrable", {}, refused(body)),
+        /SpecGuard answered 403/,
+      );
+
+      assert.match(error.message, /SpecGuard answered 403: /);
+      assert.equal((error as ApiError).status, 403);
+    });
+  }
+
+  it("leaves the other statuses' branches alone", async () => {
+    // A 500 whose body happens to carry a `message` must NOT be re-described as
+    // a refusal: this branch is keyed on 403 because that is the status
+    // `render_not_granted` renders at — and a 401 or 404 is likewise untouched.
+    const error = await rejects(
+      getJson(config, "/api/v1/repositories/registrable", {}, stubFetch({ status: 500, body: '{"message":"boom"}' }).fetch),
+      /SpecGuard answered 500/,
+    );
+
+    assert.doesNotMatch(error.message, /refused the request/);
+  });
+});
