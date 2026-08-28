@@ -34,7 +34,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
-| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -351,10 +351,11 @@ decides which table is consulted before any of them is read — so the two are n
 setting one does not stand in for the other. Every message this tool produces names the variable
 *it* reads, so a `401` here never sends you to check the key `get_repository_overview` uses.
 
-Registering a repository is now `add_repository`, below — it reads the same `sgu_…` key and takes the
-`full_name` this tool reports. Revoking keys and the rest of the user-scoped surface are still absent,
-because their endpoints have not shipped: a tool here is a promise the agent will act on, so it waits
-for the capability rather than the other way round.
+Registering a repository is `add_repository`, below — it reads the same `sgu_…` key and takes the
+`full_name` this tool reports. Removal and the key lifecycle (`remove_repository`,
+`create_repository_api_key`, `revoke_repository_api_key`) are below too, on the same key; a tool
+here is a promise the agent will act on, so each waits for the capability rather than the other way
+round.
 
 ### `add_repository`
 
@@ -429,6 +430,70 @@ was one (first-time setup), a populated grant with `stale: true` means an existi
 **This tool takes no arguments** — the credential is the whole of the scope. The endpoint takes no
 parameters; which repositories are in the answer is decided by SpecGuard from the person the key
 speaks for.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `remove_repository`
+
+Removes a repository from SpecGuard — and with it **every key, run and intent on it**. This is the
+destructive gesture in this toolset: irreversible, no undo, and a `204` means the repository and its
+history are gone short of re-registering from scratch. Confirm with the user before calling.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository to remove — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+
+Authorization is the `repo.delete` capability at **either surface** — an owner, or a member granted
+`repo.delete`, may remove the repository. A member without it is refused `403` with SpecGuard's own
+sentence, verbatim. The repository's CI keys stop authenticating the moment it succeeds.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `create_repository_api_key`
+
+Mints a new CI API key (`sgk_…`) for a SpecGuard repository and returns it alongside the
+repository's existing keys. Minting does not disturb existing keys — each key on a repository
+authenticates independently until revoked.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository to mint the key for — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `name` | an optional label for the key; omit it to let SpecGuard use its default name |
+
+The body comes back as SpecGuard serves it: an `api_key` block (`name`, `token`, `hint`,
+`created_at`) — the same shape `add_repository` serves.
+
+> ⚠️ **`api_key.token` is shown once and never again.** Nothing stores it and no endpoint can
+> re-serve it. Hand it to the person you are working for in your reply. If it is dropped, the
+> recovery is minting another key with this same tool — the platform has no regenerate — then
+> revoking the orphaned one with `revoke_repository_api_key`.
+
+Authorization is the `keys_manage` capability; a member without it is refused `403` with SpecGuard's
+own sentence, verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `revoke_repository_api_key`
+
+Revokes one CI API key on a SpecGuard repository. The key stops authenticating immediately; every
+**other** key on the repository keeps working, so CI keeps ingesting if it holds a surviving key.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository the key belongs to — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `key_id` | the id of the key to revoke, as served in the `api_key` block of `add_repository` or `create_repository_api_key` |
+
+The `key_id` is scoped to `repository_id`: a key id belonging to a different repository is refused
+`404`, never a cross-repository delete. Authorization is the `keys_manage` capability; a member
+without it is refused `403` with SpecGuard's own sentence, verbatim.
+
+**Key rotation is mint-then-revoke, in that order.** The platform has no regenerate, so mint a
+replacement with `create_repository_api_key` and deploy it BEFORE revoking the old one — revoke
+first and the repository's CI is locked out until a human mints a new key in a browser. A `204`
+means the key is revoked.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.

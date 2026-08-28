@@ -52,6 +52,39 @@ export async function postJson(
 }
 
 /**
+ * `DELETE` — the destructive half of the transport, and deliberately the SAME
+ * function underneath `postJson` rather than beside it, for the reason
+ * `postJson`'s header states: everything expensive about this module is about
+ * the deadline, not the verb.
+ *
+ * Returns the RAW BODY TEXT rather than a parsed value, because the endpoints
+ * this serves answer `204` with NO body at all — the one response in the `sgu_`
+ * surface that is deliberately not JSON. `requestJson` JSON-parses every 2xx it
+ * sees, so routing a `204` through it would turn a successful delete into
+ * "answered 204 but the body was not JSON" — the trap this verb specifically
+ * introduces, and the reason the DELETE path has its own success handling
+ * instead of sharing `requestJson`'s. The status check and the
+ * "reached and refused" hand-off to `describeFailure` are still shared
+ * verbatim: only what happens to a SUCCESS body differs.
+ */
+export async function deleteJson(
+  api: ApiConfig,
+  path: string,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<string> {
+  const { response, body } = await fetchWithTimeout(
+    new URL(`${api.endpoint}${path}`),
+    api,
+    fetchImpl,
+    { method: "DELETE" },
+  );
+
+  if (!response.ok) throw describeFailure(response.status, body, api);
+
+  return body;
+}
+
+/**
  * `postJson`, narrowed exactly as `getJsonObject` narrows `getJson`.
  *
  * The write path needs the same guard for the same reason, and the reason is not
@@ -167,7 +200,7 @@ const TIMED_OUT = Symbol("specguard-api deadline");
  * argued for rather than becoming something each caller can vary.
  */
 interface RequestSpec {
-  readonly method: "GET" | "POST";
+  readonly method: "GET" | "POST" | "DELETE";
   readonly body?: string;
 }
 
