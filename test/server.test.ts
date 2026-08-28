@@ -40,7 +40,7 @@ describe("an MCP client against the server", () => {
     // loosened to a subset check on purpose: this `deepEqual` is the pin that
     // makes what the server promises an agent change only by a conscious
     // decision (`src/tools/types.ts` says so, and `src/tools/index.ts` says why
-    // each of these four is here). A `.includes` would let the next tool
+    // each of these is here). A `.includes` would let the next tool
     // advertise itself silently.
     //
     // `add_repository` is the first name on this list that WRITES, which is the
@@ -52,6 +52,7 @@ describe("an MCP client against the server", () => {
       "get_repository_overview",
       "lint_intent_annotations",
       "list_repositories",
+      "registrable_repositories",
     ]);
 
     for (const tool of tools) {

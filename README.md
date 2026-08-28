@@ -32,9 +32,9 @@ refuses to boot and takes the tools that needed no configuration down with it.
 
 | Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
-| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
+| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
-| `SPECGUARD_USER_API_KEY` | `list_repositories` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -397,6 +397,41 @@ as this bridge rejecting a name the platform would have accepted.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and a
 different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `registrable_repositories`
+
+Lists the GitHub repositories the person behind `SPECGUARD_USER_API_KEY` **could** register with
+SpecGuard — the set the registration gate would consult, read out loud in advance, so an agent can
+pick a `full_name` for `add_repository` from a real answer rather than by guessing. `list_repositories`
+reports what *is* registered; this reports what could be, and the two answer different questions.
+
+The body comes back as SpecGuard serves it: `{"repositories": […]}` with each entry carrying
+`full_name` and `registered`, ordered by `full_name` ascending, plus a `grant` block (`captured_at`,
+`expires_at`, `stale`) describing the stored record of this person's GitHub permissions.
+
+**`registered` is asked globally, not just of your own repositories.** An entry marked
+`registered: true` was registered by *somebody* — possibly someone else — and a POST naming it will
+be refused with `has already been taken`. That is exactly why entries are *marked* rather than
+excluded: a reading scoped to what you can open would send you at a name nobody can register.
+
+**A name appearing here is not a promise the write will succeed.** This is the set the gate would
+consult at the moment of the read; the repository may be registered by someone else between this
+call and your POST.
+
+**A missing or stale grant is not an error — it is the modal first answer.** SpecGuard fails closed
+when it has no current record of your GitHub permissions, which is every person who has not opened
+SpecGuard in a browser recently. The call then answers `403` with SpecGuard's own sentence naming
+the fix: *sign in to SpecGuard in a browser and reconnect GitHub, then try again*. On that refusal
+the body still carries `grant`, and it distinguishes the two cases: `grant: null` means there never
+was one (first-time setup), a populated grant with `stale: true` means an existing connection lapsed
+— same remedy, very different urgency. Read it before telling the person what to do.
+
+**This tool takes no arguments** — the credential is the whole of the scope. The endpoint takes no
+parameters; which repositories are in the answer is decided by SpecGuard from the person the key
+speaks for.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
 
 ## How it works
 

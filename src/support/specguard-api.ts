@@ -320,8 +320,8 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
     );
   }
 
-  if (status === 400) {
-    const message = badRequestMessage(body);
+  if (status === 400 || status === 403) {
+    const message = refusalMessage(body, status);
     if (message !== undefined) return new ApiError(message, status);
   }
 
@@ -340,6 +340,13 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
  * conventional keys still learns which spec is at fault". Both callers of it on
  * `origin/main` route here, so this branch serves the API surface rather than
  * one tool.
+ *
+ * The 403 is the same shape under another status. `UserRepositoriesController#
+ * render_not_granted` renders `{error: "not_granted", message:, grant:}` — the
+ * `grant` block is simply ignored by the extractor, exactly as `details` is.
+ * Same defect (the generic branch truncating the one sentence that names the
+ * fix), same remedy — which is why the helper is ONE function parameterised on
+ * the status rather than two copies beside each other.
  *
  * SURFACING IT IS THE OPPOSITE OF RESHAPING IT. The generic branch below turns
  * the most useful sentence in this direction —
@@ -362,7 +369,7 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
  * whose `message` is absent or is not a string — still gets the generic
  * sentence, which at least shows the operator what actually came back.
  */
-function badRequestMessage(body: string): string | undefined {
+function refusalMessage(body: string, status: number): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body) as unknown;
@@ -375,7 +382,7 @@ function badRequestMessage(body: string): string | undefined {
   const message = (parsed as Record<string, unknown>)["message"];
   if (typeof message !== "string" || message.trim() === "") return undefined;
 
-  return `SpecGuard refused the request (400): ${message.trim()}`;
+  return `SpecGuard refused the request (${status}): ${message.trim()}`;
 }
 
 export { requireApiConfig, requireUserApiConfig };

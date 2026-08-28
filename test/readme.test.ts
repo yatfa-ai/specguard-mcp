@@ -98,7 +98,7 @@ function sectionFor(toolName: string): string[] | null {
  * itself honest in both directions, so it cannot outlive the tools it names or
  * quietly cover a tool that has since grown arguments.
  */
-const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set(["list_repositories"]);
+const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set(["list_repositories", "registrable_repositories"]);
 
 /** Matches the argument table's row for one parameter: `| \`name\` | … |`. */
 function documentsParameter(section: string[], parameter: string): boolean {

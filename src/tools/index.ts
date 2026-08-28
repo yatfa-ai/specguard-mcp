@@ -2,6 +2,7 @@ import addRepository from "./add-repository.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
 import getRepositoryOverview from "./repository-overview.js";
+import registrableRepositories from "./registrable-repositories.js";
 import type { ToolDefinition } from "./types.js";
 
 /**
@@ -66,12 +67,34 @@ import type { ToolDefinition } from "./types.js";
  * the API-key endpoints (SPGD-754) are NOT on `origin/main`, so they may not be
  * wrapped here however useful a tool for them would be. What moved was the
  * platform, not the bar.
+ *
+ * == The fifth: the read half of the registration gate
+ *
+ *   - `registrable_repositories` wraps `GET /api/v1/repositories/registrable`
+ *     (shipped: `specguard/config/routes.rb:117`,
+ *     `Api::V1::UserRepositoriesController#registrable`).
+ *
+ * `list_repositories` says what IS registered; this says what COULD be — the
+ * set the gate would consult, read out in advance, so an agent can pick a
+ * `full_name` for `add_repository` from a real answer. Landing it also
+ * generalised the 400 branch in `describeFailure` into a status-parameterised
+ * extractor, because this endpoint's modal first answer is a 403 (`not_granted`)
+ * carrying the same `{error, message}` contract — the identical defect, given
+ * the identical remedy.
+ *
+ * The user-scoped surface as it now stands is therefore three tools: read the
+ * list, read the gate's answer, write a registration. The standing rule is
+ * unchanged and still binding, which is what keeps the rest out:
+ * `DELETE /api/v1/repositories/:id` and the API-key endpoints (SPGD-754) are
+ * NOT on `origin/main`, so they may not be wrapped here however useful a tool
+ * for them would be. What moved was the platform, not the bar.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
   getRepositoryOverview,
   listRepositories,
   addRepository,
+  registrableRepositories,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
