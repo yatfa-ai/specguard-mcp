@@ -54,6 +54,7 @@ describe("an MCP client against the server", () => {
       "get_repository_overview",
       "lint_intent_annotations",
       "list_repositories",
+      "near_duplicate_clusters",
       "registrable_repositories",
       "remove_repository",
       "revoke_repository_api_key",
