@@ -78,7 +78,17 @@ export function stubFetch(response: { status?: number; body?: string } = {}): St
   const impl = (async (input: unknown, init?: RequestInit) => {
     record(requests, input, init);
 
-    return new Response(response.body ?? "{}", { status: response.status ?? 200 });
+    // A null-body status (204/304) MUST be constructed without a body — the
+    // `Response` constructor throws otherwise. The DELETES this bridge serves
+    // answer `204` with no body at all, which is exactly what `{body: ""}`
+    // means here: absent on the wire, not an empty string of JSON. Passing
+    // `null` also makes `text()` resolve to `""`, so the empty-body success
+    // path is tested against the same value the deployment's stream yields.
+    const nullBodyStatus = [204, 205, 304].includes(response.status ?? 200);
+    const wire =
+      nullBodyStatus || response.body === undefined ? (nullBodyStatus ? null : "{}") : response.body;
+
+    return new Response(wire, { status: response.status ?? 200 });
   }) as unknown as typeof globalThis.fetch;
 
   return { fetch: impl, requests };

@@ -43,16 +43,20 @@ describe("an MCP client against the server", () => {
     // each of these is here). A `.includes` would let the next tool
     // advertise itself silently.
     //
-    // `add_repository` is the first name on this list that WRITES, which is the
+    // `add_repository` is the first name on this list that WRITES, and
+    // `remove_repository` the first that DESTROYS, which is the strongest
     // strongest argument the pin has ever had: the set of tools an agent may
     // discover now includes one that changes state at the deployment, so a tool
     // arriving here unnoticed is no longer merely an undocumented read.
     assert.deepEqual(names, [
       "add_repository",
+      "create_repository_api_key",
       "get_repository_overview",
       "lint_intent_annotations",
       "list_repositories",
       "registrable_repositories",
+      "remove_repository",
+      "revoke_repository_api_key",
     ]);
 
     for (const tool of tools) {

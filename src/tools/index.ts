@@ -1,8 +1,11 @@
 import addRepository from "./add-repository.js";
+import createRepositoryApiKey from "./create-repository-api-key.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
 import getRepositoryOverview from "./repository-overview.js";
 import registrableRepositories from "./registrable-repositories.js";
+import removeRepository from "./remove-repository.js";
+import revokeRepositoryApiKey from "./revoke-repository-api-key.js";
 import type { ToolDefinition } from "./types.js";
 
 /**
@@ -62,11 +65,11 @@ import type { ToolDefinition } from "./types.js";
  * beside it, and `describeFailure` grew the `400` branch that surfaces
  * SpecGuard's own refusal sentence — the modal answer this endpoint gives.
  *
- * The standing rule is unchanged and still binding, which is what keeps the rest
- * of the user-scoped write surface out: `DELETE /api/v1/repositories/:id` and
- * the API-key endpoints (SPGD-754) are NOT on `origin/main`, so they may not be
- * wrapped here however useful a tool for them would be. What moved was the
- * platform, not the bar.
+ * The standing rule is unchanged and still binding. What once kept `DELETE
+ * /api/v1/repositories/:id` and the API-key endpoints out under it — "not on
+ * `origin/main`, so they may not be wrapped" — stopped being true when SPGD-754
+ * shipped them, and the sixth-through-eighth section below records their
+ * wrapping. What moved was the platform, not the bar.
  *
  * == The fifth: the read half of the registration gate
  *
@@ -88,6 +91,26 @@ import type { ToolDefinition } from "./types.js";
  * `DELETE /api/v1/repositories/:id` and the API-key endpoints (SPGD-754) are
  * NOT on `origin/main`, so they may not be wrapped here however useful a tool
  * for them would be. What moved was the platform, not the bar.
+ *
+ * == The sixth through eighth: removal and the key lifecycle
+ *
+ *   - `remove_repository` wraps `DELETE /api/v1/repositories/:id`, and
+ *     `create_repository_api_key` / `revoke_repository_api_key` wrap the two
+ *     `api_keys` endpoints (all shipped: SPGD-754, `specguard@origin/main`).
+ *
+ * The closing fence the two paragraphs above share — "the DELETE and API-key
+ * endpoints are NOT on `origin/main`, so they may not be wrapped" — stopped
+ * being true when SPGD-754 landed, and these three entries are what became
+ * wrappable the moment it did. They also forced the transport's third verb:
+ * both DELETE endpoints answer `204` with NO body, the one response in the
+ * `sgu_` surface that is deliberately not JSON, which is why `deleteJson`
+ * returns the raw body text instead of routing an empty 204 through
+ * `requestJson`'s JSON parse.
+ *
+ * The standing rule itself is unchanged and still binding — which still keeps
+ * out `/check-intent`, duplicate clustering, member management and rename: none
+ * of their backing endpoints has shipped, and a tool advertised in `tools/list`
+ * remains a promise an agent will act on.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
@@ -95,6 +118,9 @@ export const TOOLS: readonly ToolDefinition[] = [
   listRepositories,
   addRepository,
   registrableRepositories,
+  removeRepository,
+  createRepositoryApiKey,
+  revokeRepositoryApiKey,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
