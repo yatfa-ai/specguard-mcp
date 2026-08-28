@@ -98,7 +98,16 @@ function sectionFor(toolName: string): string[] | null {
  * itself honest in both directions, so it cannot outlive the tools it names or
  * quietly cover a tool that has since grown arguments.
  */
-const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set(["list_repositories", "registrable_repositories"]);
+const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set([
+  "list_repositories",
+  "registrable_repositories",
+  // `near_duplicate_clusters` takes no arguments by the same reasoning as the
+  // two above, plus a stronger one it shares with neither: its ask is FLAG
+  // shaped (`?near_duplicates=`), and the server reads only that the key is
+  // present — there is no value for an argument to carry and no population to
+  // pick out. The tool sends the ask unconditionally; its README section says so.
+  "near_duplicate_clusters",
+]);
 
 /** Matches the argument table's row for one parameter: `| \`name\` | … |`. */
 function documentsParameter(section: string[], parameter: string): boolean {

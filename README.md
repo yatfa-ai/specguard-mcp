@@ -434,6 +434,47 @@ speaks for.
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
 
+### `near_duplicate_clusters`
+
+Runs SpecGuard's near-duplicate census over a repository's tests — which tests *read alike* (same
+body text, whatever file they sit in), clustered by similarity. Answers the refactoring question
+the overview's per-run rankings cannot: where the same test is written twice, before you delete or
+merge anything.
+
+**This is the expensive read in this toolset.** The census is linear but measured in seconds —
+seven queries at every size, tens of seconds extrapolated at the 20,000-test design point — which
+is why the platform serves it only to a client that asks (`?near_duplicates=`, shipped by SPGD-703)
+and answers `near_duplicates: null` on the plain overview. Calling this tool **is** the ask;
+`get_repository_overview` never sends it, so an agent reading the overview cannot pay the census by
+accident.
+
+**This tool takes no arguments** — nothing about the census is choosable. The clusters are the
+repository's, computed over every run; one call returns them all. (The server reads only that the
+`near_duplicates` key is *present* — `=false` would open it too — so there is no value for an
+argument to carry.)
+
+Read the response with its own rules in mind:
+
+- `similarity_floor` and `similarity_basis` sit **first** in the block and qualify every figure
+  below them — a cluster count without what "similar" meant is a count you cannot act on.
+- `member_count` (texts in the repository, across every run) and `example_count` (examples in the
+  one run `weighed_run_id` names) are **different grains**: a three-example table-driven loop is
+  one member and three examples. Never fold them.
+- `truncated: true` means the `clusters` list was cut at the cap while the counts above it
+  (`cluster_count`, `identity_count`, `clustered_*`) describe the whole census.
+- `unobserved_members: true` on a cluster says a member identity the weighed run did not observe
+  (deleted, renamed, deselected) is still listed — do not reconcile the member list against that
+  run's examples.
+- `similarity_range` is `[strongest, weakest]`: membership is transitive, similarity is not.
+- `total_seconds` is `null` where nothing was timed — never a zero that would read as free.
+- `clusters: []` with a real `identity_count` is the **success** state (nothing reads alike); the
+  three silences — nothing ingested, nothing embedded, nothing alike — are kept distinguishable by
+  `recorded_count` / `identity_count` / the list itself.
+
+Same credential and endpoint as `get_repository_overview` (`sgk_…` repository key on
+`GET /api/v1/repository`); the response is that endpoint's full body with the `near_duplicates`
+block opened, passed through unmodified.
+
 ### `remove_repository`
 
 Removes a repository from SpecGuard — and with it **every key, run and intent on it**. This is the

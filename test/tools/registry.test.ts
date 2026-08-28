@@ -66,11 +66,18 @@ describe("the tool registry", () => {
   }
 
   it("wraps only capabilities that are shipped today", () => {
-    // SPGD-310 is explicit: no tool may wrap /check-intent or duplicate
-    // clustering until SPGD-114/SPGD-115 land their backing data and engine. A
-    // tool in tools/list is a promise an agent will act on, and one that
-    // discovers cleanly then fails on use is worse than one that is absent.
-    const forbidden = ["check_intent", "check-intent", "duplicate", "cluster"];
+    // The standing rule from SPGD-310: a tool in tools/list is a promise an
+    // agent will act on, and one that discovers cleanly then fails on use is
+    // worse than one that is absent — so nothing may wrap an endpoint that has
+    // not shipped. `/check-intent` is still in that state:
+    // `specguard/config/routes.rb:113` carries it as a comment only.
+    //
+    // Duplicate clustering was once under this same forbid and no longer is:
+    // SPGD-703 (`specguard` `c43dc19`) shipped
+    // `GET /api/v1/repository?near_duplicates=`, which `near_duplicate_clusters`
+    // wraps — a name carrying `duplicate`/`cluster` is now evidence of a SHIPPED
+    // capability, and this list must not fail it again.
+    const forbidden = ["check_intent", "check-intent"];
 
     for (const tool of TOOLS) {
       for (const term of forbidden) {

@@ -2,6 +2,7 @@ import addRepository from "./add-repository.js";
 import createRepositoryApiKey from "./create-repository-api-key.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
+import nearDuplicateClusters from "./near-duplicate-clusters.js";
 import getRepositoryOverview from "./repository-overview.js";
 import registrableRepositories from "./registrable-repositories.js";
 import removeRepository from "./remove-repository.js";
@@ -43,12 +44,21 @@ import type { ToolDefinition } from "./types.js";
  *
  * == What is deliberately absent
  *
- * `/check-intent` and duplicate clustering are NOT here and must not be added
- * until their backing engine and data exist (SPGD-114 / SPGD-115). A tool
- * advertised in `tools/list` is a promise an agent will act on: wrapping an
- * endpoint that does not exist would produce a server that discovers cleanly
- * and fails on use, which is worse than not offering the tool, because the
- * agent has already committed to a plan by the time it finds out.
+ * `/check-intent` is NOT here and must not be added until its backing endpoint
+ * exists — `specguard/config/routes.rb:113` carries it as a comment only, which
+ * is the evidence this forbid rests on. A tool advertised in `tools/list` is a
+ * promise an agent will act on: wrapping an endpoint that does not exist would
+ * produce a server that discovers cleanly and fails on use, which is worse than
+ * not offering the tool, because the agent has already committed to a plan by
+ * the time it finds out.
+ *
+ * Duplicate clustering was once under this same forbid, on the same standing
+ * rule — no tool may wrap what has not shipped. That half retired when the
+ * platform moved: SPGD-703 (`specguard` `c43dc19`, 2026-08-28) shipped
+ * `GET /api/v1/repository?near_duplicates=`, serving
+ * `RepositoryOverview#serialized_near_duplicates` behind an opt-in ask, and
+ * `near_duplicate_clusters` below wraps it. What moved was the platform, not
+ * the bar.
  *
  * == The fourth: the first tool that WRITES
  *
@@ -108,9 +118,9 @@ import type { ToolDefinition } from "./types.js";
  * `requestJson`'s JSON parse.
  *
  * The standing rule itself is unchanged and still binding — which still keeps
- * out `/check-intent`, duplicate clustering, member management and rename: none
- * of their backing endpoints has shipped, and a tool advertised in `tools/list`
- * remains a promise an agent will act on.
+ * out `/check-intent`, member management and rename: none of their backing
+ * endpoints has shipped, and a tool advertised in `tools/list` remains a
+ * promise an agent will act on.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
@@ -121,6 +131,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   removeRepository,
   createRepositoryApiKey,
   revokeRepositoryApiKey,
+  nearDuplicateClusters,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
