@@ -5,3 +5,6 @@ coverage
 *.log
 .DS_Store
 .test-build
+
+# The SpecGuard reporter local sink (no key configured).
+/log/

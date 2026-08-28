@@ -30,6 +30,12 @@ jobs:
       matrix:
         node: ['22', '24', '25']
 
+    env:
+      SPECGUARD_ENDPOINT: https://specguard.yatfa.com
+      # Repository-scoped ingest key for yatfa-ai/specguard-mcp. Absent on fork pull requests —
+      # the telemetry step below is conditional on it.
+      SPECGUARD_API_KEY: ${{ secrets.SPECGUARD_API_KEY }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,12 +47,30 @@ jobs:
           cache: npm
 
       # `npm ci` runs `prepare`, which builds dist/ — so the build is already
-      # exercised here and needs no separate step.
+      # exercised here and needs no separate step. This also builds the specguard-ts
+      # git dependency's dist/, where the telemetry reporter below lives.
       - name: Install dependencies
         run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
 
+      # The suite reports itself through the node:test reporter that specguard-ts ships. The
+      # reporter never fails the suite; with no key (a fork pull request) the flags are absent
+      # and `npm test` runs exactly as before. Composing reporters requires a
+      # --test-reporter-destination per --test-reporter whenever more than one is given (enforced
+      # from Node 23; the pairing is valid on every version in the matrix). Each matrix leg is an
+      # independent full run rather than a shard of one, so each stamps its own ci_run_id instead
+      # of folding three executions into a single run on the platform.
+      - name: Enable SpecGuard telemetry when a key is configured
+        if: env.SPECGUARD_API_KEY != ''
+        run: |
+          {
+            echo "SPECGUARD_REPORTER_ARGS=--test-reporter=spec --test-reporter-destination=stdout --test-reporter=./node_modules/specguard-ts/dist/node-test/reporter.js --test-reporter-destination=stdout"
+            echo "SPECGUARD_COMMIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}"
+            echo "SPECGUARD_BRANCH=${{ github.head_ref || github.ref_name }}"
+            echo "SPECGUARD_RUN_ID=${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}"
+          } >> "$GITHUB_ENV"
+
       - name: Run the suite
-        run: npm test
+        run: npm test -- $SPECGUARD_REPORTER_ARGS
