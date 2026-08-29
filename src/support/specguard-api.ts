@@ -52,6 +52,29 @@ export async function postJson(
 }
 
 /**
+ * `PATCH` with a JSON body — the mutating-without-replacing half of the
+ * transport, and deliberately the SAME function underneath `postJson`, for the
+ * reason that header states: everything expensive about this module is about
+ * the deadline, not the verb.
+ *
+ * Routed through `requestJson` rather than `deleteJson`'s raw-body handling,
+ * because every PATCH this surface serves answers `200` WITH a JSON body —
+ * `requestJson`'s parse is correct here, and re-deriving success handling would
+ * be a third copy of the one status check.
+ */
+export async function patchJson(
+  api: ApiConfig,
+  path: string,
+  body: Record<string, unknown>,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<unknown> {
+  return requestJson(new URL(`${api.endpoint}${path}`), api, fetchImpl, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
  * `DELETE` — the destructive half of the transport, and deliberately the SAME
  * function underneath `postJson` rather than beside it, for the reason
  * `postJson`'s header states: everything expensive about this module is about
@@ -106,6 +129,21 @@ export async function postJsonObject(
   fetchImpl: typeof globalThis.fetch,
 ): Promise<Record<string, unknown>> {
   return asJsonObject(await postJson(api, path, body, fetchImpl));
+}
+
+/**
+ * `patchJson`, narrowed exactly as `postJsonObject` narrows `postJson` — same
+ * guard, same sentence, same reason: `ToolResult.structured` is a
+ * `Record<string, unknown>`, so no tool should re-type the three-clause check
+ * on this verb either.
+ */
+export async function patchJsonObject(
+  api: ApiConfig,
+  path: string,
+  body: Record<string, unknown>,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<Record<string, unknown>> {
+  return asJsonObject(await patchJson(api, path, body, fetchImpl));
 }
 
 /**
@@ -200,7 +238,7 @@ const TIMED_OUT = Symbol("specguard-api deadline");
  * argued for rather than becoming something each caller can vary.
  */
 interface RequestSpec {
-  readonly method: "GET" | "POST" | "DELETE";
+  readonly method: "GET" | "POST" | "PATCH" | "DELETE";
   readonly body?: string;
 }
 

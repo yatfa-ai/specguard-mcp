@@ -93,3 +93,56 @@ export function optionalBoolean(value: unknown, field: string): boolean | undefi
   if (typeof value !== "boolean") throw new ArgumentError(`\`${field}\` must be a boolean.`);
   return value;
 }
+
+/**
+ * An optional array of non-blank strings, or nothing.
+ *
+ * The SHAPE-ONLY sibling of the linter's `optionalStringArray` (which stays in
+ * `lint-intent-annotations.ts` because its refusals — empty list, leading dash
+ * — are about the linter's own argument grammar and throw `CommandError`). This
+ * one answers only "is it an array of strings" and always throws
+ * `ArgumentError`, which is what a pass-through array of permission names
+ * needs: the platform is the authority on which strings are legal, and a
+ * client-side copy of that rule is a rule with no owner, free to drift from the
+ * one that actually decides.
+ */
+export function optionalStringArray(value: unknown, field: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new ArgumentError(`\`${field}\` must be an array of strings.`);
+
+  const entries = value.map((entry) => {
+    if (typeof entry !== "string") throw new ArgumentError(`\`${field}\` must contain only strings.`);
+    // Trimmed like its scalar siblings: a value an agent produced by
+    // concatenating strings arrives with whitespace that is not part of what it
+    // meant to send.
+    return entry.trim();
+  });
+
+  return entries;
+}
+
+/**
+ * A mandatory array of non-blank strings, and nothing else will do.
+ *
+ * The mandatory counterpart of `optionalStringArray`, added with
+ * `update_repository_member_permissions` (SPGD-885): the server column behind
+ * that call is `text[]`, and a scalar on the wire is silently dropped
+ * server-side — so the array shape is checked HERE, before a write, rather
+ * than persisted as a member holding nothing. Blank entries are dropped rather
+ * than refused: the server's own normalisation does the same, so refusing here
+ * would be a second vocabulary the caller must satisfy before the one that
+ * decides even sees the request.
+ */
+export function requireStringArray(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) {
+    throw new ArgumentError(`\`${field}\` is required.`);
+  }
+  if (!Array.isArray(value)) throw new ArgumentError(`\`${field}\` must be an array of strings.`);
+
+  const entries = value.map((entry) => {
+    if (typeof entry !== "string") throw new ArgumentError(`\`${field}\` must contain only strings.`);
+    return entry.trim();
+  });
+
+  return entries.filter((entry) => entry !== "");
+}

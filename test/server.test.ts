@@ -36,7 +36,8 @@ describe("an MCP client against the server", () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
 
-    // Grown to three by SPGD-760 and to four by SPGD-764, and grown rather than
+    // Grown to three by SPGD-760, to four by SPGD-764, and to thirteen by
+    // SPGD-885 (member management) — grown rather than
     // loosened to a subset check on purpose: this `deepEqual` is the pin that
     // makes what the server promises an agent change only by a conscious
     // decision (`src/tools/types.ts` says so, and `src/tools/index.ts` says why
@@ -50,14 +51,18 @@ describe("an MCP client against the server", () => {
     // arriving here unnoticed is no longer merely an undocumented read.
     assert.deepEqual(names, [
       "add_repository",
+      "add_repository_member",
       "create_repository_api_key",
       "get_repository_overview",
       "lint_intent_annotations",
       "list_repositories",
+      "list_repository_members",
       "near_duplicate_clusters",
       "registrable_repositories",
       "remove_repository",
+      "remove_repository_member",
       "revoke_repository_api_key",
+      "update_repository_member_permissions",
     ]);
 
     for (const tool of tools) {
