@@ -34,7 +34,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
-| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -622,6 +622,27 @@ cannot be removed at all. The same known limitation as the edit tool applies to 
 endpoint serves it, so it comes from the platform's web members page today. Authorization is the
 `members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
 verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `rename_repository`
+
+Renames a SpecGuard repository — changes the `org/repo` GitHub full name it is registered under —
+keeping every API key, run and intent on it.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the id of the repository to rename — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `github_full_name` | the new GitHub full name, `org/repo` — sent top-level in the body, not nested under `repository` |
+
+This is the alternative to the remove-and-re-register path: that one **deletes every API key, run
+and intent** on the repository (`remove_repository`), while this keeps all of them. **Authorization
+is owner-only** — deliberately narrower than removal: a member granted `repo.delete` may destroy
+the repository but may not rename it. The owner check also redeems a browser-issued grant valid for
+7 days; a nil or stale one is refused `403` with SpecGuard's own sentence naming the fix
+(re-grant via the browser). A name another repository already holds is refused `400` — `taken`, not
+`409` — verbatim. The `200` body is `{repository: …}` in the same shape `list_repositories` serves.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
