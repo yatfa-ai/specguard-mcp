@@ -34,7 +34,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
-| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -535,6 +535,93 @@ without it is refused `403` with SpecGuard's own sentence, verbatim.
 replacement with `create_repository_api_key` and deploy it BEFORE revoking the old one — revoke
 first and the repository's CI is locked out until a human mints a new key in a browser. A `204`
 means the key is revoked.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `list_repository_members`
+
+Lists who has access to a SpecGuard repository: one row per member with their `handle`,
+`permissions`, `granted_by` (who last set them) and `created_at`, ordered by handle.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+
+The list answers **memberships only** and never reports how many CI keys a member has minted
+(`keys_minted`) — that is a separate `keys.manage` disclosure this endpoint deliberately withholds;
+the API-keys tools are the surface for it. The response carries **no membership id**, by design.
+
+Authorization is the `members.manage` capability: a caller who is not a member is refused `404`
+(the repository's existence stays hidden), and a member without `members.manage` is refused `403`
+with SpecGuard's own sentence, verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `add_repository_member`
+
+Grants a person access to a SpecGuard repository by their GitHub handle, with an optional list of
+permissions.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository to grant access to — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `handle` | the person's GitHub **login** — `octocat`, not a profile URL and not a display name; SpecGuard refuses both with its own sentence |
+| `permissions` | an optional list of permission strings (`view`, `keys.manage`, `members.manage`, `repo.delete`); omit it to grant access with no additional permissions |
+
+Each resolution failure — nobody has signed in as that handle yet, the account is archived, the
+handle is ambiguous, the handle is not a login — arrives as a **distinguishable** 400 message
+naming the exact next move. The grantor recorded on the membership is always the person behind
+`SPECGUARD_USER_API_KEY`; no argument can name a different one.
+
+On success (`201`) the response carries a `member` block (`handle`, `permissions`, `granted_by`,
+`created_at`) — and **no membership id**, by design. Authorization is the `members.manage`
+capability; a member without it is refused `403` with SpecGuard's own sentence, verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `update_repository_member_permissions`
+
+Replaces one member's permission set on a SpecGuard repository.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository the membership belongs to — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `member_id` | the id of the **membership** row to edit — not a user id, not the handle. Scoped to `repository_id`: a foreign membership id is refused `404` |
+| `permissions` | the member's **complete new** permission set (`view`, `keys.manage`, `members.manage`, `repo.delete`) — it replaces what they hold today, it is not merged |
+
+**`permissions` replaces the whole set** — name every permission the member should end with.
+Values are validated by SpecGuard; an unknown value is refused with its own sentence, verbatim.
+
+**Known limitation:** no API endpoint serves the membership id — the member list and the
+add-member response both omit it by design — so the id must be obtained from the platform (today
+via the repository's web members page). There is no name-based lookup. Authorization is the
+`members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
+verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `remove_repository_member`
+
+Revokes one person's access to a SpecGuard repository by removing their membership. A `204` means
+it is revoked.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository the membership belongs to — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `member_id` | the id of the **membership** row to revoke — not a user id, not the handle. Scoped to `repository_id`: a foreign membership id is refused `404` |
+
+**Revoking does NOT revoke that member's minted CI keys.** Any `sgk_…` keys they created on the
+repository keep authenticating by design; the lever for those is the API-keys surface
+(`revoke_repository_api_key`), not this one. Self-revocation is permitted — after it, the caller's
+next request to the member routes answers `404`, not `403`. The repository owner's membership
+cannot be removed at all. The same known limitation as the edit tool applies to `member_id`: no
+endpoint serves it, so it comes from the platform's web members page today. Authorization is the
+`members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
+verbatim.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.

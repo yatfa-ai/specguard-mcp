@@ -1,12 +1,16 @@
 import addRepository from "./add-repository.js";
+import addRepositoryMember from "./add-repository-member.js";
 import createRepositoryApiKey from "./create-repository-api-key.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
+import listRepositoryMembers from "./list-repository-members.js";
 import nearDuplicateClusters from "./near-duplicate-clusters.js";
 import getRepositoryOverview from "./repository-overview.js";
 import registrableRepositories from "./registrable-repositories.js";
 import removeRepository from "./remove-repository.js";
+import removeRepositoryMember from "./remove-repository-member.js";
 import revokeRepositoryApiKey from "./revoke-repository-api-key.js";
+import updateRepositoryMemberPermissions from "./update-repository-member-permissions.js";
 import type { ToolDefinition } from "./types.js";
 
 /**
@@ -118,9 +122,30 @@ import type { ToolDefinition } from "./types.js";
  * `requestJson`'s JSON parse.
  *
  * The standing rule itself is unchanged and still binding — which still keeps
- * out `/check-intent`, member management and rename: none of their backing
- * endpoints has shipped, and a tool advertised in `tools/list` remains a
- * promise an agent will act on.
+ * out `/check-intent` and rename: `/check-intent` has no backing endpoint
+ * (`routes.rb:113` mounts it as a comment only), and rename shipped only after
+ * this slice was scoped (SPGD-878, `PATCH /api/v1/repositories/:id`) — it is
+ * the natural next slice, not something to bolt on here. A tool advertised in
+ * `tools/list` remains a promise an agent will act on.
+ *
+ * == The ninth through twelfth: member management
+ *
+ *   - `list_repository_members`, `add_repository_member`,
+ *     `update_repository_member_permissions` and `remove_repository_member`
+ *     wrap the four `user_repository_members` endpoints (all shipped: SPGD-875,
+ *     specguard@origin/main).
+ *
+ * They also forced the transport's fourth verb: `update` is a PATCH, which
+ * arrived with `patchJson` in this same slice — 200 with a JSON body, so it
+ * routes through `requestJson` like `postJson` rather than `deleteJson`'s
+ * raw-body handling.
+ *
+ * A known limitation rides with them and is stated in the edit/revoke tool
+ * descriptions rather than papered over: PATCH and DELETE name a membership by
+ * id, but no endpoint serves that id (the platform's `#serialize` deliberately
+ * omits it), so the id comes from the platform's web members page today. That
+ * is a platform-side follow-up, not a client-side workaround — there is no
+ * name-based lookup.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
@@ -132,6 +157,10 @@ export const TOOLS: readonly ToolDefinition[] = [
   createRepositoryApiKey,
   revokeRepositoryApiKey,
   nearDuplicateClusters,
+  listRepositoryMembers,
+  addRepositoryMember,
+  updateRepositoryMemberPermissions,
+  removeRepositoryMember,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
