@@ -9,6 +9,7 @@ import getRepositoryOverview from "./repository-overview.js";
 import registrableRepositories from "./registrable-repositories.js";
 import removeRepository from "./remove-repository.js";
 import removeRepositoryMember from "./remove-repository-member.js";
+import renameRepository from "./rename-repository.js";
 import revokeRepositoryApiKey from "./revoke-repository-api-key.js";
 import updateRepositoryMemberPermissions from "./update-repository-member-permissions.js";
 import type { ToolDefinition } from "./types.js";
@@ -122,11 +123,9 @@ import type { ToolDefinition } from "./types.js";
  * `requestJson`'s JSON parse.
  *
  * The standing rule itself is unchanged and still binding — which still keeps
- * out `/check-intent` and rename: `/check-intent` has no backing endpoint
- * (`routes.rb:113` mounts it as a comment only), and rename shipped only after
- * this slice was scoped (SPGD-878, `PATCH /api/v1/repositories/:id`) — it is
- * the natural next slice, not something to bolt on here. A tool advertised in
- * `tools/list` remains a promise an agent will act on.
+ * out `/check-intent`: it has no backing endpoint (`routes.rb:113` mounts it
+ * as a comment only). A tool advertised in `tools/list` remains a promise an
+ * agent will act on.
  *
  * == The ninth through twelfth: member management
  *
@@ -146,6 +145,22 @@ import type { ToolDefinition } from "./types.js";
  * omits it), so the id comes from the platform's web members page today. That
  * is a platform-side follow-up, not a client-side workaround — there is no
  * name-based lookup.
+ *
+ * == The thirteenth: rename
+ *
+ *   - `rename_repository` wraps `PATCH /api/v1/repositories/:id` (shipped:
+ *     SPGD-878, `specguard@origin/main` e026793, PR #266).
+ *
+ * This is the entry the forbid above once named as "the natural next slice" —
+ * the platform moved (SPGD-878 shipped the endpoint), so the forbid retired
+ * exactly as the duplicate-clustering one did. It reuses `patchJson` landed
+ * with the member-management slice rather than minting a transport of its own.
+ * The verb's one asymmetry is carried in the tool description rather than
+ * papered over: rename authorizes OWNER-ONLY, while removal authorizes the
+ * BROADER `repo.delete` capability — a member who may destroy the repository
+ * may not rename it. Before this tool the bridge's only rename path was
+ * remove-and-re-register, which destroys every key, run and intent; this one
+ * keeps them.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
@@ -161,6 +176,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   addRepositoryMember,
   updateRepositoryMemberPermissions,
   removeRepositoryMember,
+  renameRepository,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";

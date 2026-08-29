@@ -37,7 +37,8 @@ describe("an MCP client against the server", () => {
     const names = tools.map((tool) => tool.name).sort();
 
     // Grown to three by SPGD-760, to four by SPGD-764, and to thirteen by
-    // SPGD-885 (member management) — grown rather than
+    // SPGD-885 (member management), to fourteen by SPGD-887 (rename) —
+    // grown rather than
     // loosened to a subset check on purpose: this `deepEqual` is the pin that
     // makes what the server promises an agent change only by a conscious
     // decision (`src/tools/types.ts` says so, and `src/tools/index.ts` says why
@@ -61,6 +62,7 @@ describe("an MCP client against the server", () => {
       "registrable_repositories",
       "remove_repository",
       "remove_repository_member",
+      "rename_repository",
       "revoke_repository_api_key",
       "update_repository_member_permissions",
     ]);
