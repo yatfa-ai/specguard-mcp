@@ -20,7 +20,7 @@
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "pretest": "tsc --project tsconfig.test.json",
-    "test": "node --test \".test-build/test/**/*.test.js\"",
+    "test": "files=$(find .test-build/test -name '*.test.js'); [ -n \"$files\" ] || { echo 'specguard-mcp: no compiled test files found — did pretest run?'; exit 1; }; node --test $files",
     "prepare": "npm run build"
   },
   "dependencies": {
