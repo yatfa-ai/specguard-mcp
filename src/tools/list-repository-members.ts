@@ -9,20 +9,19 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * == Memberships only, never `keys_minted`
  *
- * The endpoint answers the same rows the web members page renders — `handle`,
- * `permissions`, `granted_by`, `created_at`, ordered by handle — and
- * deliberately NOTHING else. `keys_minted` is a `keys.manage` disclosure that
- * page gates separately; this read answers memberships to a `members.manage`
- * holder and no more. A tool that promised counts here would be promising
- * something the endpoint refuses to say.
+ * The endpoint answers the same rows the web members page renders — `id`,
+ * `handle`, `permissions`, `granted_by`, `created_at`, ordered by handle —
+ * and deliberately NOTHING else. `keys_minted` is a `keys.manage` disclosure
+ * that page gates separately; this read answers memberships to a
+ * `members.manage` holder and no more. A tool that promised counts here would
+ * be promising something the endpoint refuses to say.
  *
- * == No membership id, by design
+ * == The membership `id` is served
  *
- * The body carries no membership id: ids are not portable between
- * repositories, and serving one would invite treating it as portable. PATCH
- * and DELETE still name rows by that id — see
- * `update_repository_member_permissions` and `remove_repository_member` for
- * where the id comes from today.
+ * Each row's `id` is the MEMBERSHIP id — the very identifier
+ * `update_repository_member_permissions` and `remove_repository_member` name.
+ * The id is not portable: lookup is scoped through the repository, so a
+ * foreign id is refused 404 server-side, and there is no name-based lookup.
  *
  * == No client-side capability probing
  *
@@ -35,8 +34,9 @@ const listRepositoryMembers: ToolDefinition = {
   name: "list_repository_members",
   title: "List repository members",
   description:
-    "Lists who has access to a SpecGuard repository: one row per member with their `handle`, " +
-    "`permissions`, `granted_by` (who last set them) and `created_at`, ordered by handle. " +
+    "Lists who has access to a SpecGuard repository: one row per member with their `id` (the " +
+    "MEMBERSHIP id `update_repository_member_permissions` and `remove_repository_member` name), " +
+    "`handle`, `permissions`, `granted_by` (who last set them) and `created_at`, ordered by handle. " +
     "The list answers MEMBERSHIPS only and never reports how many CI keys a member has minted " +
     "(`keys_minted`) — that is a separate `keys.manage` disclosure this endpoint deliberately " +
     "withholds, and the API-keys tools are the surface for it. " +
@@ -78,7 +78,7 @@ const listRepositoryMembers: ToolDefinition = {
 
     // Passed through unreshaped, the standing rule (`types.ts`: "A thin client
     // that reshapes its upstream is not thin") — the endpoint serves the same
-    // four fields the web members page renders, under the same names.
+    // five fields the web members page renders, under the same names.
     return {
       text: JSON.stringify(members, null, 2),
       structured: members,

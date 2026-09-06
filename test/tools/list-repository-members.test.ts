@@ -10,19 +10,22 @@ const USER_ENV = {
 };
 
 /**
- * The body `user_repository_members_controller#index` serves: memberships
- * only, ordered by handle — and NO membership id, NO `keys_minted`, both
- * deliberate omissions the tool's description restates.
+ * The body `user_repository_members_controller#index` serves: one membership
+ * row per member, ordered by handle, each carrying the membership `id` the
+ * edit/revoke tools name — and NO `keys_minted`, the one deliberate omission
+ * the tool's description still restates.
  */
 const BODY = JSON.stringify({
   members: [
     {
+      id: 101,
       handle: "alice",
       permissions: ["members.manage", "view"],
       granted_by: "octocat",
       created_at: "2026-08-29T00:00:00Z",
     },
     {
+      id: 102,
       handle: "octocat",
       permissions: [],
       granted_by: null,
@@ -47,7 +50,7 @@ describe("list_repository_members", () => {
     assert.equal(request?.headers["authorization"], "Bearer sgu_test");
   });
 
-  it("returns the body UNRESHAPED — no id invented, no keys_minted fabricated", async () => {
+  it("returns the body UNRESHAPED — the served membership `id` passes through, no keys_minted fabricated", async () => {
     const result = await listRepositoryMembers.run(
       { repository_id: "42" },
       toolContext({ env: USER_ENV, fetch: stubFetch({ status: 200, body: BODY }).fetch }),

@@ -11,12 +11,14 @@ const USER_ENV = {
 
 /**
  * The 201 body `user_repository_members_controller#create` serves:
- * `{member: {handle, permissions, granted_by, created_at}}` — deliberately
- * WITHOUT a membership id, and WITHOUT any grantor the caller might have
- * submitted: `granted_by` is stamped server-side from the credential.
+ * `{member: {id, handle, permissions, granted_by, created_at}}` — the `id`
+ * being the membership id the edit/revoke tools name. Still WITHOUT any
+ * grantor the caller might have submitted: `granted_by` is stamped
+ * server-side from the credential.
  */
 const BODY = JSON.stringify({
   member: {
+    id: 7,
     handle: "alice",
     permissions: ["view"],
     granted_by: "octocat",
