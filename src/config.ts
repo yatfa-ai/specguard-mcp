@@ -29,22 +29,26 @@ import { ConfigError } from "./errors.js";
  * `SPECGUARD_ENDPOINT` wins when both are set and disagree, because it is the
  * one the rest of the toolchain is already reading.
  *
- * == TWO KEY VARIABLES, because SpecGuard has two credentials that refuse each
- * == other
+ * == THREE KEY VARIABLES, because SpecGuard has three credentials that refuse
+ * == each other
  *
  * `Api::BaseController` discriminates on the token's PREFIX *before any table is
  * read*, and answers 401 on a mismatch without a lookup: `sgk_` names ONE
  * repository (`GET /api/v1/repository`, `POST /api/v1/ingest`), `sgu_` names a
- * PERSON (`GET /api/v1/repositories`). `UserApiKey::TOKEN_PREFIX` says the two
- * prefixes are deliberately the same length so neither can be a prefix of the
- * other — the mutual refusal is designed, not incidental.
+ * PERSON (`GET /api/v1/repositories` and its writes), and — SPGD-952 — `sga_`
+ * names AN AGENT: nobody's account and no single repository, but an explicit
+ * set of repositories with a permission set, both fixed at mint time
+ * (`AgentApiKey::TOKEN_PREFIX` says all three prefixes are deliberately the same
+ * length so neither can be a prefix of another — the mutual refusal is designed,
+ * not incidental).
  *
- * One variable therefore cannot serve both: whichever kind it holds, the tools
- * needing the other kind 401. So there are two, read independently, and neither
- * is required — an operator who only ever calls the repository tool sets only
- * `SPECGUARD_API_KEY`, exactly as before this existed. Prefix-dispatching over a
- * single variable was the alternative and it cannot work: an operator wanting
- * both kinds of tool needs both keys present at once.
+ * One variable therefore cannot serve two kinds, let alone three: whichever
+ * kind it holds, the tools needing another kind 401. So there are three, read
+ * independently, and none is required — an operator who only ever calls the
+ * repository tool sets only `SPECGUARD_API_KEY`, exactly as before any of this
+ * existed. Prefix-dispatching over a single variable was the alternative and it
+ * cannot work: an operator wanting several kinds of tool needs several keys
+ * present at once.
  *
  * Which variable a tool reads is then carried onto `ApiConfig` alongside the
  * value — see `Credential` — for the same reason `endpointVariable` is: a
@@ -76,6 +80,18 @@ export interface Config {
    * accept the other's token, so the two values live in two places here too.
    */
   readonly userApiKey: string | undefined;
+  /**
+   * An `sga_…` agent API key, from `SPECGUARD_AGENT_API_KEY`. `undefined` when unset.
+   *
+   * A THIRD slot, and the same argument as the second one — see the note at the
+   * top of this file. It is minted from the account page's Agent keys panel
+   * (`/account`) and speaks for NOBODY: its reach is the repository set and
+   * permission set granted onto it at mint time, which is what makes it the
+   * credential an automated agent can hold without borrowing a person's rights.
+   * Neither deployment endpoint will accept the other token's kind, so the
+   * three values live in three places here too.
+   */
+  readonly agentApiKey: string | undefined;
   /**
    * The command that runs the `@intent` linter, already tokenised.
    *
@@ -119,6 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     endpointVariable,
     apiKey: presence(env["SPECGUARD_API_KEY"]),
     userApiKey: presence(env["SPECGUARD_USER_API_KEY"]),
+    agentApiKey: presence(env["SPECGUARD_AGENT_API_KEY"]),
     lintCommand: lintCommand.length > 0 ? lintCommand : DEFAULT_LINT_COMMAND,
     requestTimeoutMs: positiveInteger(env["SPECGUARD_TIMEOUT_MS"]) ?? DEFAULT_REQUEST_TIMEOUT_MS,
   };
@@ -161,24 +178,27 @@ export interface ApiConfig {
 
 export type EndpointVariable = "SPECGUARD_ENDPOINT" | "SPECGUARD_URL";
 
-export type ApiKeyVariable = "SPECGUARD_API_KEY" | "SPECGUARD_USER_API_KEY";
+export type ApiKeyVariable =
+  | "SPECGUARD_API_KEY"
+  | "SPECGUARD_USER_API_KEY"
+  | "SPECGUARD_AGENT_API_KEY";
 
 /**
- * One of SpecGuard's two credential kinds, described well enough that a message
+ * One of SpecGuard's three credential kinds, described well enough that a message
  * about it can be written without knowing which one it is.
  *
  * The two prose fields are sentence FRAGMENTS rather than whole messages on
  * purpose: the surrounding wording — "is not set in the MCP server's
- * environment", "SpecGuard rejected the API key (401)" — is the same for both
- * kinds and is written once, at the site that knows the situation. Only the
- * parts that genuinely differ between an `sgk_` key and an `sgu_` key live
- * here.
+ * environment", "SpecGuard rejected the API key (401)" — is the same for every
+ * kind and is written once, at the site that knows the situation. Only the
+ * parts that genuinely differ between an `sgk_` key, an `sgu_` key and an
+ * `sga_` key live here.
  */
 export interface Credential {
   /** The environment variable this kind of key is read from. */
   readonly variable: ApiKeyVariable;
   /** The prefix SpecGuard requires of it, checked before any table is read. */
-  readonly prefix: "sgk_" | "sgu_";
+  readonly prefix: "sgk_" | "sgu_" | "sga_";
   /** Completes "… issued from ___" in a message about the variable being unset. */
   readonly issuedFrom: string;
   /** Completes "… issued by <deployment> ___" in a message about a 401. */
@@ -220,6 +240,36 @@ export const USER_CREDENTIAL: Credential = {
 };
 
 /**
+ * The `sga_` key: an AGENT, and a credential that speaks for nobody.
+ *
+ * Like the `sgu_` key it is minted from the account page, but the two are not
+ * the same gesture and the message must not blur them: a person key speaks with
+ * the person's whole grantable surface, while an agent key reaches exactly the
+ * repository set and permission set granted onto it at mint time — which is the
+ * whole reason an automated agent holds this one rather than a person's. The
+ * `issuedFrom` fragment names the panel, because an operator sent to "the
+ * account page" for an `sga_` key lands on the person-key panel one scroll
+ * earlier and mints the wrong kind.
+ *
+ * The `rejection` fragment names the two refusals specific to this kind: the
+ * mutual prefix refusal (both other key kinds are refused here without a
+ * lookup), and the fact that a key whose grant was too narrow does NOT read as
+ * a 401 — a repository outside the key's set answers 404, deliberately
+ * indistinguishable from a nonexistent one, so a 401 here is about the KEY
+ * itself (wrong kind, revoked, or the owner archived) and never about which
+ * repositories it names.
+ */
+export const AGENT_CREDENTIAL: Credential = {
+  variable: "SPECGUARD_AGENT_API_KEY",
+  prefix: "sga_",
+  issuedFrom: "issued from your account page's Agent keys panel",
+  rejection:
+    "for this agent — an agent key speaks for nobody and reaches only the repository set " +
+    "granted onto it at mint time, an sgk_… repository key or an sgu_… user key is refused " +
+    "here without a lookup, and a revoked key reads the same as a wrong one",
+};
+
+/**
  * The name to speak when no variable was set at all — the message is telling
  * someone to set one, and this is the spelling the rest of the toolchain reads.
  */
@@ -251,6 +301,74 @@ export function requireApiConfig(config: Config): ApiConfig {
  */
 export function requireUserApiConfig(config: Config): ApiConfig {
   return requireCredentialledApiConfig(config, config.userApiKey, USER_CREDENTIAL);
+}
+
+/**
+ * What a tool needing the `sga_` AGENT key requires — the endpoint and
+ * `SPECGUARD_AGENT_API_KEY`.
+ *
+ * The third sibling over the one shared body, for the reason the file's own
+ * header anticipated: a tool asks for what IT needs, startup still validates
+ * nothing, and a fix to the diagnostics reaches all three because they cannot
+ * drift into describing the same situation differently. A repository-scoped
+ * tool asked about a repository its `sgk_` slot does not name calls this, and
+ * reads the plural endpoints the agent credential is served by.
+ */
+export function requireAgentApiConfig(config: Config): ApiConfig {
+  return requireCredentialledApiConfig(config, config.agentApiKey, AGENT_CREDENTIAL);
+}
+
+/**
+ * What a tool EITHER credential serves requires — the endpoint and at least one
+ * of `SPECGUARD_AGENT_API_KEY` / `SPECGUARD_USER_API_KEY`.
+ *
+ * The plural endpoints accept both key kinds and bound the answer by whichever
+ * was presented — the person's `accessible_by` set for an `sgu_` key, the key's
+ * own granted set for an `sga_` one — so the tool's question ("which
+ * repositories may I ask about") has a true answer under either credential, and
+ * refusing until the operator picks one would be inventing a requirement the
+ * deployment does not have.
+ *
+ * When BOTH are set, the agent key wins, and the reason is consistency of
+ * scope rather than preference: every other agent-keyed tool answers inside the
+ * key's granted set, so a listing served from the person's wider set would
+ * advertise repositories the agent then cannot open — discovery promising more
+ * than the tools that follow it can deliver. The agent set is a subset of its
+ * owner's by mint-time validation, so this never widens what the answer names,
+ * only keeps it to what the agent can actually act on. The variable is new, so
+ * no existing operator's behavior changes: today nobody sets it, and setting it
+ * is a deliberate act this precedence honours.
+ *
+ * When NEITHER is set, the one-message rule applies at double width: both
+ * variables are named, because telling an operator who is expected to choose
+ * between two spellings about only one of them would have them fix a variable,
+ * re-call, and be told about the other — the round-trip waste the shared body's
+ * note above exists to prevent. The endpoint joins the same sentence when it is
+ * missing too.
+ */
+export function requireUserOrAgentApiConfig(config: Config): ApiConfig {
+  if (config.agentApiKey !== undefined) {
+    return requireCredentialledApiConfig(config, config.agentApiKey, AGENT_CREDENTIAL);
+  }
+  if (config.userApiKey !== undefined) {
+    return requireCredentialledApiConfig(config, config.userApiKey, USER_CREDENTIAL);
+  }
+
+  const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
+  const missing: string[] = [];
+  if (config.endpoint === undefined) missing.push(endpointVariable);
+  missing.push(`${USER_CREDENTIAL.variable} or ${AGENT_CREDENTIAL.variable}`);
+
+  throw new ConfigError(
+    `This tool talks to a SpecGuard deployment, and ${missing.join(" and ")} ` +
+      `${missing.length === 1 ? "is" : "are"} not set in the MCP server's environment. ` +
+      "Set them in your MCP client's server config " +
+      `(${endpointVariable} is your deployment's root URL, ${USER_CREDENTIAL.variable} ` +
+      `an ${USER_CREDENTIAL.prefix}… key ${USER_CREDENTIAL.issuedFrom}, or ` +
+      `${AGENT_CREDENTIAL.variable} an ${AGENT_CREDENTIAL.prefix}… key ` +
+      `${AGENT_CREDENTIAL.issuedFrom}). ` +
+      "Tools that do not reach the deployment are unaffected.",
+  );
 }
 
 /**

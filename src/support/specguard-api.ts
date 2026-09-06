@@ -1,4 +1,10 @@
-import { requireApiConfig, requireUserApiConfig, type ApiConfig } from "../config.js";
+import {
+  requireAgentApiConfig,
+  requireApiConfig,
+  requireUserApiConfig,
+  requireUserOrAgentApiConfig,
+  type ApiConfig,
+} from "../config.js";
 import { ApiError } from "../errors.js";
 
 /**
@@ -389,14 +395,15 @@ function timedOut(api: ApiConfig): ApiError {
  * diagnosis has to be supplied from this side.
  *
  * WHICH VARIABLE AND WHICH PREFIX ARE READ OFF `api.credential`, never spelled
- * out here. SpecGuard has two credential kinds that refuse each other's tokens
- * before any table is read, so this one branch is reached by tools reading two
- * different variables — and the sentence it used to hardcode ("SPECGUARD_API_KEY
- * must be an sgk_… key … keys are per-repository") is false in all three of its
- * claims for a user-scoped tool, naming a variable its operator may never have
- * touched. That is the same defect `endpointVariable` fixes one branch down, and
- * it gets the same remedy rather than a second hardcoded string: a tool added
- * later inherits correct naming from the `require*` helper it already calls.
+ * out here. SpecGuard has three credential kinds that refuse each other's
+ * tokens before any table is read, so this one branch is reached by tools
+ * reading three different variables — and the sentence it used to hardcode
+ * ("SPECGUARD_API_KEY must be an sgk_… key … keys are per-repository") is false
+ * in all three of its claims for a user- or agent-scoped tool, naming a
+ * variable its operator may never have touched. That is the same defect
+ * `endpointVariable` fixes one branch down, and it gets the same remedy rather
+ * than a second hardcoded string: a tool added later inherits correct naming
+ * from the `require*` helper it already calls.
  */
 function describeFailure(status: number, body: string, api: ApiConfig): ApiError {
   if (status === 401) {
@@ -482,4 +489,4 @@ function refusalMessage(body: string, status: number): string | undefined {
   return `SpecGuard refused the request (${status}): ${message.trim()}`;
 }
 
-export { requireApiConfig, requireUserApiConfig };
+export { requireApiConfig, requireUserApiConfig, requireAgentApiConfig, requireUserOrAgentApiConfig };

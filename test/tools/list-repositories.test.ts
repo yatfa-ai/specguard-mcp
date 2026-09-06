@@ -11,6 +11,12 @@ const USER_ENV = {
   SPECGUARD_USER_API_KEY: "sgu_test",
 };
 
+/** Only the AGENT key — the environment an agent-configured operator has. */
+const AGENT_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_AGENT_API_KEY: "sga_test",
+};
+
 /** Only the REPOSITORY key — the environment every operator had before this tool existed. */
 const REPOSITORY_ENV = {
   SPECGUARD_ENDPOINT: "https://sg.example.com",
@@ -56,6 +62,50 @@ describe("list_repositories", () => {
     // The plural path and the `sgu_` key together: singular `/repository` with
     // this key, or plural with the `sgk_` one, are both 401s at the deployment.
     assert.equal(request?.headers["authorization"], "Bearer sgu_test");
+  });
+
+  it("authenticates with the agent key when that is the only key set", async () => {
+    // The endpoint answers to BOTH key kinds since SPGD-952 — the set served is
+    // bounded by whichever was presented — so an agent holding only the agent
+    // credential can still ask "what may I ask about".
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run({}, toolContext({ env: AGENT_ENV, fetch: http.fetch }));
+
+    const request = http.requests[0];
+    assert.equal(request?.url, "https://sg.example.com/api/v1/repositories");
+    assert.equal(request?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("prefers the agent key when BOTH list-scoped credentials are set", async () => {
+    // Scope consistency, not preference: every other agent-keyed tool answers
+    // inside the key's granted set, so a listing from the person's wider set
+    // would advertise repositories the agent cannot then open. Nothing on the
+    // wire changes — same path — only which Bearer rides on it.
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run(
+      {},
+      toolContext({
+        env: { ...USER_ENV, SPECGUARD_AGENT_API_KEY: "sga_test" },
+        fetch: http.fetch,
+      }),
+    );
+
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("names the agent variable in the 401 wording when the agent key is the one in play", async () => {
+    const error = await rejects(
+      listRepositories.run(
+        {},
+        toolContext({ env: AGENT_ENV, fetch: stubFetch({ status: 401, body: '{"error":"unauthorized"}' }).fetch }),
+      ),
+      /rejected the API key/,
+    );
+
+    assert.match(error.message, /SPECGUARD_AGENT_API_KEY must be an sga_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_USER_API_KEY/);
   });
 
   it("passes the deployment's body back unmodified, every field of every entry", async () => {
@@ -268,19 +318,23 @@ describe("list_repositories — the narrowing asks", () => {
  * read `SPECGUARD_USER_API_KEY` would still pass.
  */
 describe("the two credential slots refuse each other's tools", () => {
-  it("names the USER variable when only the repository key is set", async () => {
+  it("names BOTH list-scoped variables when only the repository key is set", async () => {
     const http = stubFetch({ body: BODY });
 
     const error = await rejects(
       listRepositories.run({}, toolContext({ env: REPOSITORY_ENV, fetch: http.fetch })),
-      /SPECGUARD_USER_API_KEY is not set/,
+      /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/,
     );
 
-    // The prefix, so an operator holding two similar-looking tokens knows which
-    // of them to paste — and no mention of the variable they DID set, which is
-    // correct and is not the problem.
+    // The prefixes, so an operator holding three similar-looking tokens knows
+    // which of them to paste — and no mention of the `sgk_` variable they DID
+    // set, which is correct and is not the problem. (Both admissible variables
+    // are named because the endpoint answers to either; telling the operator
+    // about only one would have them fix it, re-call, and be told about the
+    // other.)
     assert.match(error.message, /sgu_… key/);
-    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY/);
+    assert.match(error.message, /sga_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 
@@ -318,14 +372,15 @@ describe("the two credential slots refuse each other's tools", () => {
     assert.deepEqual(result.structured, JSON.parse(BODY));
   });
 
-  it("reports both missing halves in one sentence rather than one per round trip", async () => {
-    // `requireApiConfig`'s stated property, inherited by the second helper
-    // rather than re-derived: an operator who set neither learns that in one
-    // call instead of fixing the endpoint, re-calling, and being told about the
-    // key. The `and` is what makes it one sentence and not two.
+  it("reports every missing half in one sentence rather than one per round trip", async () => {
+    // `requireUserOrAgentApiConfig`'s stated property: an operator who set
+    // nothing learns all of it in one call instead of fixing the endpoint,
+    // re-calling, and being told about a key. The `and` is what makes it one
+    // sentence and not two — and both admissible KEY variables ride the same
+    // sentence, because this tool answers to either.
     const error = await rejects(
       listRepositories.run({}, toolContext({ env: {} })),
-      /SPECGUARD_ENDPOINT and SPECGUARD_USER_API_KEY are not set/,
+      /SPECGUARD_ENDPOINT and SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY are not set/,
     );
 
     assert.equal(
@@ -393,6 +448,17 @@ describe("a 401 names the variable the tool that hit it actually reads", () => {
       await refusal(listRepositories, USER_ENV),
       await refusal(getRepositoryOverview, REPOSITORY_ENV),
     );
+  });
+
+  it("produces a third, visibly different string when the agent key is the one in play", async () => {
+    // The third credential must not be able to pass by echoing a sibling's
+    // wording: its refusal names ITS variable and ITS prefix, and differs from
+    // both others.
+    const agentMessage = await refusal(listRepositories, AGENT_ENV);
+
+    assert.match(agentMessage, /SPECGUARD_AGENT_API_KEY must be an sga_… key/);
+    assert.notEqual(agentMessage, await refusal(listRepositories, USER_ENV));
+    assert.notEqual(agentMessage, await refusal(getRepositoryOverview, REPOSITORY_ENV));
   });
 
   it("still names the endpoint variable the operator set, on both tools", async () => {

@@ -7,6 +7,12 @@ import { rejects, stubFetch, toolContext } from "../support/stubs.js";
 
 const ENV = { SPECGUARD_ENDPOINT: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_test" };
 
+/** Only the AGENT key — the environment the `repository` ask reads. */
+const AGENT_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_AGENT_API_KEY: "sga_test",
+};
+
 /**
  * A plain `GET /api/v1/repository` response, in the shape
  * `Api::V1::RepositoriesController#show` renders — MINIMAL but honest: the keys
@@ -137,6 +143,74 @@ describe("near_duplicate_clusters — the request it makes", () => {
 
     assert.ok(!http.requests[0]?.url.includes("near_duplicates=false"));
     assert.ok(http.requests[0]?.url.includes("near_duplicates=true"));
+  });
+
+  it("names a repository and asks the PLURAL endpoint the same question, under the agent key", async () => {
+    const http = stubFetch({ body: ASKED_BODY });
+
+    await nearDuplicateClusters.run(
+      { repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    // The ask is UNCHANGED — spelled `true`, the affirmative, because the
+    // server reads only that the key is present — and the credential moves
+    // with the endpoint, because the deployment refuses each prefix kind in
+    // the other's place before it reads a table.
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42?near_duplicates=true");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("treats a blank repository as NO ASK: the singular census, under the sgk_ slot", async () => {
+    const http = stubFetch({ body: ASKED_BODY });
+
+    await nearDuplicateClusters.run(
+      { repository: "   " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?near_duplicates=true");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+  });
+
+  it("refuses the `repository` ask by name when the agent key is not set, before any request", async () => {
+    const http = stubFetch({ body: ASKED_BODY });
+
+    const error = await rejects(
+      nearDuplicateClusters.run(
+        { repository: "42" },
+        toolContext({ env: ENV, fetch: http.fetch }),
+      ),
+      /SPECGUARD_AGENT_API_KEY is not set/,
+    );
+
+    assert.match(error.message, /an sga_… key/);
+    assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+
+  it("rejects a repository of the wrong type before any config is resolved", async () => {
+    const http = stubFetch({ body: ASKED_BODY });
+
+    await rejects(
+      nearDuplicateClusters.run({ repository: 42 }, toolContext({ env: {}, fetch: http.fetch })),
+      /`repository` must be a string/,
+    );
+
+    assert.equal(http.requests.length, 0);
+  });
+
+  it("returns the plural endpoint's census body with the same shape intact", async () => {
+    // The pass-through contract does not fork on the subject: whatever path
+    // served it, the whole body goes back as it arrived.
+    const http = stubFetch({ body: ASKED_BODY });
+
+    const result = await nearDuplicateClusters.run(
+      { repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.deepEqual(result.structured, JSON.parse(ASKED_BODY));
+    assert.equal(result.text, JSON.stringify(JSON.parse(ASKED_BODY), null, 2));
   });
 
   it("surfaces the endpoint's refusal rather than swallowing it", async () => {

@@ -6,6 +6,12 @@ import { rejects, stubFetch, toolContext } from "../support/stubs.js";
 
 const ENV = { SPECGUARD_ENDPOINT: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_test" };
 
+/** Only the AGENT key — the environment the `repository` ask reads. */
+const AGENT_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_AGENT_API_KEY: "sga_test",
+};
+
 /** A response in the shape `Api::V1::RepositoriesController#show` renders. */
 const BODY = JSON.stringify({
   repository: { id: 1, full_name: "acme/app", name: "app", registered_at: "2026-01-01T00:00:00Z" },
@@ -265,6 +271,104 @@ describe("get_repository_overview — the request it makes", () => {
 
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+  });
+
+  it("names a repository and goes to the PLURAL endpoint, under the agent key", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42");
+    // The credential MOVES with the endpoint, because the deployment refuses
+    // each prefix kind in the other's place before it reads a table: a plural
+    // path under the `sgk_` key is a guaranteed 401, and so is the singular
+    // path under the agent key.
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("keeps the drill-down params riding along identically on the plural path", async () => {
+    // The ticket's contract: same ladder, same body, only the subject moves.
+    // Every parameter below is forwarded exactly as the singular path forwards
+    // it — pinning one of each KIND (a name, a flag) rather than the whole
+    // ladder, which the singular-path tests above already pin.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42", branch: "main", unannotated_examples: true },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    const url = new URL(http.requests[0]?.url ?? "");
+    assert.equal(`${url.origin}${url.pathname}`, "https://sg.example.com/api/v1/repositories/42");
+    assert.equal(url.searchParams.get("branch"), "main");
+    assert.equal(url.searchParams.get("unannotated_examples"), "true");
+  });
+
+  it("encodes the id for the URL but does not restrict its shape — the platform owns that", async () => {
+    // No hex/length/numeric checking here, exactly as `commit_sha` states for
+    // shas: the server is the authority on what names a repository, and a
+    // client-side copy of the rule would refuse an id form the deployment
+    // accepts. What IS pinned is that the id lands in the path segment
+    // intact — `encodeURIComponent` on a plain numeric id changes nothing, so
+    // the ordinary call stays the ordinary URL.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repository: " 42 " },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42");
+  });
+
+  it("treats a blank repository as NO ASK: the singular path, under the sgk_ slot", async () => {
+    // The blank-is-no-ask rule every argument here follows — and the fallback
+    // is today's whole request, not a plural call with an empty id that could
+    // only 404.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "   " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+  });
+
+  it("refuses the `repository` ask by name when the agent key is not set, before any request", async () => {
+    // The two credential slots refuse each other's endpoints at the
+    // deployment; the legible place to catch the pairing is HERE, naming the
+    // variable the operator has to set, rather than as a flat 401 after the
+    // wire. And it is the AGENT variable that is named — the `sgk_` slot being
+    // set is correct and is not the problem.
+    const http = stubFetch({ body: BODY });
+
+    const error = await rejects(
+      getRepositoryOverview.run({ repository: "42" }, toolContext({ env: ENV, fetch: http.fetch })),
+      /SPECGUARD_AGENT_API_KEY is not set/,
+    );
+
+    assert.match(error.message, /an sga_… key/);
+    assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+
+  it("refuses the default call by name when ONLY the agent key is set", async () => {
+    // The mirror image, and the half that keeps this a pair of credentials
+    // rather than a widening of one: omitting `repository` still means the
+    // singular, `sgk_`-keyed endpoint, so an agent-only operator is told
+    // exactly which variable the default call wants.
+    const http = stubFetch({ body: BODY });
+
+    await rejects(
+      getRepositoryOverview.run({}, toolContext({ env: AGENT_ENV, fetch: http.fetch })),
+      /SPECGUARD_API_KEY is not set/,
+    );
+
+    assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 
   it("passes ?branch= through when a branch is asked for", async () => {
@@ -769,6 +873,20 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("rejects a repository of the wrong type, naming it", async () => {
+    // The coercion runs before any config is resolved, so this refuses on a
+    // server with NO credentials at all — the agent's own fixable mistake,
+    // never a deployment refusal.
+    const http = stubFetch({ body: BODY });
+
+    await rejects(
+      getRepositoryOverview.run({ repository: 42 }, toolContext({ env: {}, fetch: http.fetch })),
+      /`repository` must be a string/,
+    );
+
+    assert.equal(http.requests.length, 0);
+  });
+
   it("rejects a branch of the wrong type", async () => {
     await rejects(getRepositoryOverview.run({ branch: 7 }, toolContext({ env: ENV })), /must be a string/);
   });
@@ -996,12 +1114,15 @@ describe("get_repository_overview — failures an agent can act on", () => {
     const properties = getRepositoryOverview.inputSchema.properties ?? {};
     const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
 
-    // The three properties that are NOT run-grain drill-ins, each for a reason
+    // The properties that are NOT run-grain drill-ins, each for a reason
     // stated in its own description: `branch` narrows `history` (a series, not
-    // a run), `commit_sha` IS the anchor rather than something anchored, and
+    // a run), `commit_sha` IS the anchor rather than something anchored,
     // `unstable_test` reads the branch window (`history_runs`) rather than the
-    // anchored run — the documented exception the sentence after the list names.
-    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test"]);
+    // anchored run, and `repository` names WHICH REPOSITORY the answer is
+    // about at all — it moves every block together and re-anchors nothing,
+    // because anchoring is a question about which RUN within the subject, and
+    // this chooses the subject.
+    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test", "repository"]);
 
     // The response key each drill-in parameter opens. Keys, not parameter
     // names, because the description enumerates what MOVES — response blocks —

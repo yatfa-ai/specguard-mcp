@@ -1,4 +1,4 @@
-import { getJsonObject, requireUserApiConfig } from "../support/specguard-api.js";
+import { getJsonObject, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
 import { optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -36,17 +36,24 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * `Api::BaseController` decides which credential table to consult from the
  * token's PREFIX, before any table is read, and answers 401 on a mismatch
  * without a lookup — so this endpoint refuses the `sgk_` key
- * `get_repository_overview` uses, and that one refuses this key. Hence
- * `requireUserApiConfig` rather than `requireApiConfig`: the two are the same
- * function over different variables, and the `Credential` each carries is what
- * makes a 401 or an unset variable name the one the OPERATOR of this tool has
- * to go and fix. See `config.ts`.
+ * `get_repository_overview` uses, and that one refuses this key. Hence a
+ * `require*` helper rather than a raw key: the `Credential` carried on the
+ * resolved config is what makes a 401 or an unset variable name the one the
+ * OPERATOR of this tool has to go and fix. See `config.ts`.
+ *
+ * Since SPGD-953 it is `requireUserOrAgentApiConfig`, because SPGD-952 made the
+ * endpoint answer to BOTH key kinds — the person's `accessible_by` set for an
+ * `sgu_` key, the agent key's own granted set for an `sga_` one — and an agent
+ * holding only the agent credential must still be able to ask "what may I ask
+ * about". When both variables are set the agent key wins, so the listing names
+ * the same set every other agent-keyed tool answers inside; the precedence and
+ * its reasoning live on the helper.
  *
  * == The credential is the SCOPE, and the arguments narrow WITHIN it
  *
  * This file first shipped argument-less on a premise that has since rotted: it
- * said "the endpoint takes no parameters", because the person the `sgu_` key
- * speaks for was the entire scope of the answer. That stopped being true on
+ * said "the endpoint takes no parameters", because the credential behind the
+ * key was the entire scope of the answer. That stopped being true on
  * 2026-09-05, when specguard `ef6236d` (SPGD-940, #941) grew
  * `GET /api/v1/repositories` three narrowing asks through the shared
  * `RepositoryNarrowing` concern — `?q=` (case-insensitive substring on
@@ -59,23 +66,29 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * a machine" — and this bridge IS that machine, so they are forwarded here
  * rather than re-invented.
  *
- * What has NOT changed is which side of the boundary the asks sit on.
- * `Repository.accessible_by` — owned UNION shared-through-a-membership — is
- * still the platform's read-side boundary, and the controller chains every ask
- * onto the relation that boundary already admitted
- * (`narrow_repositories(authorized_repositories, …)`): a repository the person
- * neither owns nor is a member of never ENTERS the relation, so no argument
- * here widens the answer — it can only narrow, or re-order, what the
+ * What has NOT changed is which side of the boundary the asks sit on. WHICH
+ * boundary answered follows the credential — `Repository.accessible_by` (owned
+ * UNION shared-through-a-membership) for an `sgu_` key, `AgentApiKey#repositories`
+ * (the mint-time granted set) for an `sga_` one — and either way it is the
+ * platform's read-side rule, not a filter this bridge could widen or narrow:
+ * the controller chains every ask onto the relation that boundary already
+ * admitted (`narrow_repositories(authorized_repositories, …)`), so a
+ * repository the credential does not admit never ENTERS the relation and no
+ * argument here widens the answer — it can only narrow, or re-order, what the
  * credential already admits. Out-of-vocabulary values are the server's to
  * clamp, not ours: an unknown `role` or `sort` settles to the no-ask, never a
  * 400, which is also why a value that reaches the wire is passed through
- * verbatim rather than validated against a second vocabulary here.
+ * verbatim rather than validated against a second vocabulary here. Under the
+ * agent key the `?role=` ask clamps to the no-ask outright — ownership is a
+ * person fact and the key speaks for nobody, so there is no owned/shared line
+ * to draw (`UserRepositoriesController#requested_role` is where the server
+ * writes that rule, beside `#credential_role`'s `role: "agent"`).
  *
  * Blank is no ask, and so is undefined: `optionalString` returns `undefined`
  * for a blank value and `getJson` omits an `undefined` query entry, so
  * declining an ask and omitting the argument are the same wire request — the
  * established spelling in this codebase (`repository-overview.ts` states it
- * as build-don't-stringify), and the reason the no-argument request below is
+ * as build-don't-stringify), and the reason the no-ask request below is
  * byte-identical to the one this tool made before it had arguments at all.
  *
  * == The response is passed through, not re-modelled
@@ -107,27 +120,27 @@ const listRepositories: ToolDefinition = {
   name: "list_repositories",
   title: "List repositories",
   description:
-    "Lists the SpecGuard repositories the person behind this server's user API key may open — " +
-    "the answer to \"what can I ask about\", which no other tool here can give, because every " +
-    "other tool is already scoped to one repository by its key. " +
+    "Lists the SpecGuard repositories this server's key may open — the answer to \"what can I " +
+    "ask about\", which no other tool here can give, because every other tool is already scoped " +
+    "to one repository by its key. " +
     "Each entry carries `id`, `full_name` (`org/repo`, and the handle every other surface names " +
     "a repository by), `name`, `registered_at` and `role`. " +
-    "`role` is `owner` or `member`: the list mixes repositories this person owns with " +
-    "repositories somebody shared with them, and nothing else distinguishes the two — read it " +
-    "before assuming a repository is yours to administer. " +
+    "`role` is `owner` or `member`: under a PERSON key (`sgu_…`) the list mixes repositories " +
+    "this person owns with repositories somebody shared with them, and nothing else " +
+    "distinguishes the two — read it before assuming a repository is yours to administer. " +
     "Three optional asks narrow WITHIN that set — none of them can widen it — all optional, " +
     "composable on one call: `q` (case-insensitive substring on `full_name`), " +
     "`role: \"owned\"` or `\"shared\"` (one half of the owned/shared mix — note the ask is " +
-    "spelled `owned`, not the response field's `owner`), and `sort: \"stale\"` (repositories " +
+    "spelled `owned`, not the response field's `owner`; under the AGENT key this ask settles " +
+    "to the no-ask, because ownership is a person fact and the key speaks for nobody), and " +
+    "`sort: \"stale\"` (repositories " +
     "CI has never ingested a run for first, then least-recently-ingested, `full_name` " +
     "breaking ties). Omit them all and the request is the plain full list. " +
     "Ordered by `full_name` ascending unless `sort` asks otherwise, and stable across calls " +
     "either way. " +
-    "The set is exactly what this person may see — a repository they neither own nor were given " +
-    "access to is absent rather than filtered, so an empty list means no access, never an error. " +
-    "Needs SPECGUARD_USER_API_KEY (an sgu_… key), which is a DIFFERENT credential from the " +
-    "sgk_… repository key get_repository_overview reads; SpecGuard refuses each in the other's " +
-    "place.",
+    "The set is exactly what the key behind it may see — a repository outside the credential's " +
+    "own boundary is absent rather than filtered, so an empty list means no access, never an " +
+    "error. " +
   inputSchema: {
     type: "object",
     properties: {
@@ -197,7 +210,10 @@ const listRepositories: ToolDefinition = {
     const q = optionalString(args["q"], "q");
     const role = optionalString(args["role"], "role");
     const sort = optionalString(args["sort"], "sort");
-    const api = requireUserApiConfig(context.config);
+    // EITHER credential the endpoint serves — agent key preferred, user key as
+    // the fallback, both named in the refusal when neither is set. The
+    // precedence and its scope argument live on the helper in `config.ts`.
+    const api = requireUserOrAgentApiConfig(context.config);
 
     // Built, not stringified — the established rule for a query object
     // (`repository-overview.ts`): `getJson` omits an `undefined` entry and sets

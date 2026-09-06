@@ -33,8 +33,9 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
-| `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
-| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_agent_keys`, `revoke_repository_agent_key`, `list_repository_agent_keys_presented_revoked`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_agent_keys`, `revoke_repository_agent_key`, `list_repository_agent_keys_presented_revoked`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, `list_repositories` uses **this** one, so discovery stays inside the set the other tools can reach |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -56,6 +57,7 @@ Register it with your MCP client — for Claude Code:
         "SPECGUARD_ENDPOINT": "https://specguard.example.com",
         "SPECGUARD_API_KEY": "sgk_…",
         "SPECGUARD_USER_API_KEY": "sgu_…",
+        "SPECGUARD_AGENT_API_KEY": "sga_…",
         "SPECGUARD_LINT_COMMAND": "bundle exec specguard-lint"
       }
     }
@@ -101,8 +103,23 @@ history, and the branches that have runs. Pass `branch` for two more: which test
 rather than consistently (the cross-run flakiness ranking) and how the areas moved across the whole
 branch window rather than between the last two runs.
 
+Everything above is answered about **one repository**, and which one has two spellings. By default
+it is the repository the configured `sgk_…` key resolves to — the key *is* the subject. Pass
+`repository` (the numeric id `list_repositories` reports) and the call goes to the **plural**
+endpoint, `GET /api/v1/repositories/:id`, under the **agent key** (`SPECGUARD_AGENT_API_KEY`,
+`sga_…`): same overview body, same ladder, every parameter below honoured identically — only the
+subject moves. That is what makes the *other* repositories visible: an `sgk_` key is one repository
+by design, so an agent holding only that could never ask about a second one, while the agent key's
+own granted repository set is exactly the boundary the plural endpoint looks ids up inside (a
+repository outside the set answers 404, indistinguishable from one that does not exist —
+`list_repositories` under the same key lists the set that is reachable). SpecGuard refuses each
+credential kind in the other's place before it reads anything, so the pairing is not mixable: the
+default call wants the `sgk_` key, the `repository` call wants the agent key, and a call made with
+the wrong one is refused *here*, naming the variable to set, before any request is made.
+
 | argument | |
 | --- | --- |
+| `repository` | ask about THIS repository (its numeric id from `list_repositories`) under the **agent key**, instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed call |
 | `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests` and `directory_growth`, which read the same window |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
@@ -326,23 +343,23 @@ because a zero would read as a measurement that was taken.
 
 ### `list_repositories`
 
-Lists the SpecGuard repositories the person behind `SPECGUARD_USER_API_KEY` may open — *what can I
-ask about*, which is the one question no other tool here can answer. `get_repository_overview` takes
-no repository because its `sgk_…` key **is** the repository, so without this an agent can only report
+Lists the SpecGuard repositories this server's key may open — *what can I ask about*, which is the
+one question no other tool here can answer. `get_repository_overview` without `repository` takes no
+repository because its `sgk_…` key **is** the repository, so without this an agent can only report
 on a repository somebody already named for it.
 
-The credential decides which repositories are *in* the answer (owned, plus shared with them
-through a membership); the three optional asks below narrow **within** that set — never around it.
-The endpoint has served them since SpecGuard's SPGD-940 (`ef6236d`), composed through the same
-`RepositoryNarrowing` concern the web grid reads, and this tool forwards them rather than
-re-deriving them. A repository the person neither owns nor was given access to never enters the
-response, so no ask can filter it *in* either. A blank value is no ask: passing an empty string
-and omitting the argument make the identical request.
+The credential decides which repositories are *in* the answer — a person's own-plus-shared set
+under an `sgu_…` key, the agent key's mint-time granted set under an `sga_…` one; the three
+optional asks below narrow **within** whichever set answered — never around it. The endpoint has
+served them since SpecGuard's SPGD-940 (`ef6236d`), composed through the same `RepositoryNarrowing`
+concern the web grid reads, and this tool forwards them rather than re-deriving them. A repository
+the credential does not admit never enters the response, so no ask can filter it *in* either. A
+blank value is no ask: passing an empty string and omitting the argument make the identical request.
 
 | argument | |
 | --- | --- |
 | `q` | keep only repositories whose `full_name` (`org/repo`) contains this substring, case-insensitively. A plain substring, not a pattern — the LIKE wildcards `%`/`_` are escaped server-side, so `org/my_repo` matches itself. A match-less ask is an empty list, not an error |
-| `role` | `"owned"` or `"shared"` — one half of the list's mix: the repositories this person owns, or the ones shared with them. Mind the spelling: the *ask* values are `owned`/`shared`, while each entry's `role` field reads `owner`/`member` — `role: "owner"` is not a valid ask and settles to no ask (full list, no error) |
+| `role` | `"owned"` or `"shared"` — one half of the list's mix: the repositories this person owns, or the ones shared with them. Mind the spelling: the *ask* values are `owned`/`shared`, while each entry's `role` field reads `owner`/`member` — `role: "owner"` is not a valid ask and settles to no ask (full list, no error). Under the `sga_…` agent key the ask settles to no ask for every value: ownership is a person fact and the key speaks for nobody, so the full granted list is served |
 | `sort` | `"stale"` — re-order stalest-first: repositories CI has never ingested a run for first, then least-recently-ingested, with `full_name` breaking ties so two calls agree element for element. The same entries, a different order; the default order stays `full_name` ascending |
 
 The body comes back as SpecGuard serves it — `{"repositories": […]}`, each entry carrying `id`,
@@ -354,11 +371,15 @@ the list mixes repositories this person owns with repositories somebody shared w
 else tells them apart — read it before assuming a repository is one you may administer. An empty list
 means no access, not an error.
 
-**It reads a different key from `get_repository_overview`.** `SPECGUARD_USER_API_KEY` (`sgu_…`), not
-`SPECGUARD_API_KEY` (`sgk_…`). SpecGuard refuses each credential in the other's place — the prefix
-decides which table is consulted before any of them is read — so the two are not interchangeable and
-setting one does not stand in for the other. Every message this tool produces names the variable
-*it* reads, so a `401` here never sends you to check the key `get_repository_overview` uses.
+**It reads a different key from `get_repository_overview` — either of two, whichever is set.**
+`SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the answer is then the repository set granted
+onto that key at mint time, the same set every other agent-keyed call answers inside, so discovery
+and reach always agree. `SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the answer is
+what that person may open. With both set the **agent** key wins. Neither is ever a stand-in for
+`SPECGUARD_API_KEY` (`sgk_…`) — SpecGuard refuses each credential kind in the other's place, the
+prefix deciding which table is consulted before any of them is read — and every message this tool
+produces names the variable *it* read, so a `401` here never sends you to check a key this tool
+never used.
 
 Registering a repository is `add_repository`, below — it reads the same `sgu_…` key and takes the
 `full_name` this tool reports. Removal and the key lifecycle (`remove_repository`,
@@ -457,10 +478,20 @@ and answers `near_duplicates: null` on the plain overview. Calling this tool **i
 `get_repository_overview` never sends it, so an agent reading the overview cannot pay the census by
 accident.
 
-**This tool takes no arguments** — nothing about the census is choosable. The clusters are the
-repository's, computed over every run; one call returns them all. (The server reads only that the
-`near_duplicates` key is *present* — `=false` would open it too — so there is no value for an
-argument to carry.)
+Nothing about the **census** is choosable — the clusters are the repository's, computed over
+every run; one call returns them all. (The server reads only that the `near_duplicates` key is
+*present* — `=false` would open it too — so there is no value for the ask to carry.) Which
+**repository** is censused is the one choice there is:
+
+| argument | |
+| --- | --- |
+| `repository` | census THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed census |
+
+The credential changes with `repository`, exactly as on `get_repository_overview`: the plural
+endpoint answers under the agent key, whose mint-time granted repository set is the boundary the id
+is looked up inside, and the two credential kinds refuse each other's tokens — so a
+`repository` ask without the agent key is refused *here*, naming the variable, before any request
+is made.
 
 Read the response with its own rules in mind:
 
