@@ -47,8 +47,8 @@ jobs:
           cache: npm
 
       # `npm ci` runs `prepare`, which builds dist/ — so the build is already
-      # exercised here and needs no separate step. This also builds the specguard-ts
-      # git dependency's dist/, where the telemetry reporter below lives.
+      # exercised here and needs no separate step. The telemetry reporter below lives in the
+      # @yatfa/specguard npm package, which ships its dist/ prebuilt — nothing to build there.
       - name: Install dependencies
         run: npm ci
 
@@ -66,7 +66,7 @@ jobs:
         if: env.SPECGUARD_API_KEY != ''
         run: |
           {
-            echo "SPECGUARD_REPORTER_ARGS=--test-reporter=spec --test-reporter-destination=stdout --test-reporter=./node_modules/specguard-ts/dist/node-test/reporter.js --test-reporter-destination=stdout"
+            echo "SPECGUARD_REPORTER_ARGS=--test-reporter=spec --test-reporter-destination=stdout --test-reporter=./node_modules/@yatfa/specguard/dist/node-test/reporter.js --test-reporter-destination=stdout"
             echo "SPECGUARD_COMMIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}"
             echo "SPECGUARD_BRANCH=${{ github.head_ref || github.ref_name }}"
             echo "SPECGUARD_RUN_ID=${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}"
