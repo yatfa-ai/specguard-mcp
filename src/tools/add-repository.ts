@@ -76,8 +76,9 @@ const addRepository: ToolDefinition = {
     "with a message saying exactly that, and the fix is theirs to perform in a browser — no " +
     "argument to this tool can substitute for it. The repository must also be one the SpecGuard " +
     "GitHub App is installed on and that this person administers. " +
-    "Needs SPECGUARD_USER_API_KEY (an sgu_… key), the same credential `list_repositories` reads " +
-    "and a DIFFERENT one from the sgk_… repository key `get_repository_overview` uses.",
+    "Needs SPECGUARD_USER_API_KEY (an sgu_… key) — a PERSON key, which `list_repositories` also " +
+    "accepts but does not require — and a DIFFERENT one from the sgk_… repository key " +
+    "`get_repository_overview` uses.",
   inputSchema: {
     type: "object",
     properties: {

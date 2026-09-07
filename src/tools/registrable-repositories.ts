@@ -76,8 +76,8 @@ const registrableRepositories: ToolDefinition = {
     "telling the person what to do. A name appearing in the list is not a promise the write " +
     "will succeed: someone may register it between this read and the POST. Ordered by " +
     "`full_name` ascending, which is stable across calls. Needs SPECGUARD_USER_API_KEY (an " +
-    "sgu_… key), the same credential `list_repositories` and `add_repository` read and a " +
-    "DIFFERENT one from the sgk_… repository key `get_repository_overview` uses.",
+    "sgu_… key) — a PERSON key, which `list_repositories` also accepts but does not require — " +
+    "and a DIFFERENT one from the sgk_… repository key `get_repository_overview` uses.",
   inputSchema: {
     type: "object",
     // No properties, deliberately — see this file's header. Still CLOSED rather

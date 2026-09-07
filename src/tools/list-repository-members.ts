@@ -49,8 +49,9 @@ const listRepositoryMembers: ToolDefinition = {
     "`members.manage` is refused 403 in SpecGuard's own words. " +
     "Takes `repository_id` — the numeric id `list_repositories` reports, not the `org/repo` " +
     "handle. " +
-    "Needs SPECGUARD_USER_API_KEY (an sgu_… key), the same credential `list_repositories` " +
-    "reads and a DIFFERENT one from the sgk_… repository key `get_repository_overview` uses.",
+    "Needs SPECGUARD_USER_API_KEY (an sgu_… key) — a PERSON key, which `list_repositories` " +
+    "also accepts but does not require — and a DIFFERENT one from the sgk_… repository key " +
+    "`get_repository_overview` uses.",
   inputSchema: {
     type: "object",
     properties: {
