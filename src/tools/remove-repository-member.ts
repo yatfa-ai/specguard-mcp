@@ -47,7 +47,10 @@ const removeRepositoryMember: ToolDefinition = {
     "The membership id comes straight off the API: every member response carries it as `id` — " +
     "the rows `list_repository_members` serves, the `add_repository_member` 201 body, and " +
     "`update_repository_member_permissions`'s response — so a member you listed or added has " +
-    "already handed you the id. " +
+    "already handed you the id. The server serves that `id` as a JSON number (a bigint column) " +
+    "while `member_id` is a string argument refused by name (\"`member_id` must be a string.\") " +
+    "before any request is made — so pass a numeric-looking id such as `7` as a string, not as " +
+    "a number. " +
     "Authorization is the `members.manage` capability — a member without it is refused 403 in " +
     "SpecGuard's own words. A 204 means the membership is revoked. " +
     "Takes `repository_id` — the numeric id `list_repositories` reports, not the `org/repo` " +
@@ -69,7 +72,9 @@ const removeRepositoryMember: ToolDefinition = {
           "The id of the MEMBERSHIP row to revoke — not a user id, and not the handle. " +
           "Scoped to `repository_id`: a foreign membership id is refused 404. Take it from " +
           "the `id` field of a member row served by `list_repository_members`, " +
-          "`add_repository_member` or `update_repository_member_permissions`.",
+          "`add_repository_member` or `update_repository_member_permissions` — the server " +
+          "serves that id as a JSON number, so pass it on as a string, not as a number " +
+          "(\"7\", not 7).",
       },
     },
     required: ["repository_id", "member_id"],

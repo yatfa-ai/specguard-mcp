@@ -9,9 +9,13 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * == Memberships only, never `keys_minted`
  *
- * The endpoint answers the same rows the web members page renders — `id`,
- * `handle`, `permissions`, `granted_by`, `created_at`, ordered by handle —
- * and deliberately NOTHING else. `keys_minted` is a `keys.manage` disclosure
+ * The endpoint answers five fields per row — `id`, `handle`, `permissions`,
+ * `granted_by`, `created_at`, ordered by handle — and deliberately NOTHING
+ * else. Four of the five are the rows the web members page renders
+ * (`handle`, `permissions`, `granted_by`, `created_at`, under the same
+ * names); `id` is served to the API caller alone — that page has no id
+ * column, the id appears there only inside edit and revoke links.
+ * `keys_minted` is a `keys.manage` disclosure
  * that page gates separately; this read answers memberships to a
  * `members.manage` holder and no more. A tool that promised counts here would
  * be promising something the endpoint refuses to say.
@@ -77,8 +81,9 @@ const listRepositoryMembers: ToolDefinition = {
     );
 
     // Passed through unreshaped, the standing rule (`types.ts`: "A thin client
-    // that reshapes its upstream is not thin") — the endpoint serves the same
-    // five fields the web members page renders, under the same names.
+    // that reshapes its upstream is not thin") — five fields per row, four of
+    // them the same columns the web members page renders; `id` is served to
+    // the API caller alone, that page has no id column.
     return {
       text: JSON.stringify(members, null, 2),
       structured: members,

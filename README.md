@@ -602,9 +602,12 @@ Values are validated by SpecGuard; an unknown value is refused with its own sent
 
 **The membership id:** `member_id` comes straight off the API — every member response serves it
 as `id`: the rows `list_repository_members` returns, the `add_repository_member` 201 body, and
-this tool's own response. There is no name-based lookup, and ids are scoped to the repository (a
-foreign id is refused `404`). Authorization is the `members.manage` capability; a member without
-it is refused `403` with SpecGuard's own sentence, verbatim.
+this tool's own response. The server serves that `id` as a JSON number (the column is a bigint),
+while `member_id` is a string argument refused by name before any request is made — pass a
+numeric-looking id such as `7` as a string, not as a number. There is no name-based lookup, and
+ids are scoped to the repository (a foreign id is refused `404`). Authorization is the
+`members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
+verbatim.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
@@ -624,7 +627,8 @@ repository keep authenticating by design; the lever for those is the API-keys su
 (`revoke_repository_api_key`), not this one. Self-revocation is permitted — after it, the caller's
 next request to the member routes answers `404`, not `403`. The repository owner's membership
 cannot be removed at all. The same source as the edit tool serves `member_id`: it is the `id`
-field on the member rows `list_repository_members` and `add_repository_member` return.
+field on the member rows `list_repository_members` and `add_repository_member` return — a JSON
+number on the wire, so pass it as a string, not as a number (see the edit tool above).
 Authorization is the `members.manage` capability; a member without it is refused `403` with
 SpecGuard's own sentence, verbatim.
 
