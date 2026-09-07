@@ -32,8 +32,19 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * calling credential's own read boundary) and the tool calls the PLURAL
  * endpoint, `GET /api/v1/repositories/:id`, which serves the same
  * `RepositoryOverview` body with every parameter below honoured exactly as the
- * singular one serves it. Only the subject moves; nothing about the ladder
- * changes.
+ * singular one serves it — with ONE DELIBERATE OMISSION this branch owns:
+ * `api_key` is ABSENT from the plural body, not null. That block describes the
+ * credential that made the REQUEST, and the singular controller is the only
+ * caller that has one to describe (`RepositoriesController#show` passes
+ * `api_key_block: serialized_api_key`; `UserRepositoriesController#show`
+ * passes none and says why at length: a block of nulls would be a sentence
+ * about a credential that does not exist, because this request was made with
+ * an agent or person key, and the repository's own `sgk_` keys are not the
+ * caller's to describe). So the `api_key.last_used_at` paragraph below is
+ * about the SINGULAR response; under `repository` the key is simply not there,
+ * and its absence is the plural surface's shape — never this bridge dropping
+ * a key. The two health blocks come from `RepositoryOverview` itself and DO
+ * travel. The ladder moves; the subject moves; `api_key` does not.
  *
  * THE CREDENTIAL MOVES WITH IT, because the endpoints refuse each other's
  * tokens before any table is read: the singular path still authenticates with
@@ -387,7 +398,12 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * timestamp beside its stalest run, and the controller answers that with
  * `acceptance_reported_by` / `rotation_reported_by` naming the keys that answer
  * what it cannot. Naming the correction and not the claim would have been half a
- * sentence. And the truncation contract, which is NOT the uniform family it looks like from the
+ * sentence. (The claim itself is served by the SINGULAR body only — the plural
+ * one under `repository` omits the whole `api_key` block, the deliberate
+ * omission documented at the branch above — so the correction paragraph in the
+ * description says which surface the instruction applies to rather than sending
+ * a plural-path reader hunting for a key that is not there.) And the truncation
+ * contract, which is NOT the uniform family it looks like from the
  * key names: only eight lists have a `*_window` sibling at all, MOST lists under `latest_run`
  * carry an inline `limit` beside `rows` instead, four of those windows serve no bound of their
  * own, `rejections_window` serves a bound and no order, and the lists this census found carrying
@@ -513,7 +529,11 @@ const getRepositoryOverview: ToolDefinition = {
     "Do NOT read `api_key.last_used_at` as evidence anything was ACCEPTED — it is stamped on the " +
     "way in, before the payload is looked at, so a repository having every run thrown away still " +
     "reports it seconds ago; `delivery_health` answers acceptance and `credential_health` answers " +
-    "rotation. " +
+    "rotation. That instruction is about the DEFAULT call's body: with `repository` the plural " +
+    "response has NO `api_key` key at all — absent, not null, because the block describes the " +
+    "credential that made the request and an agent key is not a repository key — so there is " +
+    "nothing to misread there, and an absent `api_key` on that path is the surface's shape, " +
+    "never a dropped block. " +
     "Where a bound sits beside a list, the list is a PAGE and not the set: `limit` next to " +
     "`rows`, or on that list's `*_window` block, which is also where the ORDER the cut was made " +
     "in is named when the list has one. What announces the cut varies too — `truncated`, " +
@@ -546,7 +566,9 @@ const getRepositoryOverview: ToolDefinition = {
     "Needs SPECGUARD_ENDPOINT and SPECGUARD_API_KEY — an sgk_… repository key, which IS the " +
     "repository the default call answers about. Pass `repository` and the credential changes " +
     "with the endpoint: the call goes to GET /api/v1/repositories/:id — the plural surface, " +
-    "same overview body, every parameter above honoured identically — under " +
+    "the same overview body with every parameter above honoured identically, MINUS the " +
+    "`api_key` block, which is ABSENT there rather than nulled (it describes the credential " +
+    "that made the request, and this request was not made with a repository key) — under " +
     "SPECGUARD_AGENT_API_KEY, an sga_… agent key whose granted repository set is the read " +
     "boundary the id is looked up inside (a repository outside the set answers 404, " +
     "deliberately indistinguishable from a nonexistent one). SpecGuard refuses each credential " +
@@ -577,8 +599,11 @@ const getRepositoryOverview: ToolDefinition = {
           "granted at mint time is the boundary the id is resolved inside — a repository " +
           "outside the set answers 404, indistinguishable from one that does not exist, and " +
           "`list_repositories` under the same key lists exactly the set that is reachable. " +
-          "Every other parameter means the same thing on either path: same overview body, same " +
-          "ladder, same `run_anchor` contract. " +
+          "Every parameter means the same thing on either path: same ladder, same `run_anchor` " +
+          "contract, same overview body with ONE difference this path owns — `api_key` is " +
+          "ABSENT from the plural response, not null (the block describes the credential that " +
+          "made the request, and an agent-key caller is not a repository key), so its absence " +
+          "is the plural surface's shape, never a dropped key. " +
           "Omit it — or pass a blank — and the call is byte-for-byte the singular one: " +
           "SPECGUARD_API_KEY on GET /api/v1/repository, exactly as before this argument " +
           "existed, so an operator who never sets the agent key is unaffected.",

@@ -101,12 +101,21 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * `repository` block, so a client that has read one knows how to read the other.
  * Renaming or flattening anything here would spend that parity on the last hop.
  *
- * `role` is the field this surface adds — `"owner"` or `"member"` — because the
- * list MIXES repositories the person owns with repositories somebody shared
- * with them and no other field separates the two. An agent that will later
- * register keys or change settings needs to know which of these it may expect
- * to administer, so the value is named in the description rather than left to be
- * discovered from the data.
+ * `role` is the field this surface adds, and its value depends on WHICH
+ * credential answered — three values, one per credential kind, and all three
+ * are named rather than left to be discovered from the data, because an agent
+ * that will later register keys or change settings needs to know which of these
+ * entries it may expect to administer. Under the `sgu_` PERSON key it is
+ * `"owner"` or `"member"`: the list MIXES repositories the person owns with
+ * repositories somebody shared with them, and no other field separates the two.
+ * Under the `sga_` AGENT key every entry is `"agent"` — the key is NOBODY, so
+ * the owner/member question does not apply, and a client branching on
+ * owner/member reads false for both, which is the correct reading rather than a
+ * gap (`Api::V1::UserRepositoriesController#credential_role` is where the
+ * server writes that rule down, beside the `?role=` clamp that exists for the
+ * same reason). One value per kind also means the field identifies WHICH
+ * credential served the list — worth knowing when both variables are set and
+ * the agent key wins.
  *
  * The order is `full_name` ascending, which the controller picks as the only
  * column a client can page or diff against without SpecGuard promising an id
@@ -125,9 +134,12 @@ const listRepositories: ToolDefinition = {
     "to one repository by its key. " +
     "Each entry carries `id`, `full_name` (`org/repo`, and the handle every other surface names " +
     "a repository by), `name`, `registered_at` and `role`. " +
-    "`role` is `owner` or `member`: under a PERSON key (`sgu_…`) the list mixes repositories " +
-    "this person owns with repositories somebody shared with them, and nothing else " +
-    "distinguishes the two — read it before assuming a repository is yours to administer. " +
+    "`role` has one value per credential kind. Under a PERSON key (`sgu_…`) it is `owner` or " +
+    "`member`: the list mixes repositories this person owns with repositories somebody shared " +
+    "with them, and nothing else distinguishes the two. Under an AGENT key (`sga_…`) every " +
+    "entry is `agent` — the value that says the ownership question does not apply because the " +
+    "key speaks for nobody; branching on owner/member correctly reads false for both. Read it " +
+    "before assuming a repository is yours to administer. " +
     "Three optional asks narrow WITHIN that set — none of them can widen it — all optional, " +
     "composable on one call: `q` (case-insensitive substring on `full_name`), " +
     "`role: \"owned\"` or `\"shared\"` (one half of the owned/shared mix — note the ask is " +

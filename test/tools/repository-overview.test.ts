@@ -44,6 +44,27 @@ const BODY = JSON.stringify({
 });
 
 /**
+ * The same response as the SINGULAR controller renders it — but for the PLURAL
+ * path, `GET /api/v1/repositories/:id`, and the one key where the two bodies
+ * deliberately differ: `api_key` is ABSENT here, not null.
+ * `UserRepositoriesController#show` calls `.body` with no `api_key_block`, and
+ * its comment says why: the block describes the credential that MADE the
+ * request, this request was made with an agent key that is not a repository
+ * key, and a block of nulls would be a sentence about a credential that does
+ * not exist. Every plural-path test is built on THIS fixture, never on `BODY`
+ * — a plural test asserted against a body carrying `api_key` would be positive
+ * evidence for a shape the endpoint never serves.
+ */
+const PLURAL_BODY = JSON.stringify({
+  repository: { id: 42, full_name: "acme/other", name: "other", registered_at: "2026-03-02T00:00:00Z" },
+  latest_run: JSON.parse(BODY).latest_run,
+  history_window: JSON.parse(BODY).history_window,
+  history: JSON.parse(BODY).history,
+  branches_window: JSON.parse(BODY).branches_window,
+  branches: JSON.parse(BODY).branches,
+});
+
+/**
  * The same response as `BODY`, as the server renders it once the drill-down was
  * asked for — the ONE key that changes.
  *
@@ -274,7 +295,7 @@ describe("get_repository_overview — the request it makes", () => {
   });
 
   it("names a repository and goes to the PLURAL endpoint, under the agent key", async () => {
-    const http = stubFetch({ body: BODY });
+    const http = stubFetch({ body: PLURAL_BODY });
 
     await getRepositoryOverview.run(
       { repository: "42" },
@@ -294,7 +315,7 @@ describe("get_repository_overview — the request it makes", () => {
     // Every parameter below is forwarded exactly as the singular path forwards
     // it — pinning one of each KIND (a name, a flag) rather than the whole
     // ladder, which the singular-path tests above already pin.
-    const http = stubFetch({ body: BODY });
+    const http = stubFetch({ body: PLURAL_BODY });
 
     await getRepositoryOverview.run(
       { repository: "42", branch: "main", unannotated_examples: true },
@@ -314,7 +335,7 @@ describe("get_repository_overview — the request it makes", () => {
     // accepts. What IS pinned is that the id lands in the path segment
     // intact — `encodeURIComponent` on a plain numeric id changes nothing, so
     // the ordinary call stays the ordinary URL.
-    const http = stubFetch({ body: BODY });
+    const http = stubFetch({ body: PLURAL_BODY });
 
     await getRepositoryOverview.run(
       { repository: " 42 " },
@@ -606,6 +627,68 @@ describe("get_repository_overview — the response it returns", () => {
     const result = await getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: stubFetch({ body: BODY }).fetch }));
 
     assert.deepEqual(JSON.parse(result.text), result.structured);
+  });
+
+  it("passes the PLURAL body through with `api_key` ABSENT, never present-and-null", async () => {
+    // The one shape difference between the two surfaces, and the reason the
+    // plural fixture is its own object rather than `BODY`: the block describes
+    // the credential that made the request, and the agent-key caller is not a
+    // repository key — so `UserRepositoriesController#show` passes no
+    // `api_key_block` and the key is OMITTED from the object. A null there
+    // would be a sentence about a credential that does not exist. This pins
+    // the pass-through honesty in the direction the description now states:
+    // everything else in the body arrives intact, and `api_key` is not
+    // merely `null` — the key itself is gone.
+    const result = await getRepositoryOverview.run(
+      { repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: stubFetch({ body: PLURAL_BODY }).fetch }),
+    );
+
+    assert.deepEqual(result.structured, JSON.parse(PLURAL_BODY));
+    assert.ok(
+      !("api_key" in (result.structured as object)),
+      "the plural body must have NO api_key key — absent, not null",
+    );
+    // ...and the blocks that DO travel are still there: both health blocks
+    // come from `RepositoryOverview` itself, not from the omitted argument.
+    assert.ok("repository" in (result.structured as object));
+    assert.ok("latest_run" in (result.structured as object));
+  });
+
+  it("states the plural body's api_key omission instead of claiming one identical body", async () => {
+    // "Same overview body, only the subject moves" was the exact claim the
+    // plural path does not honour: `api_key` is absent there, and an agent
+    // following the description's own `api_key.last_used_at` instruction on
+    // that path would find nothing and have no way to tell "absent because
+    // this is the plural surface" from "the bridge dropped it". Asserted
+    // rather than trusted to review — a description is the one part of a tool
+    // nothing else exercises (the same instrument `add-repository.test.ts`
+    // runs, and the same defect class this audit returned).
+    const description = getRepositoryOverview.description;
+    const repositoryProperty = (
+      (getRepositoryOverview.inputSchema.properties ?? {})["repository"] as {
+        description?: string;
+      }
+    )?.description;
+
+    // The old unqualified claims are GONE, from both the tool description and
+    // the `repository` property.
+    assert.doesNotMatch(
+      description,
+      /same overview body, every parameter above honoured identically/,
+      "the tool description must not claim one identical body — the plural one omits `api_key`",
+    );
+    assert.doesNotMatch(
+      repositoryProperty ?? "",
+      /same overview body, same ladder/,
+      "the repository property must not claim one identical body either",
+    );
+    // The truth is STATED, with the absent-not-null distinction the server
+    // spent a paragraph of its own comment making.
+    assert.match(description, /MINUS the `api_key` block/);
+    assert.match(description, /ABSENT there rather than nulled/);
+    assert.match(repositoryProperty ?? "", /`api_key` is ABSENT/);
+    assert.match(repositoryProperty ?? "", /not null/);
   });
 
   it("hands back the drill-down populated when an area was asked for", async () => {

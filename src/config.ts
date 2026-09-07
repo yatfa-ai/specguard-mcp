@@ -343,8 +343,12 @@ export function requireAgentApiConfig(config: Config): ApiConfig {
  * variables are named, because telling an operator who is expected to choose
  * between two spellings about only one of them would have them fix a variable,
  * re-call, and be told about the other — the round-trip waste the shared body's
- * note above exists to prevent. The endpoint joins the same sentence when it is
- * missing too.
+ * note above exists to prevent. That sentence is NOT written here: the helper
+ * falls through to the shared body with the credentials it should name, so the
+ * wording is produced once, by the same code the other two entry points use,
+ * and the one invariant this file asserts about its diagnostics — a fix reaches
+ * every caller because no caller describes the situation itself — holds for
+ * this helper too. The endpoint joins the same sentence when it is missing too.
  */
 export function requireUserOrAgentApiConfig(config: Config): ApiConfig {
   if (config.agentApiKey !== undefined) {
@@ -354,21 +358,16 @@ export function requireUserOrAgentApiConfig(config: Config): ApiConfig {
     return requireCredentialledApiConfig(config, config.userApiKey, USER_CREDENTIAL);
   }
 
-  const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
-  const missing: string[] = [];
-  if (config.endpoint === undefined) missing.push(endpointVariable);
-  missing.push(`${USER_CREDENTIAL.variable} or ${AGENT_CREDENTIAL.variable}`);
-
-  throw new ConfigError(
-    `This tool talks to a SpecGuard deployment, and ${missing.join(" and ")} ` +
-      `${missing.length === 1 ? "is" : "are"} not set in the MCP server's environment. ` +
-      "Set them in your MCP client's server config " +
-      `(${endpointVariable} is your deployment's root URL, ${USER_CREDENTIAL.variable} ` +
-      `an ${USER_CREDENTIAL.prefix}… key ${USER_CREDENTIAL.issuedFrom}, or ` +
-      `${AGENT_CREDENTIAL.variable} an ${AGENT_CREDENTIAL.prefix}… key ` +
-      `${AGENT_CREDENTIAL.issuedFrom}). ` +
-      "Tools that do not reach the deployment are unaffected.",
-  );
+  // Neither admissible key is set, so the choice is the operator's — and the
+  // message has to say so by naming BOTH spellings. That is what the fourth
+  // argument is for: USER_CREDENTIAL leads (the variable an existing operator
+  // is more likely to hold, and the one every other user-scoped tool reads)
+  // and AGENT_CREDENTIAL rides as its alternative, so `${USER}.variable or
+  // ${AGENT}.variable` is what the shared joiner produces rather than a string
+  // this helper hand-assembled. Nothing here re-states the sentence, its
+  // pluralisation or its tail — a fix to any of those lands here too, which is
+  // the whole point of routing through the body this file documents twice.
+  return requireCredentialledApiConfig(config, undefined, USER_CREDENTIAL, [AGENT_CREDENTIAL]);
 }
 
 /**
@@ -399,25 +398,55 @@ export function requireUserOrAgentApiConfig(config: Config): ApiConfig {
  * The prefix is carried so a MESSAGE can name it, not so this file can enforce
  * it; the 401 branch of `describeFailure` is where a wrong-kind key is
  * diagnosed, with the deployment's own verdict in hand.
+ *
+ * `alternatives` names the OTHER credentials that would equally answer the
+ * calling tool's question, for the missing-key message only: when the key IS
+ * present the parameter is dead weight and is never consulted, because the
+ * caller has already bound the value it found to the credential it came from.
+ * When the key is missing, every admissible variable is named — one credential
+ * in the common case, two for the one tool that serves either — so an operator
+ * choosing between spellings learns the whole choice in one round trip, and the
+ * sentence is written HERE, once, rather than re-authored per helper.
  */
 function requireCredentialledApiConfig(
   config: Config,
   apiKey: string | undefined,
   credential: Credential,
+  alternatives: readonly Credential[] = [],
 ): ApiConfig {
   const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
 
+  // Every credential that would answer the calling tool's question — the one
+  // the caller binds its PRESENT key to first, then any alternates it also
+  // accepts. The list does two jobs, and both only while the key is missing:
+  // the missing-variable slot reads `${first.variable} or ${alt.variable}`, and
+  // the "Set them in" parenthetical reads one prefix-and-minting clause per
+  // entry, joined the same way. With no alternates — the common case, all three
+  // single-credential helpers — both reductions collapse to exactly what they
+  // were before this parameter existed, byte for byte. With two, the operator
+  // expected to choose between spellings learns about all of them in one
+  // round trip, which is the property the one-sentence rule exists to protect
+  // — and it is the SHARED BODY that says it, so the sentence cannot fork into
+  // per-helper dialects the way a hand-rolled copy did before this parameter
+  // did.
+  const admissible = [credential, ...alternatives];
+
   const missing: string[] = [];
   if (config.endpoint === undefined) missing.push(endpointVariable);
-  if (apiKey === undefined) missing.push(credential.variable);
+  if (apiKey === undefined) {
+    missing.push(admissible.map((entry) => entry.variable).join(" or "));
+  }
 
   if (missing.length > 0) {
     throw new ConfigError(
       `This tool talks to a SpecGuard deployment, and ${missing.join(" and ")} ` +
         `${missing.length === 1 ? "is" : "are"} not set in the MCP server's environment. ` +
         "Set them in your MCP client's server config " +
-        `(${endpointVariable} is your deployment's root URL, ${credential.variable} ` +
-        `an ${credential.prefix}… key ${credential.issuedFrom}). ` +
+        `(${endpointVariable} is your deployment's root URL, ` +
+        admissible
+          .map((entry) => `${entry.variable} an ${entry.prefix}… key ${entry.issuedFrom}`)
+          .join(", or ") +
+        "). " +
         "Tools that do not reach the deployment are unaffected.",
     );
   }

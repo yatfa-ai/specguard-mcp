@@ -28,9 +28,12 @@ const REPOSITORY_ENV = {
  * serves, in a body shaped as that controller renders it.
  *
  * `role` is the one field this surface adds over `GET /api/v1/repository`'s
- * `repository` block, and the fixture carries BOTH of its values: the list
- * mixes owned repositories with shared ones, and a fixture with only `"owner"`
- * rows would let a bridge that dropped or defaulted the field still pass.
+ * `repository` block, and the fixture carries BOTH of its PERSON-key values:
+ * the list mixes owned repositories with shared ones, and a fixture with only
+ * `"owner"` rows would let a bridge that dropped or defaulted the field still
+ * pass. This is the `sgu_` body — the agent key has its OWN fixture below,
+ * because `#credential_role` serves a THIRD value there that this one must
+ * never be asserted to carry.
  */
 const BODY = JSON.stringify({
   repositories: [
@@ -47,6 +50,37 @@ const BODY = JSON.stringify({
       name: "billing",
       registered_at: "2026-02-11T17:42:03Z",
       role: "member",
+    },
+  ],
+});
+
+/**
+ * The same surface under the AGENT credential, in the shape the server
+ * actually renders there: `Api::V1::UserRepositoriesController#credential_role`
+ * returns `"agent"` for EVERY entry when the request was made with an
+ * `AgentApiKey` — the key is not a person, so `owner`/`member` are both
+ * answers to a question that was not asked, and the honest value is the one
+ * that says so. The two entries keep their owner/member fixtures' shape on
+ * purpose: the ONLY thing allowed to differ from `BODY` is the role, so a test
+ * built on this fixture is evidence about the role fork and nothing else. A
+ * shared fixture with `owner`/`member` values here would assert a body the
+ * agent path never serves — positive evidence for a false shape.
+ */
+const AGENT_BODY = JSON.stringify({
+  repositories: [
+    {
+      id: "0b2f1e14-6f6e-4a1e-9a34-9f2b6a1c77aa",
+      full_name: "acme/app",
+      name: "app",
+      registered_at: "2026-01-04T09:15:00Z",
+      role: "agent",
+    },
+    {
+      id: "5c9d2a77-1f0b-4c8e-8f5a-2d3e4b5c6d7e",
+      full_name: "acme/billing",
+      name: "billing",
+      registered_at: "2026-02-11T17:42:03Z",
+      role: "agent",
     },
   ],
 });
@@ -68,7 +102,7 @@ describe("list_repositories", () => {
     // The endpoint answers to BOTH key kinds since SPGD-952 — the set served is
     // bounded by whichever was presented — so an agent holding only the agent
     // credential can still ask "what may I ask about".
-    const http = stubFetch({ body: BODY });
+    const http = stubFetch({ body: AGENT_BODY });
 
     await listRepositories.run({}, toolContext({ env: AGENT_ENV, fetch: http.fetch }));
 
@@ -82,7 +116,7 @@ describe("list_repositories", () => {
     // inside the key's granted set, so a listing from the person's wider set
     // would advertise repositories the agent cannot then open. Nothing on the
     // wire changes — same path — only which Bearer rides on it.
-    const http = stubFetch({ body: BODY });
+    const http = stubFetch({ body: AGENT_BODY });
 
     await listRepositories.run(
       {},
@@ -129,6 +163,58 @@ describe("list_repositories", () => {
       "registered_at",
       "role",
     ]);
+  });
+
+  it("serves the agent-key listing with the role the agent path actually renders: `agent`", async () => {
+    // `credential_role` forks on the credential BEFORE any entry is built:
+    // every entry is `"agent"` under an `AgentApiKey`, because the owner/member
+    // question has no person in the request to answer about. The description
+    // names all three values — and THIS is the test that keeps it honest: an
+    // agent following the description's `sga_` branch must be served a body
+    // whose roles match it, never the person-key fork this file's other
+    // fixture carries. Asserted on the PARSED body rather than a role
+    // substring, so a bridge that reshaped anything else would fail here too.
+    const result = await listRepositories.run(
+      {},
+      toolContext({ env: AGENT_ENV, fetch: stubFetch({ body: AGENT_BODY }).fetch }),
+    );
+
+    assert.deepEqual(result.structured, JSON.parse(AGENT_BODY));
+
+    const entries = result.structured?.["repositories"] as Record<string, unknown>[];
+    assert.ok(entries.length > 0);
+    for (const entry of entries) {
+      assert.equal(entry["role"], "agent");
+    }
+    assert.deepEqual(
+      entries.map((entry) => entry["role"]).sort(),
+      ["agent", "agent"],
+      "the agent path serves `agent` for every entry — never owner/member",
+    );
+  });
+
+  it("describes `role` as the three-value fork the server serves, not a closed two-value list", async () => {
+    // The description is the artifact an agent acts on, and a closed
+    // `owner`/`member` enumeration there is not a simplification — it is a
+    // false claim the moment the agent-key path is the PREFERRED credential:
+    // the agent is handed `"agent"`, a value with no rule attached, at the
+    // exact moment it is deciding whether it may administer something.
+    // Asserted rather than trusted to review, because a description is the one
+    // part of a tool nothing else exercises (see `add-repository.test.ts` for
+    // the same instrument).
+    const description = listRepositories.description;
+
+    // The old closed enumeration is GONE, not merely outnumbered.
+    assert.doesNotMatch(
+      description,
+      /`role` is `owner` or `member`/,
+      "the description must not promise a two-value role — the agent path serves `agent`",
+    );
+    // All three values are named, and the agent value says what it MEANS.
+    assert.match(description, /`owner` or/);
+    assert.match(description, /`member`/);
+    assert.match(description, /every\s.*entry is `agent`/);
+    assert.match(description, /ownership question does not apply/);
   });
 
   it("renders the same object it returns, so the two cannot disagree", async () => {

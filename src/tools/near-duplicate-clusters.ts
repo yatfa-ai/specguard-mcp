@@ -35,8 +35,10 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * run, and one call returns them all. What IS choosable, since SPGD-953, is
  * WHICH REPOSITORY is censused: an optional `repository` argument (a numeric id
  * from `list_repositories`) moves the call to the plural endpoint
- * `GET /api/v1/repositories/:id` under the AGENT key, same body, same ask,
- * same cost gate. Without it the request is byte-for-byte the singular,
+ * `GET /api/v1/repositories/:id` under the AGENT key, same body (minus the
+ * `api_key` block, which is ABSENT on that surface rather than nulled — see
+ * `repository-overview.ts` for why the omission is the server's, deliberately),
+ * same ask, same cost gate. Without it the request is byte-for-byte the singular,
  * `sgk_`-bound one this tool has always made — and the cost argument above is
  * exactly why the argument is OPTIONAL rather than required: an agent that has
  * only ever had one reachable repository should not be asked to learn a second
@@ -112,7 +114,11 @@ const nearDuplicateClusters: ToolDefinition = {
     "a `repository` ask without the agent key set is refused HERE, by name, before any request " +
     "is made. " +
     "The response is the endpoint's full body with the `near_duplicates` block OPENED, passed " +
-    "through unmodified.",
+    "through unmodified — with the one surface difference `get_repository_overview` documents " +
+    "for its own `repository` ask: on that plural path the `api_key` block is ABSENT from the " +
+    "body rather than nulled (it describes the credential that made the request, and an agent " +
+    "key is not a repository key), so an absent `api_key` there is the surface's shape, never " +
+    "a dropped block.",
 
   inputSchema: {
     type: "object",

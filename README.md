@@ -107,8 +107,12 @@ Everything above is answered about **one repository**, and which one has two spe
 it is the repository the configured `sgk_…` key resolves to — the key *is* the subject. Pass
 `repository` (the numeric id `list_repositories` reports) and the call goes to the **plural**
 endpoint, `GET /api/v1/repositories/:id`, under the **agent key** (`SPECGUARD_AGENT_API_KEY`,
-`sga_…`): same overview body, same ladder, every parameter below honoured identically — only the
-subject moves. That is what makes the *other* repositories visible: an `sgk_` key is one repository
+`sga_…`): same overview body, same ladder, every parameter below honoured identically — with one
+deliberate omission this path owns: `api_key` is **absent** from the plural body rather than nulled,
+because that block describes the credential that made the request and this request was not made
+with a repository key (an absent key there is the surface's shape, never a dropped block). Other
+than that, only the subject moves. That is what makes the *other* repositories visible: an `sgk_`
+key is one repository
 by design, so an agent holding only that could never ask about a second one, while the agent key's
 own granted repository set is exactly the boundary the plural endpoint looks ids up inside (a
 repository outside the set answers 404, indistinguishable from one that does not exist —
@@ -366,10 +370,13 @@ The body comes back as SpecGuard serves it — `{"repositories": […]}`, each e
 `full_name`, `name`, `registered_at` and `role`, ordered by `full_name` ascending unless `sort`
 asks otherwise. The first four are
 deliberately the same four fields, under the same names, that `get_repository_overview` serves in its
-own `repository` block, so a client that reads one reads the other. `role` is `owner` or `member`:
-the list mixes repositories this person owns with repositories somebody shared with them, and nothing
-else tells them apart — read it before assuming a repository is one you may administer. An empty list
-means no access, not an error.
+own `repository` block, so a client that reads one reads the other. `role` has one value per
+credential kind: under a **user** key (`sgu_…`) it is `owner` or `member` — the list mixes
+repositories this person owns with repositories somebody shared with them, and nothing else tells
+them apart — while under an **agent** key (`sga_…`) every entry is `agent`, the value that says the
+ownership question does not apply because the key speaks for nobody (branching on owner/member
+correctly reads false for both). Read it before assuming a repository is one you may administer. An
+empty list means no access, not an error.
 
 **It reads a different key from `get_repository_overview` — either of two, whichever is set.**
 `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the answer is then the repository set granted
