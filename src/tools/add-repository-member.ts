@@ -23,12 +23,13 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * deliberately absent from the permitted params. The tool therefore takes no
  * grantor argument, and no caller can name one.
  *
- * == The 201 body omits the membership id, by server design
+ * == The 201 body carries the membership id
  *
- * `#serialize` serves `handle`, `permissions`, `granted_by`, `created_at` —
- * and no id, because ids are not portable between repositories and serving
- * one invites treating it as portable. See
- * `update_repository_member_permissions` for where the id comes from today.
+ * `#serialize` serves `id`, `handle`, `permissions`, `granted_by`,
+ * `created_at` — and the `id` is the MEMBERSHIP id, the very identifier
+ * `update_repository_member_permissions` and `remove_repository_member` name.
+ * It is not portable: lookup is scoped through the repository, so a foreign
+ * id is refused 404 server-side.
  */
 const addRepositoryMember: ToolDefinition = {
   name: "add_repository_member",
@@ -42,10 +43,11 @@ const addRepositoryMember: ToolDefinition = {
     "arrives as a distinguishable 400 message naming the exact next move. " +
     "The grantor recorded on the membership is always the person behind this server's user API " +
     "key — the server stamps it, and no argument can name a different one. " +
-    "On success (201) the response carries a `member` block (`handle`, `permissions`, " +
-    "`granted_by`, `created_at`). It carries NO membership id, by design: ids are not portable " +
-    "between repositories, and editing or revoking a membership names a membership id obtained " +
-    "from the platform (today only via the web members page) — see the edit/revoke tools. " +
+    "On success (201) the response carries a `member` block whose `id` is the MEMBERSHIP id " +
+    "(`handle`, `permissions`, `granted_by`, `created_at` alongside) — the very identifier " +
+    "`update_repository_member_permissions` and `remove_repository_member` name. The id is not " +
+    "portable between repositories (a foreign id is refused 404), so use it within this " +
+    "repository. " +
     "Permissions are strings from SpecGuard's own set (`view`, `keys.manage`, `members.manage`, " +
     "`repo.delete`); an unknown value is refused in SpecGuard's own words, and omitting the " +
     "list grants access with no additional permissions. The repository owner cannot be added " +

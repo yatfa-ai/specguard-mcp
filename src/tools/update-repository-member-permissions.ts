@@ -21,13 +21,14 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * write. The bridge adds no client-side check of that scoping: the server is
  * the gate.
  *
- * == Known limitation: no endpoint serves the id
+ * == Where the id comes from
  *
- * `#serialize` deliberately omits the membership id from both the list and the
- * 201 body, so an agent that adds a member has no machine-readable way to
- * learn the id for this call. Today the id is obtained from the platform's web
- * members page. That gap is a platform-side follow-up, not something this
- * bridge can work around — there is no name-based lookup.
+ * `#serialize` serves the membership id on every member response — the list
+ * (`list_repository_members`), the 201 body (`add_repository_member`) and
+ * this tool's own 200 body — so an agent that listed or added a member
+ * already holds the id this call names. There is no name-based lookup: the
+ * id comes off those responses, and lookup is scoped through the repository
+ * (a foreign id is refused 404).
  */
 const updateRepositoryMemberPermissions: ToolDefinition = {
   name: "update_repository_member_permissions",
@@ -41,9 +42,12 @@ const updateRepositoryMemberPermissions: ToolDefinition = {
     "today, so name every permission the member should end with. Values are strings from " +
     "SpecGuard's own set (`view`, `keys.manage`, `members.manage`, `repo.delete`); an unknown " +
     "value is refused in SpecGuard's own words. " +
-    "KNOWN LIMITATION: no API endpoint serves the membership id — the member list and the " +
-    "add-member response both omit it by design — so the id must be obtained from the " +
-    "platform (today via the repository's web members page); there is no name-based lookup. " +
+    "The membership id comes straight off the API: every member response carries it as `id` — " +
+    "the rows `list_repository_members` serves, the `add_repository_member` 201 body, and this " +
+    "tool's own response — so a member you listed or added has already handed you the id. The " +
+    "server serves that `id` as a JSON number (a bigint column) while `member_id` is a string " +
+    "argument refused by name (\"`member_id` must be a string.\") before any request is made — " +
+    "so pass a numeric-looking id such as `7` as a string, not as a number. " +
     "Authorization is the `members.manage` capability — a member without it is refused 403 in " +
     "SpecGuard's own words. " +
     "Takes `repository_id` — the numeric id `list_repositories` reports, not the `org/repo` " +
@@ -63,8 +67,10 @@ const updateRepositoryMemberPermissions: ToolDefinition = {
         type: "string",
         description:
           "The id of the MEMBERSHIP row to edit — not a user id, and not the handle. Scoped " +
-          "to `repository_id`: a foreign membership id is refused 404. No API endpoint serves " +
-          "this id today; obtain it from the platform's web members page.",
+          "to `repository_id`: a foreign membership id is refused 404. Take it from the `id` " +
+          "field of a member row served by `list_repository_members`, `add_repository_member` " +
+          "or this tool's own response — the server serves that id as a JSON number, so pass " +
+          "it on as a string, not as a number (\"7\", not 7).",
       },
       permissions: {
         type: "array",

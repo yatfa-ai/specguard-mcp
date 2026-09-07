@@ -11,11 +11,12 @@ const USER_ENV = {
 
 /**
  * The 200 body `user_repository_members_controller#update` serves:
- * `{member: {handle, permissions, granted_by, created_at}}` — no membership
- * id, same deliberate omission as the list and the 201.
+ * `{member: {id, handle, permissions, granted_by, created_at}}` — the
+ * membership `id` served, same as the list and the 201.
  */
 const BODY = JSON.stringify({
   member: {
+    id: 7,
     handle: "alice",
     permissions: ["view", "keys.manage"],
     granted_by: "octocat",

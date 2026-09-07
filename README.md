@@ -541,8 +541,9 @@ It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repo
 
 ### `list_repository_members`
 
-Lists who has access to a SpecGuard repository: one row per member with their `handle`,
-`permissions`, `granted_by` (who last set them) and `created_at`, ordered by handle.
+Lists who has access to a SpecGuard repository: one row per member with their `id` (the
+**membership id** `update_repository_member_permissions` and `remove_repository_member` name),
+`handle`, `permissions`, `granted_by` (who last set them) and `created_at`, ordered by handle.
 
 | argument | |
 | --- | --- |
@@ -550,7 +551,9 @@ Lists who has access to a SpecGuard repository: one row per member with their `h
 
 The list answers **memberships only** and never reports how many CI keys a member has minted
 (`keys_minted`) — that is a separate `keys.manage` disclosure this endpoint deliberately withholds;
-the API-keys tools are the surface for it. The response carries **no membership id**, by design.
+the API-keys tools are the surface for it. Each row's `id` is the membership id — the identifier
+`update_repository_member_permissions` and `remove_repository_member` name; ids are scoped to the
+repository, and a foreign id is refused `404`.
 
 Authorization is the `members.manage` capability: a caller who is not a member is refused `404`
 (the repository's existence stays hidden), and a member without `members.manage` is refused `403`
@@ -575,9 +578,11 @@ handle is ambiguous, the handle is not a login — arrives as a **distinguishabl
 naming the exact next move. The grantor recorded on the membership is always the person behind
 `SPECGUARD_USER_API_KEY`; no argument can name a different one.
 
-On success (`201`) the response carries a `member` block (`handle`, `permissions`, `granted_by`,
-`created_at`) — and **no membership id**, by design. Authorization is the `members.manage`
-capability; a member without it is refused `403` with SpecGuard's own sentence, verbatim.
+On success (`201`) the response carries a `member` block whose **`id` is the membership id**
+(alongside `handle`, `permissions`, `granted_by`, `created_at`) — the identifier
+`update_repository_member_permissions` and `remove_repository_member` name. Authorization is the
+`members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
+verbatim.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
@@ -595,9 +600,12 @@ Replaces one member's permission set on a SpecGuard repository.
 **`permissions` replaces the whole set** — name every permission the member should end with.
 Values are validated by SpecGuard; an unknown value is refused with its own sentence, verbatim.
 
-**Known limitation:** no API endpoint serves the membership id — the member list and the
-add-member response both omit it by design — so the id must be obtained from the platform (today
-via the repository's web members page). There is no name-based lookup. Authorization is the
+**The membership id:** `member_id` comes straight off the API — every member response serves it
+as `id`: the rows `list_repository_members` returns, the `add_repository_member` 201 body, and
+this tool's own response. The server serves that `id` as a JSON number (the column is a bigint),
+while `member_id` is a string argument refused by name before any request is made — pass a
+numeric-looking id such as `7` as a string, not as a number. There is no name-based lookup, and
+ids are scoped to the repository (a foreign id is refused `404`). Authorization is the
 `members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
 verbatim.
 
@@ -618,10 +626,11 @@ it is revoked.
 repository keep authenticating by design; the lever for those is the API-keys surface
 (`revoke_repository_api_key`), not this one. Self-revocation is permitted — after it, the caller's
 next request to the member routes answers `404`, not `403`. The repository owner's membership
-cannot be removed at all. The same known limitation as the edit tool applies to `member_id`: no
-endpoint serves it, so it comes from the platform's web members page today. Authorization is the
-`members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
-verbatim.
+cannot be removed at all. The same source as the edit tool serves `member_id`: it is the `id`
+field on the member rows `list_repository_members` and `add_repository_member` return — a JSON
+number on the wire, so pass it as a string, not as a number (see the edit tool above).
+Authorization is the `members.manage` capability; a member without it is refused `403` with
+SpecGuard's own sentence, verbatim.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.

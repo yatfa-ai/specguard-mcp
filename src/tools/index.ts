@@ -139,12 +139,12 @@ import type { ToolDefinition } from "./types.js";
  * routes through `requestJson` like `postJson` rather than `deleteJson`'s
  * raw-body handling.
  *
- * A known limitation rides with them and is stated in the edit/revoke tool
- * descriptions rather than papered over: PATCH and DELETE name a membership by
- * id, but no endpoint serves that id (the platform's `#serialize` deliberately
- * omits it), so the id comes from the platform's web members page today. That
- * is a platform-side follow-up, not a client-side workaround — there is no
- * name-based lookup.
+ * PATCH and DELETE name a membership by id, and the platform serves that id on
+ * every member response (SPGD-894): the list, the add 201 and the edit 200 all
+ * carry it, so an agent that listed or added a member already holds it — the
+ * edit/revoke tool descriptions say so rather than leaving it implicit. Lookup
+ * stays scoped to the repository (a foreign id is refused 404), and there is
+ * no name-based lookup.
  *
  * == The thirteenth: rename
  *
