@@ -292,7 +292,7 @@ describe("adding a tool", () => {
     const future: ToolDefinition = {
       name: "a_tool_added_later",
       title: "A tool added later",
-      description: "Stands in for whatever SPGD-114 and SPGD-115 land, to prove the seam holds.",
+      description: "Stands in for a tool the server has never heard of, proving that adding one is registry-entry-only. Named in SPGD-310 while SPGD-114/SPGD-115 were open; both completed 2026-09-06 — SPGD-115's duplicate-clustering surface landed here as near_duplicate_clusters (374a6e2), and SPGD-114's file-shaped aggregation is served by specguard's API/web, not wrapped as a tool here.",
       inputSchema: {
         type: "object",
         properties: { echo: { type: "string", description: "Echoed back." } },
