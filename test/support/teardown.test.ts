@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
@@ -30,11 +31,38 @@ const FIXTURE = fileURLToPath(new URL("../fixtures/teardown-server.js", import.m
  * Whether a pid is still there — the one probe both the subject and the control
  * are read with.
  *
- * Signal 0 delivers nothing; it only runs the kernel's "may I signal this?"
- * checks, so ESRCH is the answer to "no such process". EPERM is deliberately
- * read as ALIVE: a process we are not allowed to signal is still a process.
+ * Three states, not two. Signal 0 delivers nothing; it only runs the kernel's
+ * "may I signal this?" checks, so ESRCH is the answer to "no such process".
+ * EPERM is deliberately read as ALIVE: a process we are not allowed to signal
+ * is still a process. The third state is the zombie: `kill(pid, 0)` SUCCEEDS on
+ * a dead-but-unreaped process — a corpse still passes the permission checks —
+ * and on a host whose init does not reap orphans (this sandbox's container
+ * init is such a host), a SIGKILL'd child whose parent has exited stays in
+ * that state indefinitely. Reading a zombie as alive is the false reading that
+ * failed the subject assertion below against an already-dead pid.
+ *
+ * So on Linux the probe reads the state field of /proc/<pid>/stat first and
+ * classifies `Z` as dead. ANY read failure — ENOENT (fully reaped and gone) or
+ * a platform with no /proc — falls back to the signal-0 semantics unchanged,
+ * so on a reaping environment (the CI matrix) the read misses and signal 0
+ * decides, exactly as this probe always has.
+ *
+ * The state field is parsed from after the LAST `)` of the comm field: comm is
+ * free-form and may itself contain spaces and parentheses, so a naive
+ * whitespace split misparses it.
  */
 function isAlive(pid: number): boolean {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // `/proc/<pid>/stat` is "pid (comm) state ..."; the state is the first
+    // character after the last ")" of comm.
+    const state = stat.slice(stat.lastIndexOf(")") + 1).trim().charAt(0);
+    if (state === "Z") return false; // Dead but unreaped: not a live process.
+  } catch {
+    // No /proc entry (fully reaped) or no /proc at all (non-Linux): decide on
+    // signal 0 below.
+  }
+
   try {
     process.kill(pid, 0);
     return true;
