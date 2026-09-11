@@ -806,11 +806,13 @@ reshapes no response — every tool returns the shape of the capability it wraps
 upstream reaches the agent without a release here.
 
 Authorization and project scoping are enforced by SpecGuard, never by this bridge, using keys you
-issue there — the same `sgk_…` keys CI uses to ingest runs, and, for the tools that answer to a
-person rather than to a repository, an `sgu_…` user key. Which of the two a request may carry is
-SpecGuard's decision and it is taken from the token's prefix, before any credential is looked up, so
-the bridge cannot widen either one's reach: it forwards the key the tool's own variable holds and
-reports what came back. It adds no credentials of its own and stores nothing.
+issue there — the same `sgk_…` keys CI uses to ingest runs, an `sgu_…` user key for the tools that
+answer to a person rather than to a repository, and an `sga_…` agent key for the tools that answer
+for an automated agent — it speaks for nobody, and its reach is the repository set granted onto it
+at mint time. Which of the three a request may carry is SpecGuard's decision and it is taken from
+the token's prefix, before any credential is looked up, so the bridge cannot widen any key's reach:
+it forwards the key the tool's own variable holds and reports what came back. It adds no
+credentials of its own and stores nothing.
 
 No argument ever reaches a shell: subprocesses are spawned with an argument list, so a path from a
 model is a path that does not exist rather than a command.

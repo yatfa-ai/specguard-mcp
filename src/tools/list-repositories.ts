@@ -11,9 +11,9 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * Every other tool here answers about ONE repository the caller has already
  * named — and a bridge that can only answer about a repository you can already
  * name cannot tell an agent which repositories there ARE. `get_repository_overview`
- * does not take a repository: its `sgk_` key IS the repository, so the question
- * "what may I ask about" has no answer anywhere in this server. This is that
- * answer, and it is the whole of what this tool does.
+ * without `repository` does not take a repository: its `sgk_` key IS the repository,
+ * so the question "what may I ask about" has no answer anywhere in this server. This
+ * is that answer, and it is the whole of what this tool does.
  *
  * It is also the tool that proves the second credential slot works end to end,
  * which is why it shipped alone. It no longer IS alone: `add_repository`
