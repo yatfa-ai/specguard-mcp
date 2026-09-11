@@ -44,10 +44,15 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * ago" is a different fact from "you never had one", and the tool description
  * is where an agent learns to branch on it.
  *
- * == No arguments, for the same reason `list_repositories` has none
+ * == No arguments, for the same reason `list_repositories` used to have none
  *
  * The credential is the whole of the scope. The endpoint takes no parameters,
- * and nothing an argument could select reaches this answer.
+ * and nothing an argument could select reaches this answer. (`list_repositories`
+ * argued the same way and argued it the same amount — until its endpoint grew
+ * the SPGD-940 narrowing asks and the tool grew the arguments that forward
+ * them. This endpoint has grown no asks, so the argument-less shape here is
+ * still the honest one, and the sentence above keeps saying so rather than
+ * inheriting a reason that moved.)
  */
 const registrableRepositories: ToolDefinition = {
   name: "registrable_repositories",

@@ -331,14 +331,23 @@ ask about*, which is the one question no other tool here can answer. `get_reposi
 no repository because its `sgk_…` key **is** the repository, so without this an agent can only report
 on a repository somebody already named for it.
 
-**This tool takes no arguments** — and not as an omission. The credential is the whole of the scope:
-the endpoint takes no parameters, and which repositories are in the answer is decided by SpecGuard
-from the person the key speaks for (owned, plus shared with them through a membership). A repository
-they neither own nor were given access to never enters the response, so it cannot be filtered *in*
-from this side either.
+The credential decides which repositories are *in* the answer (owned, plus shared with them
+through a membership); the three optional asks below narrow **within** that set — never around it.
+The endpoint has served them since SpecGuard's SPGD-940 (`ef6236d`), composed through the same
+`RepositoryNarrowing` concern the web grid reads, and this tool forwards them rather than
+re-deriving them. A repository the person neither owns nor was given access to never enters the
+response, so no ask can filter it *in* either. A blank value is no ask: passing an empty string
+and omitting the argument make the identical request.
+
+| argument | |
+| --- | --- |
+| `q` | keep only repositories whose `full_name` (`org/repo`) contains this substring, case-insensitively. A plain substring, not a pattern — the LIKE wildcards `%`/`_` are escaped server-side, so `org/my_repo` matches itself. A match-less ask is an empty list, not an error |
+| `role` | `"owned"` or `"shared"` — one half of the list's mix: the repositories this person owns, or the ones shared with them. Mind the spelling: the *ask* values are `owned`/`shared`, while each entry's `role` field reads `owner`/`member` — `role: "owner"` is not a valid ask and settles to no ask (full list, no error) |
+| `sort` | `"stale"` — re-order stalest-first: repositories CI has never ingested a run for first, then least-recently-ingested, with `full_name` breaking ties so two calls agree element for element. The same entries, a different order; the default order stays `full_name` ascending |
 
 The body comes back as SpecGuard serves it — `{"repositories": […]}`, each entry carrying `id`,
-`full_name`, `name`, `registered_at` and `role`, ordered by `full_name` ascending. The first four are
+`full_name`, `name`, `registered_at` and `role`, ordered by `full_name` ascending unless `sort`
+asks otherwise. The first four are
 deliberately the same four fields, under the same names, that `get_repository_overview` serves in its
 own `repository` block, so a client that reads one reads the other. `role` is `owner` or `member`:
 the list mixes repositories this person owns with repositories somebody shared with them, and nothing
