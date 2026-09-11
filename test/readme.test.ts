@@ -85,10 +85,13 @@ function sectionFor(toolName: string): string[] | null {
  *
  * The floor below demands a parameter per tool, because a tool whose schema
  * advertises none would make its parameter loop empty and its whole `describe`
- * block a permanent, meaningless green. `list_repositories` is the first real
- * exception: the `sgu_` credential IS the entire scope of its answer and
- * `GET /api/v1/repositories` takes no parameters, so there is nothing for an
- * argument to select.
+ * block a permanent, meaningless green. `list_repositories` was the first real
+ * exception — the `sgu_` credential was the entire scope of its answer and
+ * `GET /api/v1/repositories` took no parameters — until SPGD-940 (`ef6236d`)
+ * grew the endpoint three narrowing asks and SPGD-1037 grew the tool the three
+ * arguments that forward them. It left this set when it grew rather than being
+ * accommodated, which is the direction this set exists to force: an exemption
+ * must not outlive the argument-less shape it named.
  *
  * That is a decision, so it is ENCODED rather than accommodated. Turning the
  * floor into "zero parameters is fine" would have retired the guard for every
@@ -99,10 +102,9 @@ function sectionFor(toolName: string): string[] | null {
  * quietly cover a tool that has since grown arguments.
  */
 const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set([
-  "list_repositories",
   "registrable_repositories",
   // `near_duplicate_clusters` takes no arguments by the same reasoning as the
-  // two above, plus a stronger one it shares with neither: its ask is FLAG
+  // one above, plus a stronger one it shares with neither: its ask is FLAG
   // shaped (`?near_duplicates=`), and the server reads only that the key is
   // present — there is no value for an argument to carry and no population to
   // pick out. The tool sends the ask unconditionally; its README section says so.

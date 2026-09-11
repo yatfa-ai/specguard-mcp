@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { ArgumentError } from "../../src/errors.js";
 import listRepositories from "../../src/tools/list-repositories.js";
 import getRepositoryOverview from "../../src/tools/repository-overview.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -106,6 +107,152 @@ describe("list_repositories", () => {
       listRepositories.run({}, toolContext({ env: USER_ENV, fetch: stubFetch({ body: "[]" }).fetch })),
       /not an object/,
     );
+  });
+});
+
+/**
+ * THE NARROWING ASKS — `?q=`, `?role=owned|shared` and `?sort=stale`, read by
+ * the endpoint since specguard `ef6236d` (SPGD-940) through
+ * `RepositoryNarrowing`, forwarded here since SPGD-1037.
+ *
+ * Three properties are pinned, in the order the landed family pins them:
+ *
+ * 1. SCHEMA → WIRE MAPPING. Every schema property is forwarded under the
+ *    query key of the same name, and the enums name the server's OWN accepted
+ *    vocabularies (`RepositoryNarrowing`'s ROLES and SORTS) rather than a
+ *    second list this bridge keeps in step by hand.
+ * 2. VERBATIM FORWARDING. A defined ask reaches the wire exactly as given —
+ *    the server owns the vocabulary clamp (an out-of-vocabulary value settles
+ *    to the no-ask, never a 400), so this side validates shape only.
+ * 3. THE NO-ASK PIN. Omitted, undefined and blank asks all compose to the
+ *    request this tool made before it had arguments at all — the bare
+ *    `/api/v1/repositories` URL. The falsification contract of this slice
+ *    rides on that pin: reverting `run`'s query build fails exactly the
+ *    forwarding tests below and leaves it green.
+ *
+ * Composition is asserted onto ONE request because that is what the server
+ * contract is: the asks chain onto one relation (`narrow_repositories`
+ * composes boundary → ?q= → ?role= → ?sort=stale), so a client that had to
+ * call once per ask would be paying for a round trip the endpoint never asked
+ * for.
+ */
+describe("list_repositories — the narrowing asks", () => {
+  it("forwards every schema property under the query key of the same name, with the server's own vocabularies", () => {
+    const properties = (listRepositories.inputSchema.properties ?? {}) as Record<
+      string,
+      { enum?: string[] }
+    >;
+
+    // The mapping itself: one property per ask, named as the server reads it.
+    assert.deepEqual(Object.keys(properties).sort(), ["q", "role", "sort"]);
+
+    // The vocabularies are the SERVER's, quoted in schema form — a value the
+    // endpoint would clamp to no-ask is not offered to a schema-honouring
+    // client at all.
+    assert.deepEqual(properties["role"]?.enum, ["owned", "shared"]);
+    assert.deepEqual(properties["sort"]?.enum, ["stale"]);
+  });
+
+  it("passes ?q= through when a search is asked for", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run({ q: "billing" }, toolContext({ env: USER_ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories?q=billing");
+  });
+
+  it("passes ?role=owned and ?role=shared through verbatim, in the ASK spelling rather than the response field's", async () => {
+    // The response field reads `owner`/`member`; the ask reads
+    // `owned`/`shared`. Forwarding the RESPONSE spelling (a plausible
+    // refactor: "normalise" the two) would send `role=owner`, which the server
+    // clamps to the no-ask — the full list, silently — which is why BOTH
+    // accepted values are pinned on the wire exactly as spelled.
+    for (const role of ["owned", "shared"] as const) {
+      const http = stubFetch({ body: BODY });
+
+      await listRepositories.run({ role }, toolContext({ env: USER_ENV, fetch: http.fetch }));
+
+      assert.equal(http.requests[0]?.url, `https://sg.example.com/api/v1/repositories?role=${role}`);
+    }
+  });
+
+  it("passes ?sort=stale through when the stale-first ordering is asked for", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run({ sort: "stale" }, toolContext({ env: USER_ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories?sort=stale");
+  });
+
+  it("composes several asks onto ONE request, in the server's own composition", async () => {
+    // `narrow_repositories` chains boundary → ?q= → ?role= → ?sort=stale onto
+    // ONE relation, so the asks ride one request rather than one call each —
+    // and the bridge must not stand between an agent and that composition.
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run(
+      { q: "acme", role: "shared", sort: "stale" },
+      toolContext({ env: USER_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests.length, 1);
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repositories?q=acme&role=shared&sort=stale",
+    );
+  });
+
+  it("sends NOTHING for a blank ask — declining and omitting are the same wire request", async () => {
+    // The established spelling (`optionalString` returning undefined for
+    // blank, `getJson` omitting undefined): a blank value is no ask, not an
+    // empty filter — `?role=` would be read by the server's guard as no-ask
+    // anyway, but sending it would make the wire disagree with the call the
+    // agent believes it made.
+    for (const asks of [
+      { q: "  " },
+      { role: "" },
+      { sort: " " },
+      { q: undefined, role: undefined, sort: undefined },
+    ]) {
+      const http = stubFetch({ body: BODY });
+
+      await listRepositories.run(asks, toolContext({ env: USER_ENV, fetch: http.fetch }));
+
+      assert.equal(
+        http.requests[0]?.url,
+        "https://sg.example.com/api/v1/repositories",
+        `expected no ask on the wire for ${JSON.stringify(asks)}`,
+      );
+    }
+  });
+
+  it("refuses a non-string ask by name, before any request is made", async () => {
+    // The enum guides a schema-honouring client, but `server.ts` forwards
+    // `arguments` unvalidated — so the type clamp here is the only thing that
+    // stands between a number and the wire. Wrong SHAPE is refused by name;
+    // out-of-vocabulary VALUES are the server's to clamp, which is why this
+    // asserts on `q` (a plain string ask) rather than reimplementing the
+    // server's vocabulary check.
+    const http = stubFetch({ body: BODY });
+
+    const error = await rejects(
+      listRepositories.run({ q: 42 }, toolContext({ env: USER_ENV, fetch: http.fetch })),
+      /`q` must be a string\./,
+    );
+
+    assert.equal(http.requests.length, 0, "a malformed ask must not reach the wire");
+    assert.ok(error instanceof ArgumentError, `expected an ArgumentError, got ${error.name}`);
+  });
+
+  it("still passes a narrowed body through unmodified — an ask changes the request, never the pass-through", async () => {
+    // The response half of the contract is untouched by the asks: whatever
+    // comes back is the same object, whatever was asked for.
+    const result = await listRepositories.run(
+      { q: "app", role: "owned", sort: "stale" },
+      toolContext({ env: USER_ENV, fetch: stubFetch({ body: BODY }).fetch }),
+    );
+
+    assert.deepEqual(result.structured, JSON.parse(BODY));
   });
 });
 
