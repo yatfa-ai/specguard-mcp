@@ -34,7 +34,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview` | — | an agent/CI API key (`sgk_…`) issued by that deployment |
-| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_USER_API_KEY` | `list_repositories`, `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_agent_keys`, `revoke_repository_agent_key`, `list_repository_agent_keys_presented_revoked`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -535,6 +535,81 @@ without it is refused `403` with SpecGuard's own sentence, verbatim.
 replacement with `create_repository_api_key` and deploy it BEFORE revoking the old one — revoke
 first and the repository's CI is locked out until a human mints a new key in a browser. A `204`
 means the key is revoked.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `list_repository_agent_keys`
+
+Lists the agent keys (`sga_…` keys) covering a SpecGuard repository — the keys minted for people
+or automation principals from the /account page, each covering one or more repositories. One row
+per live key: `id`, `name`, `owner`, `token_hint`, `repository_count` (how many repositories the
+key's grant covers — the blast radius), `permissions` and `created_at`.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository whose agent keys to list — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+
+**The `id` here is the only way to name an agent key on this bridge.** Agent keys have no mint
+tool — the platform mints them web-only at /account, deliberately — so unlike `sgk_` keys there is
+no create response to read an id from. List first, then `revoke_repository_agent_key`. Revoked keys
+leave this listing (a retained revoked row is not a credential); whether a dead token is still
+arriving is `list_repository_agent_keys_presented_revoked`'s question.
+
+`token_hint` is a hint, never the token — the plaintext existed for exactly one response at mint
+time and nothing persisted it. Authorization is the `keys_manage` capability; a caller without it
+is refused `403` with SpecGuard's own sentence, verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `revoke_repository_agent_key`
+
+Revokes one agent key (`sga_…`) on a SpecGuard repository. **Irreversible, and the blast radius is
+the key's whole stored set:** an agent key's grant (repository set + permission set) is stored once
+at mint time, so this one call cuts the token on EVERY repository the key covers, not just
+`repository_id`. Check `repository_count` on `list_repository_agent_keys` before cutting a
+multi-repository key.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository whose key-administration scope the call is made under — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle. The cut itself lands on every repository in the key's stored set |
+| `key_id` | the id of the agent key to revoke, as served by `list_repository_agent_keys` — the only id source, because agent keys have no mint tool on this bridge |
+
+This endpoint answers **`200` with the disclosure body**, not the empty `204` the sgk_ sibling
+`revoke_repository_api_key` serves: an `agent_key` block carrying `revoked_at`, `repository_count`
+and the still-existing `repositories` names (plus `deleted_repository_count` when repositories
+have been deleted since mint) — the API's substitute for the web confirm dialog, so the body
+itself is the confirmation.
+
+The `key_id` is scoped to `repository_id`: a key whose stored set does not cover this repository,
+or one already revoked, is refused `404`, never a cross-repository cut. Authorization is the
+`keys_manage` capability; a caller without it is refused `403` with SpecGuard's own sentence,
+verbatim.
+
+It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
+`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+
+### `list_repository_agent_keys_presented_revoked`
+
+Lists REVOKED agent keys whose token is still arriving at the deployment after revocation — the
+verify half of offboarding. Run it after `revoke_repository_agent_key` to learn whether the dead
+token is still being presented somewhere: each row carries `id`, `name`, `owner`, `token_hint`
+(hunt this in whatever secret stores may still hold the dead token, and update them),
+`repository_count`, `revoked_at` and `last_refused_at`.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository to triage — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+
+Two readings, stated plainly: **`last_refused_at` is the last observed presentation** — a recency,
+never a claim that something is presenting the token right now. And **an empty
+`{"agent_keys": []}` is an answer** — nothing is still arriving — not an absence of tracking; read
+it as the offboarding having fully taken.
+
+`token_hint` is a hint, never the token — the plaintext existed for exactly one response at mint
+time and nothing persisted it. Authorization is the `keys_manage` capability; a caller without it
+is refused `403` with SpecGuard's own sentence, verbatim.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
 `add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.

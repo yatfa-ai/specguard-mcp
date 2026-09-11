@@ -37,7 +37,8 @@ describe("an MCP client against the server", () => {
     const names = tools.map((tool) => tool.name).sort();
 
     // Grown to three by SPGD-760, to four by SPGD-764, and to thirteen by
-    // SPGD-885 (member management), to fourteen by SPGD-887 (rename) —
+    // SPGD-885 (member management), to fourteen by SPGD-887 (rename), to
+    // seventeen by SPGD-1039 (the agent-key family) —
     // grown rather than
     // loosened to a subset check on purpose: this `deepEqual` is the pin that
     // makes what the server promises an agent change only by a conscious
@@ -57,12 +58,15 @@ describe("an MCP client against the server", () => {
       "get_repository_overview",
       "lint_intent_annotations",
       "list_repositories",
+      "list_repository_agent_keys",
+      "list_repository_agent_keys_presented_revoked",
       "list_repository_members",
       "near_duplicate_clusters",
       "registrable_repositories",
       "remove_repository",
       "remove_repository_member",
       "rename_repository",
+      "revoke_repository_agent_key",
       "revoke_repository_api_key",
       "update_repository_member_permissions",
     ]);
