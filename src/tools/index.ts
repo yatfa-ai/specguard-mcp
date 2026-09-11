@@ -38,7 +38,7 @@ import type { ToolDefinition } from "./types.js";
  * the two halves of the surface — one local subprocess, one authenticated HTTP
  * call — so the shape is proven on both kinds of capability rather than on one.
  *
- * == The third: the first tool that reads the OTHER credential
+ * == The first tool that reads the OTHER credential
  *
  *   - `list_repositories` wraps `GET /api/v1/repositories` (shipped:
  *     `specguard/config/routes.rb`, `Api::V1::UserRepositoriesController`).
@@ -60,15 +60,7 @@ import type { ToolDefinition } from "./types.js";
  * not offering the tool, because the agent has already committed to a plan by
  * the time it finds out.
  *
- * Duplicate clustering was once under this same forbid, on the same standing
- * rule — no tool may wrap what has not shipped. That half retired when the
- * platform moved: SPGD-703 (`specguard` `c43dc19`, 2026-08-28) shipped
- * `GET /api/v1/repository?near_duplicates=`, serving
- * `RepositoryOverview#serialized_near_duplicates` behind an opt-in ask, and
- * `near_duplicate_clusters` below wraps it. What moved was the platform, not
- * the bar.
- *
- * == The fourth: the first tool that WRITES
+ * == The first tool that WRITES
  *
  *   - `add_repository` wraps `POST /api/v1/repositories` (shipped:
  *     `specguard/config/routes.rb`, `Api::V1::UserRepositoriesController#create`).
@@ -86,10 +78,10 @@ import type { ToolDefinition } from "./types.js";
  * The standing rule is unchanged and still binding. What once kept `DELETE
  * /api/v1/repositories/:id` and the API-key endpoints out under it — "not on
  * `origin/main`, so they may not be wrapped" — stopped being true when SPGD-754
- * shipped them, and the sixth-through-eighth section below records their
+ * shipped them, and the removal-and-key-lifecycle section below records their
  * wrapping. What moved was the platform, not the bar.
  *
- * == The fifth: the read half of the registration gate
+ * == The read half of the registration gate
  *
  *   - `registrable_repositories` wraps `GET /api/v1/repositories/registrable`
  *     (shipped: `specguard/config/routes.rb:117`,
@@ -110,7 +102,7 @@ import type { ToolDefinition } from "./types.js";
  * NOT on `origin/main`, so they may not be wrapped here however useful a tool
  * for them would be. What moved was the platform, not the bar.
  *
- * == The sixth through eighth: removal and the key lifecycle
+ * == Removal and the key lifecycle
  *
  *   - `remove_repository` wraps `DELETE /api/v1/repositories/:id`, and
  *     `create_repository_api_key` / `revoke_repository_api_key` wrap the two
@@ -130,7 +122,18 @@ import type { ToolDefinition } from "./types.js";
  * as a comment only). A tool advertised in `tools/list` remains a promise an
  * agent will act on.
  *
- * == The ninth through twelfth: member management
+ * == Near-duplicate clusters: the forbid that retired
+ *
+ *   - `near_duplicate_clusters` wraps `GET /api/v1/repository?near_duplicates=`
+ *     (shipped: SPGD-703, `specguard` `c43dc19`, 2026-08-28), serving
+ *     `RepositoryOverview#serialized_near_duplicates` behind an opt-in ask.
+ *
+ * Duplicate clustering was once under the same forbid that still keeps
+ * `/check-intent` out — the standing rule: no tool may wrap what has not
+ * shipped. That half retired when the platform moved and this entry became
+ * wrappable. What moved was the platform, not the bar.
+ *
+ * == Member management
  *
  *   - `list_repository_members`, `add_repository_member`,
  *     `update_repository_member_permissions` and `remove_repository_member`
@@ -149,7 +152,7 @@ import type { ToolDefinition } from "./types.js";
  * stays scoped to the repository (a foreign id is refused 404), and there is
  * no name-based lookup.
  *
- * == The thirteenth: rename
+ * == Rename
  *
  *   - `rename_repository` wraps `PATCH /api/v1/repositories/:id` (shipped:
  *     SPGD-878, `specguard@origin/main` e026793, PR #266).
@@ -165,7 +168,7 @@ import type { ToolDefinition } from "./types.js";
  * remove-and-re-register, which destroys every key, run and intent; this one
  * keeps them.
  *
- * == The fourteenth through sixteenth: the agent-key family
+ * == The agent-key family
  *
  *   - `list_repository_agent_keys` and `revoke_repository_agent_key` wrap the
  *     inventory and revoke of `user_repository_agent_keys` (shipped: SPGD-1004,
