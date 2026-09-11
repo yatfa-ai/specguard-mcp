@@ -153,6 +153,14 @@ const listRepositories: ToolDefinition = {
     "The set is exactly what the key behind it may see — a repository outside the credential's " +
     "own boundary is absent rather than filtered, so an empty list means no access, never an " +
     "error. " +
+    "It authenticates with EITHER of this server's two list-scoped credentials, whichever is " +
+    "set: SPECGUARD_AGENT_API_KEY (an sga_… key — the answer is the repository set granted onto " +
+    "that key at mint time, the same set every other agent-keyed tool here answers inside) and, " +
+    "when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key — the answer is what that person " +
+    "may open). With both set the agent key wins, so discovery stays inside the set the other " +
+    "tools can actually reach. " +
+    "Either way it is a DIFFERENT credential from the sgk_… repository key " +
+    "get_repository_overview reads; SpecGuard refuses each in the other's place.",
   inputSchema: {
     type: "object",
     properties: {
@@ -181,11 +189,14 @@ const listRepositories: ToolDefinition = {
           "so nothing is lost by asking for one half — and both chain onto the credential " +
           "boundary, so neither half can be wider than the plain call's answer. " +
           "THE ASK VALUES ARE SPELLED DIFFERENTLY FROM THE RESPONSE FIELD: an entry's `role` is " +
-          "`\"owner\"` or `\"member\"`, but the ask is `owned`/`shared` — send `role: " +
+          "`\"owner\"`/`\"member\"` under the PERSON key and `\"agent\"` under the AGENT one (the " +
+          "key speaks for nobody), but the ask is `owned`/`shared` — send `role: " +
           "\"owner\"` and you are not asking for anything. A client that honours this schema " +
           "cannot send it (the enum refuses it before the call); a client that bypasses the " +
           "schema gets the server's clamp, where any value outside `owned`/`shared` settles to " +
-          "the no-ask and the full list is served — never an error. " +
+          "the no-ask and the full list is served — never an error — and under the AGENT key " +
+          "the ask settles to the no-ask for EVERY value, because ownership is a person fact " +
+          "and the key speaks for nobody. " +
           "Blank (or null) is no ask: byte-identical to omitting the argument.",
       },
       sort: {
