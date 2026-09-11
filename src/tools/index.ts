@@ -3,6 +3,8 @@ import addRepositoryMember from "./add-repository-member.js";
 import createRepositoryApiKey from "./create-repository-api-key.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
+import listRepositoryAgentKeys from "./list-repository-agent-keys.js";
+import listRepositoryAgentKeysPresentedRevoked from "./list-repository-agent-keys-presented-revoked.js";
 import listRepositoryMembers from "./list-repository-members.js";
 import nearDuplicateClusters from "./near-duplicate-clusters.js";
 import getRepositoryOverview from "./repository-overview.js";
@@ -10,6 +12,7 @@ import registrableRepositories from "./registrable-repositories.js";
 import removeRepository from "./remove-repository.js";
 import removeRepositoryMember from "./remove-repository-member.js";
 import renameRepository from "./rename-repository.js";
+import revokeRepositoryAgentKey from "./revoke-repository-agent-key.js";
 import revokeRepositoryApiKey from "./revoke-repository-api-key.js";
 import updateRepositoryMemberPermissions from "./update-repository-member-permissions.js";
 import type { ToolDefinition } from "./types.js";
@@ -161,6 +164,30 @@ import type { ToolDefinition } from "./types.js";
  * may not rename it. Before this tool the bridge's only rename path was
  * remove-and-re-register, which destroys every key, run and intent; this one
  * keeps them.
+ *
+ * == The fourteenth through sixteenth: the agent-key family
+ *
+ *   - `list_repository_agent_keys` and `revoke_repository_agent_key` wrap the
+ *     inventory and revoke of `user_repository_agent_keys` (shipped: SPGD-1004,
+ *     specguard `dfb9892`), and `list_repository_agent_keys_presented_revoked`
+ *     wraps the still-presented triage over the same controller (shipped:
+ *     SPGD-1023, specguard `533e77b`).
+ *
+ * The `sga_` noun's first bridge tools, and the gap they close is the one the
+ * platform controller's own header records: a `keys.manage` holder could
+ * already mint and revoke `sgk_` keys through this bridge but could not even
+ * LIST the agent keys covering a repository, so the offboarding arc — a
+ * departed member's agent key authenticating indefinitely — was not
+ * completable over the bridge at all. The family also forced the transport's
+ * third DELETE shape: this revoke answers `200` WITH a JSON disclosure body
+ * (the API's substitute for the web confirm dialog — the response that
+ * performs the cut also names every repository it landed on), so it routes
+ * through `deleteJsonObject` — `requestJson`'s parse — rather than
+ * `deleteJson`'s raw-body handling, which the empty-204 endpoints keep
+ * unchanged. And the id the revoke needs is learnable ONLY from the listing:
+ * minting is deliberately web-only at /account, so unlike the `sgk_` pair
+ * there is no create response to read an id from — the list and revoke
+ * descriptions say so rather than leaving it implicit.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
@@ -177,6 +204,9 @@ export const TOOLS: readonly ToolDefinition[] = [
   updateRepositoryMemberPermissions,
   removeRepositoryMember,
   renameRepository,
+  listRepositoryAgentKeys,
+  listRepositoryAgentKeysPresentedRevoked,
+  revokeRepositoryAgentKey,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";

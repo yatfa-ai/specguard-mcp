@@ -108,6 +108,32 @@ export async function deleteJson(
 }
 
 /**
+ * `DELETE` that answers with a JSON body — the destructive verb's one non-empty
+ * answer, routed through `requestJson` rather than `deleteJson`'s raw-body
+ * handling.
+ *
+ * Every DELETE this surface served until now answered `204` with NO body — the
+ * reason `deleteJson` exists and returns raw text. The agent-key revoke
+ * (`DELETE /api/v1/repositories/:repository_id/agent_keys/:id`) answers `200`
+ * WITH a JSON disclosure body: the platform's substitute for the confirm dialog
+ * the web face shows, naming the full stored set the cut just landed on. The
+ * body is the point of the response, so this verb parses it — and re-deriving
+ * the status check and the not-JSON diagnosis here would be a third copy of the
+ * one check `requestJson` owns, which is exactly the argument `patchJson`'s
+ * header makes for its own 200-with-body case. `deleteJson` stays exported and
+ * byte-unchanged for the endpoints that legitimately answer empty.
+ */
+export async function deleteJsonObject(
+  api: ApiConfig,
+  path: string,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<Record<string, unknown>> {
+  return asJsonObject(
+    await requestJson(new URL(`${api.endpoint}${path}`), api, fetchImpl, { method: "DELETE" }),
+  );
+}
+
+/**
  * `postJson`, narrowed exactly as `getJsonObject` narrows `getJson`.
  *
  * The write path needs the same guard for the same reason, and the reason is not
