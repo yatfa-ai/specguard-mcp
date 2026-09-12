@@ -3,10 +3,16 @@ import { describe, it } from "node:test";
 import removeRepository from "../../src/tools/remove-repository.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
 
-/** Only the USER key — the credential this tool reads. */
+/** Only the USER key — the credential this tool's fallback reads. */
 const USER_ENV = {
   SPECGUARD_ENDPOINT: "https://sg.example.com",
   SPECGUARD_USER_API_KEY: "sgu_test",
+};
+
+/** Only the AGENT key — the environment an agent-configured operator has. */
+const AGENT_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_AGENT_API_KEY: "sga_test",
 };
 
 /** The `204` with NO body — the deployment's whole success answer. */
@@ -29,6 +35,44 @@ describe("remove_repository", () => {
     assert.equal(request?.url, "https://sg.example.com/api/v1/repositories/42");
     assert.equal(request?.body, undefined, "a DELETE carries no body");
     assert.equal(request?.headers["authorization"], "Bearer sgu_test");
+  });
+
+  it("authenticates with the agent key when that is the only key set", async () => {
+    // The destroy endpoint accepts BOTH key kinds since SPGD-973 — the set
+    // reachable is bounded by whichever was presented — so an agent holding
+    // only the agent credential can remove a repository it was granted, with
+    // `repo.delete` in the grant. Nothing on the wire changes beyond the
+    // Bearer: same DELETE, same path, same empty-body 204.
+    const http = stubFetch(NO_CONTENT);
+
+    await removeRepository.run(
+      { repository_id: "42" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    const request = http.requests[0];
+    assert.equal(request?.method, "DELETE");
+    assert.equal(request?.url, "https://sg.example.com/api/v1/repositories/42");
+    assert.equal(request?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("prefers the agent key when BOTH credentials are set", async () => {
+    // Scope consistency, not preference: the agent set is what
+    // `list_repositories` reports and what the other agent-keyed tools answer
+    // inside, so a removal from the person's wider set could name a repository
+    // the agent's own discovery never showed. Asserted ONCE — the precedence
+    // is the helper's (`config.ts`), not this tool's behavior to re-prove.
+    const http = stubFetch(NO_CONTENT);
+
+    await removeRepository.run(
+      { repository_id: "42" },
+      toolContext({
+        env: { ...USER_ENV, SPECGUARD_AGENT_API_KEY: "sga_test" },
+        fetch: http.fetch,
+      }),
+    );
+
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
   });
 
   it("succeeds on a 204 with an empty body, without parsing it as JSON", async () => {
@@ -105,7 +149,7 @@ describe("remove_repository", () => {
     );
   });
 
-  it("names the USER variable when only the repository key is set", async () => {
+  it("names BOTH variables when only the repository key is set", async () => {
     const http = stubFetch(NO_CONTENT);
 
     const error = await rejects(
@@ -116,10 +160,17 @@ describe("remove_repository", () => {
           fetch: http.fetch,
         }),
       ),
-      /SPECGUARD_USER_API_KEY is not set/,
+      /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/,
     );
 
+    // The one-message rule at double width: this tool accepts EITHER
+    // credential, so refusing with a single name would send the operator to
+    // fix a variable, re-call, and be told about the other. The prefixes ride
+    // the same sentence — and no mention of the `sgk_` variable they DID set,
+    // which is correct and is not the problem.
     assert.match(error.message, /sgu_… key/);
+    assert.match(error.message, /sga_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 });

@@ -1,4 +1,4 @@
-import { deleteJson, requireUserApiConfig } from "../support/specguard-api.js";
+import { deleteJson, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
 import { requireString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -47,9 +47,15 @@ const removeRepository: ToolDefinition = {
     "cannot be brought back. " +
     "Takes `repository_id` — the numeric id `add_repository` and `list_repositories` " +
     "report, not the `org/repo` handle. " +
-    "Needs SPECGUARD_USER_API_KEY (an sgu_… key), the same credential `add_repository` " +
-    "writes with and a DIFFERENT one from the sgk_… repository key " +
-    "`get_repository_overview` uses.",
+    "It authenticates with EITHER of this server's two repository-administration credentials, " +
+    "whichever is set: SPECGUARD_AGENT_API_KEY (an sga_… key — the call then reaches only the " +
+    "repositories granted onto that key at mint time, and only where the grant carries " +
+    "`repo.delete`; a repository outside that set answers 404 in SpecGuard's own words, never " +
+    "a probe here) and, when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key, the same " +
+    "credential `add_repository` writes with). With both set the agent key wins, so the " +
+    "removal answers inside the same set `list_repositories` reports. " +
+    "Either way it is a DIFFERENT credential from the sgk_… repository key " +
+    "`get_repository_overview` uses; SpecGuard refuses each in the other's place.",
   inputSchema: {
     type: "object",
     properties: {
@@ -72,7 +78,7 @@ const removeRepository: ToolDefinition = {
   async run(args, context): Promise<ToolResult> {
     const repositoryId = requireString(args["repository_id"], "repository_id");
 
-    const api = requireUserApiConfig(context.config);
+    const api = requireUserOrAgentApiConfig(context.config);
 
     const body = await deleteJson(
       api,
