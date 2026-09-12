@@ -6,6 +6,12 @@ import { rejects, stubFetch, toolContext } from "../support/stubs.js";
 
 const ENV = { SPECGUARD_ENDPOINT: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_test" };
 
+/** Only the AGENT key — the environment the `repository` ask reads. */
+const AGENT_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_AGENT_API_KEY: "sga_test",
+};
+
 /** A response in the shape `Api::V1::RepositoriesController#show` renders. */
 const BODY = JSON.stringify({
   repository: { id: 1, full_name: "acme/app", name: "app", registered_at: "2026-01-01T00:00:00Z" },
@@ -35,6 +41,27 @@ const BODY = JSON.stringify({
   history: [],
   branches_window: { returned: 1 },
   branches: [{ name: "main", run_count: 4, run_count_capped: false }],
+});
+
+/**
+ * The same response as the SINGULAR controller renders it — but for the PLURAL
+ * path, `GET /api/v1/repositories/:id`, and the one key where the two bodies
+ * deliberately differ: `api_key` is ABSENT here, not null.
+ * `UserRepositoriesController#show` calls `.body` with no `api_key_block`, and
+ * its comment says why: the block describes the credential that MADE the
+ * request, this request was made with an agent key that is not a repository
+ * key, and a block of nulls would be a sentence about a credential that does
+ * not exist. Every plural-path test is built on THIS fixture, never on `BODY`
+ * — a plural test asserted against a body carrying `api_key` would be positive
+ * evidence for a shape the endpoint never serves.
+ */
+const PLURAL_BODY = JSON.stringify({
+  repository: { id: 42, full_name: "acme/other", name: "other", registered_at: "2026-03-02T00:00:00Z" },
+  latest_run: JSON.parse(BODY).latest_run,
+  history_window: JSON.parse(BODY).history_window,
+  history: JSON.parse(BODY).history,
+  branches_window: JSON.parse(BODY).branches_window,
+  branches: JSON.parse(BODY).branches,
 });
 
 /**
@@ -265,6 +292,104 @@ describe("get_repository_overview — the request it makes", () => {
 
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+  });
+
+  it("names a repository and goes to the PLURAL endpoint, under the agent key", async () => {
+    const http = stubFetch({ body: PLURAL_BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42");
+    // The credential MOVES with the endpoint, because the deployment refuses
+    // each prefix kind in the other's place before it reads a table: a plural
+    // path under the `sgk_` key is a guaranteed 401, and so is the singular
+    // path under the agent key.
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("keeps the drill-down params riding along identically on the plural path", async () => {
+    // The ticket's contract: same ladder, same body, only the subject moves.
+    // Every parameter below is forwarded exactly as the singular path forwards
+    // it — pinning one of each KIND (a name, a flag) rather than the whole
+    // ladder, which the singular-path tests above already pin.
+    const http = stubFetch({ body: PLURAL_BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42", branch: "main", unannotated_examples: true },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    const url = new URL(http.requests[0]?.url ?? "");
+    assert.equal(`${url.origin}${url.pathname}`, "https://sg.example.com/api/v1/repositories/42");
+    assert.equal(url.searchParams.get("branch"), "main");
+    assert.equal(url.searchParams.get("unannotated_examples"), "true");
+  });
+
+  it("encodes the id for the URL but does not restrict its shape — the platform owns that", async () => {
+    // No hex/length/numeric checking here, exactly as `commit_sha` states for
+    // shas: the server is the authority on what names a repository, and a
+    // client-side copy of the rule would refuse an id form the deployment
+    // accepts. What IS pinned is that the id lands in the path segment
+    // intact — `encodeURIComponent` on a plain numeric id changes nothing, so
+    // the ordinary call stays the ordinary URL.
+    const http = stubFetch({ body: PLURAL_BODY });
+
+    await getRepositoryOverview.run(
+      { repository: " 42 " },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42");
+  });
+
+  it("treats a blank repository as NO ASK: the singular path, under the sgk_ slot", async () => {
+    // The blank-is-no-ask rule every argument here follows — and the fallback
+    // is today's whole request, not a plural call with an empty id that could
+    // only 404.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "   " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+  });
+
+  it("refuses the `repository` ask by name when the agent key is not set, before any request", async () => {
+    // The two credential slots refuse each other's endpoints at the
+    // deployment; the legible place to catch the pairing is HERE, naming the
+    // variable the operator has to set, rather than as a flat 401 after the
+    // wire. And it is the AGENT variable that is named — the `sgk_` slot being
+    // set is correct and is not the problem.
+    const http = stubFetch({ body: BODY });
+
+    const error = await rejects(
+      getRepositoryOverview.run({ repository: "42" }, toolContext({ env: ENV, fetch: http.fetch })),
+      /SPECGUARD_AGENT_API_KEY is not set/,
+    );
+
+    assert.match(error.message, /an sga_… key/);
+    assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+
+  it("refuses the default call by name when ONLY the agent key is set", async () => {
+    // The mirror image, and the half that keeps this a pair of credentials
+    // rather than a widening of one: omitting `repository` still means the
+    // singular, `sgk_`-keyed endpoint, so an agent-only operator is told
+    // exactly which variable the default call wants.
+    const http = stubFetch({ body: BODY });
+
+    await rejects(
+      getRepositoryOverview.run({}, toolContext({ env: AGENT_ENV, fetch: http.fetch })),
+      /SPECGUARD_API_KEY is not set/,
+    );
+
+    assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 
   it("passes ?branch= through when a branch is asked for", async () => {
@@ -502,6 +627,68 @@ describe("get_repository_overview — the response it returns", () => {
     const result = await getRepositoryOverview.run({}, toolContext({ env: ENV, fetch: stubFetch({ body: BODY }).fetch }));
 
     assert.deepEqual(JSON.parse(result.text), result.structured);
+  });
+
+  it("passes the PLURAL body through with `api_key` ABSENT, never present-and-null", async () => {
+    // The one shape difference between the two surfaces, and the reason the
+    // plural fixture is its own object rather than `BODY`: the block describes
+    // the credential that made the request, and the agent-key caller is not a
+    // repository key — so `UserRepositoriesController#show` passes no
+    // `api_key_block` and the key is OMITTED from the object. A null there
+    // would be a sentence about a credential that does not exist. This pins
+    // the pass-through honesty in the direction the description now states:
+    // everything else in the body arrives intact, and `api_key` is not
+    // merely `null` — the key itself is gone.
+    const result = await getRepositoryOverview.run(
+      { repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: stubFetch({ body: PLURAL_BODY }).fetch }),
+    );
+
+    assert.deepEqual(result.structured, JSON.parse(PLURAL_BODY));
+    assert.ok(
+      !("api_key" in (result.structured as object)),
+      "the plural body must have NO api_key key — absent, not null",
+    );
+    // ...and the blocks that DO travel are still there: both health blocks
+    // come from `RepositoryOverview` itself, not from the omitted argument.
+    assert.ok("repository" in (result.structured as object));
+    assert.ok("latest_run" in (result.structured as object));
+  });
+
+  it("states the plural body's api_key omission instead of claiming one identical body", async () => {
+    // "Same overview body, only the subject moves" was the exact claim the
+    // plural path does not honour: `api_key` is absent there, and an agent
+    // following the description's own `api_key.last_used_at` instruction on
+    // that path would find nothing and have no way to tell "absent because
+    // this is the plural surface" from "the bridge dropped it". Asserted
+    // rather than trusted to review — a description is the one part of a tool
+    // nothing else exercises (the same instrument `add-repository.test.ts`
+    // runs, and the same defect class this audit returned).
+    const description = getRepositoryOverview.description;
+    const repositoryProperty = (
+      (getRepositoryOverview.inputSchema.properties ?? {})["repository"] as {
+        description?: string;
+      }
+    )?.description;
+
+    // The old unqualified claims are GONE, from both the tool description and
+    // the `repository` property.
+    assert.doesNotMatch(
+      description,
+      /same overview body, every parameter above honoured identically/,
+      "the tool description must not claim one identical body — the plural one omits `api_key`",
+    );
+    assert.doesNotMatch(
+      repositoryProperty ?? "",
+      /same overview body, same ladder/,
+      "the repository property must not claim one identical body either",
+    );
+    // The truth is STATED, with the absent-not-null distinction the server
+    // spent a paragraph of its own comment making.
+    assert.match(description, /MINUS the `api_key` block/);
+    assert.match(description, /ABSENT there rather than nulled/);
+    assert.match(repositoryProperty ?? "", /`api_key` is ABSENT/);
+    assert.match(repositoryProperty ?? "", /not null/);
   });
 
   it("hands back the drill-down populated when an area was asked for", async () => {
@@ -769,6 +956,20 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("rejects a repository of the wrong type, naming it", async () => {
+    // The coercion runs before any config is resolved, so this refuses on a
+    // server with NO credentials at all — the agent's own fixable mistake,
+    // never a deployment refusal.
+    const http = stubFetch({ body: BODY });
+
+    await rejects(
+      getRepositoryOverview.run({ repository: 42 }, toolContext({ env: {}, fetch: http.fetch })),
+      /`repository` must be a string/,
+    );
+
+    assert.equal(http.requests.length, 0);
+  });
+
   it("rejects a branch of the wrong type", async () => {
     await rejects(getRepositoryOverview.run({ branch: 7 }, toolContext({ env: ENV })), /must be a string/);
   });
@@ -996,12 +1197,15 @@ describe("get_repository_overview — failures an agent can act on", () => {
     const properties = getRepositoryOverview.inputSchema.properties ?? {};
     const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
 
-    // The three properties that are NOT run-grain drill-ins, each for a reason
+    // The properties that are NOT run-grain drill-ins, each for a reason
     // stated in its own description: `branch` narrows `history` (a series, not
-    // a run), `commit_sha` IS the anchor rather than something anchored, and
+    // a run), `commit_sha` IS the anchor rather than something anchored,
     // `unstable_test` reads the branch window (`history_runs`) rather than the
-    // anchored run — the documented exception the sentence after the list names.
-    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test"]);
+    // anchored run, and `repository` names WHICH REPOSITORY the answer is
+    // about at all — it moves every block together and re-anchors nothing,
+    // because anchoring is a question about which RUN within the subject, and
+    // this chooses the subject.
+    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test", "repository"]);
 
     // The response key each drill-in parameter opens. Keys, not parameter
     // names, because the description enumerates what MOVES — response blocks —

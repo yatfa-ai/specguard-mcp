@@ -100,15 +100,16 @@ function sectionFor(toolName: string): string[] | null {
  * deliberately — and the two checks under `the argument-less tools` keep the set
  * itself honest in both directions, so it cannot outlive the tools it names or
  * quietly cover a tool that has since grown arguments.
+ *
+ * `near_duplicate_clusters` used to be here: its ask is FLAG shaped
+ * (`?near_duplicates=`), the server reads only that the key is present, and
+ * there is no value for an argument to carry. SPGD-953 added `repository` —
+ * which names WHICH repository is censused, not anything about the census — so
+ * the tool now advertises a parameter and belongs in the checked set again,
+ * exactly as the "grown arguments" guard below demands.
  */
 const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set([
   "registrable_repositories",
-  // `near_duplicate_clusters` takes no arguments by the same reasoning as the
-  // one above, plus a stronger one it shares with neither: its ask is FLAG
-  // shaped (`?near_duplicates=`), and the server reads only that the key is
-  // present — there is no value for an argument to carry and no population to
-  // pick out. The tool sends the ask unconditionally; its README section says so.
-  "near_duplicate_clusters",
 ]);
 
 /** Matches the argument table's row for one parameter: `| \`name\` | … |`. */

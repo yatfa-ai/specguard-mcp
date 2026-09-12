@@ -43,9 +43,10 @@ import type { ToolDefinition } from "./types.js";
  *   - `list_repositories` wraps `GET /api/v1/repositories` (shipped:
  *     `specguard/config/routes.rb`, `Api::V1::UserRepositoriesController`).
  *
- * It is the only tool here that answers to an `sgu_` USER key rather than an
- * `sgk_` repository key, and SpecGuard refuses each credential in the other's
- * place before it reads a table. So this entry is also what proves the second
+ * It is the only tool here that answers to an `sga_` AGENT key first, falling
+ * back to the `sgu_` USER key, rather than an `sgk_` repository key, and
+ * SpecGuard refuses each credential in the other's place before it reads a
+ * table. So this entry is also what proves the second
  * variable, the second `require*` helper and the credential-aware diagnostics
  * work end to end — one tool, over a real endpoint, rather than a seam nothing
  * exercises.

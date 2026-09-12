@@ -1,5 +1,6 @@
-import { requireApiConfig } from "../config.js";
+import { requireAgentApiConfig, requireApiConfig } from "../config.js";
 import { getJsonObject } from "../support/specguard-api.js";
+import { optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -29,15 +30,27 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * The server reads only whether the parameter is PRESENT
  * (`RequestedNearDuplicatesParam`): `?near_duplicates=false` opens the block
  * exactly as `=true` does, and a non-String shape is read as no ask at all.
- * There is no "off" value for a client to send, so this tool has no arguments
- * — nothing about the census is choosable from here, which is also why the
- * schema is CLOSED rather than merely empty: `server.ts` forwards `arguments`
- * unvalidated, and an open schema would let an invented argument ride through
- * and be silently dropped (see `registrable-repositories.ts` for the same
- * call). `near_duplicates: "true"` is built rather than stringified for the
- * same reason `repository-overview.ts` builds its `unannotated_examples` key:
+ * There is no "off" value for a client to send, so nothing about the CENSUS is
+ * choosable from here — the clusters are the repository's, computed over every
+ * run, and one call returns them all. What IS choosable, since SPGD-953, is
+ * WHICH REPOSITORY is censused: an optional `repository` argument (a numeric id
+ * from `list_repositories`) moves the call to the plural endpoint
+ * `GET /api/v1/repositories/:id` under the AGENT key, same body (minus the
+ * `api_key` block, which is ABSENT on that surface rather than nulled — see
+ * `repository-overview.ts` for why the omission is the server's, deliberately),
+ * same ask, same cost gate. Without it the request is byte-for-byte the singular,
+ * `sgk_`-bound one this tool has always made — and the cost argument above is
+ * exactly why the argument is OPTIONAL rather than required: an agent that has
+ * only ever had one reachable repository should not be asked to learn a second
+ * credential to keep reading it.
+ *
+ * `near_duplicates: "true"` is built rather than stringified for the same
+ * reason `repository-overview.ts` builds its `unannotated_examples` key:
  * `getJson` omits only `undefined`, so a conditional send is the only honest
- * way to spell "always" here.
+ * way to spell "always" here. The schema stays CLOSED around the one argument:
+ * `server.ts` forwards `arguments` unvalidated, and an open schema would let an
+ * invented argument ride through and be silently dropped (see
+ * `registrable-repositories.ts` for the same call).
  *
  * == The response is passed through, not re-modelled
  *
@@ -70,9 +83,12 @@ const nearDuplicateClusters: ToolDefinition = {
     "THIS IS THE EXPENSIVE READ ON THIS BRIDGE: the census is linear but measured in seconds — seven " +
     "queries at every size, tens of seconds extrapolated at the 20,000-test design point — which is " +
     "exactly why the server serves it only to a client that asks (`?near_duplicates=`) and answers " +
-    "`near_duplicates: null` on the plain overview. Calling this tool IS the ask; it takes no " +
-    "arguments because nothing about the census is choosable — the clusters are the repository's, " +
-    "computed over every run, and one call returns them all. " +
+    "`near_duplicates: null` on the plain overview. Calling this tool IS the ask; nothing about the " +
+    "census is choosable — the clusters are the repository's, computed over every run, and one call " +
+    "returns them all. WHICH repository is censused is the one choice there is: pass `repository` " +
+    "(a numeric id from `list_repositories`) to census that named repository under the agent key, " +
+    "or omit it to census the repository the configured sgk_… key resolves to, exactly as before " +
+    "the argument existed. " +
     "READ THE DISCLOSURE KEYS BEFORE THE COUNT: `similarity_floor` and `similarity_basis` sit FIRST " +
     "in the block and qualify every cluster below them — a cluster count without what 'similar' " +
     "meant is a figure you cannot act on. `truncated: true` means the cluster list was cut at the " +
@@ -91,26 +107,60 @@ const nearDuplicateClusters: ToolDefinition = {
     "success state (nothing reads alike), and the three silences — nothing ingested " +
     "(`recorded_count: 0`), nothing embedded (`identity_count: 0`), nothing alike — are kept " +
     "distinguishable by those counts rather than collapsed into one empty list. " +
-    "Same credential and endpoint as `get_repository_overview` (an `sgk_` repository key on " +
-    "`GET /api/v1/repository`); the response is that endpoint's full body with the `near_duplicates` " +
-    "block OPENED, passed through unmodified.",
+    "Same endpoints and credentials as `get_repository_overview`: without `repository`, an " +
+    "`sgk_` repository key on `GET /api/v1/repository`; with `repository`, an `sga_` agent key " +
+    "(SPECGUARD_AGENT_API_KEY) on `GET /api/v1/repositories/:id`, whose answer the key's own " +
+    "granted repository set bounds. SpecGuard refuses each credential in the other's place, so " +
+    "a `repository` ask without the agent key set is refused HERE, by name, before any request " +
+    "is made. " +
+    "The response is the endpoint's full body with the `near_duplicates` block OPENED, passed " +
+    "through unmodified — with the one surface difference `get_repository_overview` documents " +
+    "for its own `repository` ask: on that plural path the `api_key` block is ABSENT from the " +
+    "body rather than nulled (it describes the credential that made the request, and an agent " +
+    "key is not a repository key), so an absent `api_key` there is the surface's shape, never " +
+    "a dropped block.",
 
   inputSchema: {
     type: "object",
-    // No properties, deliberately — see this file's header. Still CLOSED rather
-    // than merely empty, for the reason `registrable-repositories.ts` gives
-    // inline: `server.ts` forwards `arguments` unvalidated and `run` ignores
-    // them, so an open schema would have an invented argument silently dropped
-    // and the call answered as if it had been honoured.
+    properties: {
+      repository: {
+        type: "string",
+        description:
+          "Census THIS repository instead of the one the configured sgk_… key resolves to. The " +
+          "value is the repository's NUMERIC ID, exactly as served in `list_repositories` " +
+          "entries' `id` — not the `org/repo` handle. " +
+          "The credential changes with it, because SpecGuard refuses each key kind in the " +
+          "other's place: the call authenticates with SPECGUARD_AGENT_API_KEY (an sga_… agent " +
+          "key) instead of SPECGUARD_API_KEY, and the key's granted repository set is the " +
+          "boundary the id is resolved inside — a repository outside the set answers 404, " +
+          "indistinguishable from one that does not exist. The census itself is identical on " +
+          "either path: same block, same caps, same disclosure keys. " +
+          "Omit it — or pass a blank — and the call is byte-for-byte the singular one under " +
+          "SPECGUARD_API_KEY, exactly as before this argument existed.",
+      },
+    },
     additionalProperties: false,
   },
 
-  async run(_args, context): Promise<ToolResult> {
-    const api = requireApiConfig(context.config);
+  async run(args, context): Promise<ToolResult> {
+    const repository = optionalString(args["repository"], "repository");
+    // WHICH ENDPOINT AND WHICH CREDENTIAL is one branch point over the one ask,
+    // for the reason `repository-overview.ts` states at its own call site: the
+    // pair (path, credential) must not be mixable, because either mixed pairing
+    // is a 401 at the deployment by design and both are refused here, legibly,
+    // instead.
+    const api =
+      repository === undefined
+        ? requireApiConfig(context.config)
+        : requireAgentApiConfig(context.config);
+    const path =
+      repository === undefined
+        ? "/api/v1/repository"
+        : `/api/v1/repositories/${encodeURIComponent(repository)}`;
 
     const overview = await getJsonObject(
       api,
-      "/api/v1/repository",
+      path,
       {
         // Always sent, always `"true"` — the server reads only that the key is
         // present (`?near_duplicates=false` opens the block too), and this

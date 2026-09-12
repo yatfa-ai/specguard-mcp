@@ -4,8 +4,10 @@ import {
   DEFAULT_LINT_COMMAND,
   DEFAULT_REQUEST_TIMEOUT_MS,
   loadConfig,
+  requireAgentApiConfig,
   requireApiConfig,
   requireUserApiConfig,
+  requireUserOrAgentApiConfig,
   tokenise,
 } from "../src/config.js";
 import { ConfigError } from "../src/errors.js";
@@ -17,6 +19,7 @@ describe("loadConfig", () => {
     assert.equal(config.endpoint, undefined);
     assert.equal(config.apiKey, undefined);
     assert.equal(config.userApiKey, undefined);
+    assert.equal(config.agentApiKey, undefined);
     assert.deepEqual(config.lintCommand, DEFAULT_LINT_COMMAND);
     assert.equal(config.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
   });
@@ -37,6 +40,7 @@ describe("loadConfig", () => {
       "SPECGUARD_URL",
       "SPECGUARD_API_KEY",
       "SPECGUARD_USER_API_KEY",
+      "SPECGUARD_AGENT_API_KEY",
       "SPECGUARD_LINT_COMMAND",
       "SPECGUARD_TIMEOUT_MS",
     ];
@@ -51,9 +55,43 @@ describe("loadConfig", () => {
       assert.equal(config.endpointVariable, undefined);
       assert.equal(config.apiKey, undefined);
       assert.equal(config.userApiKey, undefined);
+      assert.equal(config.agentApiKey, undefined);
       assert.deepEqual(config.lintCommand, DEFAULT_LINT_COMMAND);
       assert.equal(config.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
     }
+  });
+
+  /**
+   * The third slot, and the same two properties the second slot's test pins:
+   * it is read from its OWN variable with the shared blank-is-unset rule, and
+   * it is a slot rather than a rename — setting it must never look like setting
+   * either sibling, because the deployment refuses each prefix kind in the
+   * other's place before it reads a table.
+   */
+  it("reads the agent key from its own variable, and applies the same blank-is-unset rule", () => {
+    assert.equal(loadConfig({ SPECGUARD_AGENT_API_KEY: "sga_abc" }).agentApiKey, "sga_abc");
+    assert.equal(loadConfig({ SPECGUARD_AGENT_API_KEY: "   " }).agentApiKey, undefined);
+
+    const agentOnly = loadConfig({ SPECGUARD_AGENT_API_KEY: "sga_abc" });
+    assert.equal(agentOnly.apiKey, undefined);
+    assert.equal(agentOnly.userApiKey, undefined);
+
+    const repositoryOnly = loadConfig({ SPECGUARD_API_KEY: "sgk_abc" });
+    assert.equal(repositoryOnly.agentApiKey, undefined);
+    const userOnly = loadConfig({ SPECGUARD_USER_API_KEY: "sgu_abc" });
+    assert.equal(userOnly.agentApiKey, undefined);
+
+    // And all three at once is the ordinary state of an operator who uses every
+    // kind of tool — not a conflict: each kind of tool reads its own slot and
+    // never a neighbour's.
+    const allThree = loadConfig({
+      SPECGUARD_API_KEY: "sgk_abc",
+      SPECGUARD_USER_API_KEY: "sgu_abc",
+      SPECGUARD_AGENT_API_KEY: "sga_abc",
+    });
+    assert.equal(allThree.apiKey, "sgk_abc");
+    assert.equal(allThree.userApiKey, "sgu_abc");
+    assert.equal(allThree.agentApiKey, "sga_abc");
   });
 
   /**
@@ -353,6 +391,188 @@ describe("requireUserApiConfig", () => {
         loadConfig({ SPECGUARD_URL: "https://sg.example.com", SPECGUARD_USER_API_KEY: "sgu_abc" }),
       ).endpointVariable,
       "SPECGUARD_URL",
+    );
+  });
+});
+
+/**
+ * The third slot, over the same shared body as the other two — so the
+ * properties that make the second slot a slot are inherited rather than
+ * re-asserted one by one. What is NEW here is only the seam: a helper that
+ * reads the agent variable must be blind to both siblings, in both directions,
+ * because the deployment refuses each prefix kind in the others' places.
+ */
+describe("requireAgentApiConfig", () => {
+  const ENDPOINT = { SPECGUARD_ENDPOINT: "https://sg.example.com" };
+
+  it("returns the agent key and says which credential it is", () => {
+    const api = requireAgentApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_AGENT_API_KEY: "sga_abc" }));
+
+    assert.equal(api.endpoint, "https://sg.example.com");
+    assert.equal(api.apiKey, "sga_abc");
+    assert.equal(api.credential.variable, "SPECGUARD_AGENT_API_KEY");
+    assert.equal(api.credential.prefix, "sga_");
+  });
+
+  it("never falls back to either sibling key, and never lends the agent key to the others", () => {
+    // Both directions, every pairing: any fallback would turn a legible "that
+    // one is not set" into a remote 401 an operator has to decode.
+    for (const [otherVariable, otherValue] of [
+      ["SPECGUARD_API_KEY", "sgk_abc"],
+      ["SPECGUARD_USER_API_KEY", "sgu_abc"],
+    ] as const) {
+      assert.throws(
+        () => requireAgentApiConfig(loadConfig({ ...ENDPOINT, [otherVariable]: otherValue })),
+        (error: unknown) => {
+          assert.ok(error instanceof ConfigError);
+          assert.match(error.message, /SPECGUARD_AGENT_API_KEY is not set/);
+          assert.match(error.message, /an sga_… key/);
+          // The variable the operator DID set is not the one reported missing.
+          assert.doesNotMatch(error.message, new RegExp(`${otherVariable} is not set`));
+          return true;
+        },
+        `agent helper must not fall back to ${otherVariable}`,
+      );
+    }
+
+    assert.throws(
+      () => requireApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_AGENT_API_KEY: "sga_abc" })),
+      /SPECGUARD_API_KEY is not set/,
+    );
+    assert.throws(
+      () => requireUserApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_AGENT_API_KEY: "sga_abc" })),
+      /SPECGUARD_USER_API_KEY is not set/,
+    );
+  });
+
+  it("names both missing halves in one message, exactly as its siblings do", () => {
+    assert.throws(
+      () => requireAgentApiConfig(loadConfig({})),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT and SPECGUARD_AGENT_API_KEY are not set/);
+        return true;
+      },
+    );
+  });
+
+  it("inherits the endpoint parse, rather than re-deriving a weaker one", () => {
+    assert.throws(
+      () =>
+        requireAgentApiConfig(
+          loadConfig({ SPECGUARD_ENDPOINT: "localhost:3000", SPECGUARD_AGENT_API_KEY: "sga_abc" }),
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT is not a usable URL/);
+        return true;
+      },
+    );
+  });
+
+  it("gives the 401 wording the agent-specific refusal, not a sibling's", () => {
+    // `describeFailure` reads `credential.rejection`; the agent credential's
+    // fragment must say what is true of THIS kind — the mint-time grant —
+    // rather than inheriting "per-repository" (false here: the key names a SET)
+    // or the person wording (false here: it speaks for nobody's account).
+    const api = requireAgentApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_AGENT_API_KEY: "sga_abc" }));
+
+    assert.match(api.credential.rejection, /repository set/);
+    assert.doesNotMatch(api.credential.rejection, /per-repository/);
+    assert.doesNotMatch(api.credential.rejection, /your own SpecGuard account/);
+  });
+});
+
+/**
+ * The EITHER-credential helper, and the two decisions it makes rather than
+ * leaves to the caller: which key wins when both are set, and what a refusal
+ * names when neither is.
+ *
+ * The precedence is a scope argument, not a preference: the agent key's granted
+ * set is the boundary every other agent-keyed tool answers inside, so a listing
+ * served from the person's wider set would advertise repositories the agent
+ * cannot then open. The variable is new, so no operator's existing behavior
+ * changes either way — but the rule is still written down here, where a future
+ * change to it has to argue with this test.
+ */
+describe("requireUserOrAgentApiConfig", () => {
+  const ENDPOINT = { SPECGUARD_ENDPOINT: "https://sg.example.com" };
+
+  it("uses the agent key when it is set, even alongside a user key", () => {
+    const api = requireUserOrAgentApiConfig(
+      loadConfig({
+        ...ENDPOINT,
+        SPECGUARD_USER_API_KEY: "sgu_abc",
+        SPECGUARD_AGENT_API_KEY: "sga_abc",
+      }),
+    );
+
+    assert.equal(api.apiKey, "sga_abc");
+    assert.equal(api.credential.variable, "SPECGUARD_AGENT_API_KEY");
+    assert.equal(api.credential.prefix, "sga_");
+  });
+
+  it("falls back to the user key when no agent key is set — the shape every operator had before", () => {
+    const api = requireUserOrAgentApiConfig(
+      loadConfig({ ...ENDPOINT, SPECGUARD_USER_API_KEY: "sgu_abc" }),
+    );
+
+    assert.equal(api.apiKey, "sgu_abc");
+    assert.equal(api.credential.variable, "SPECGUARD_USER_API_KEY");
+    assert.equal(api.credential.prefix, "sgu_");
+  });
+
+  it("never falls back to the repository key — the one credential this endpoint refuses", () => {
+    assert.throws(
+      () => requireUserOrAgentApiConfig(loadConfig({ ...ENDPOINT, SPECGUARD_API_KEY: "sgk_abc" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/);
+        assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
+        return true;
+      },
+    );
+  });
+
+  it("names BOTH admissible variables in one message when neither is set", () => {
+    // An operator expected to choose between two spellings must learn about
+    // both in one round trip — fixing one variable only to be told about the
+    // other is the exact waste the shared body's one-sentence rule exists to
+    // prevent, doubled here because there are two spellings to try.
+    assert.throws(
+      () => requireUserOrAgentApiConfig(loadConfig({ ...ENDPOINT })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(
+          error.message,
+          /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/,
+        );
+        // Both credential clauses get their prefix and their minting place, so
+        // the operator can tell the two spellings apart without opening a
+        // second file.
+        assert.match(error.message, /an sgu_… key/);
+        assert.match(error.message, /an sga_… key/);
+        return true;
+      },
+    );
+  });
+
+  it("joins the endpoint to the same sentence when it is missing too", () => {
+    assert.throws(
+      () => requireUserOrAgentApiConfig(loadConfig({})),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(
+          error.message,
+          /SPECGUARD_ENDPOINT and SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY are not set/,
+        );
+        assert.equal(
+          error.message.split(". ").filter((clause) => clause.includes("not set")).length,
+          1,
+          "one sentence, not one per missing half",
+        );
+        return true;
+      },
     );
   });
 });
