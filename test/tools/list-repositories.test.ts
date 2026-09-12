@@ -24,16 +24,33 @@ const REPOSITORY_ENV = {
 };
 
 /**
- * The five fields `Api::V1::UserRepositoriesController#serialize` actually
+ * The per-entry shape `Api::V1::UserRepositoriesController#serialize` actually
  * serves, in a body shaped as that controller renders it.
  *
- * `role` is the one field this surface adds over `GET /api/v1/repository`'s
- * `repository` block, and the fixture carries BOTH of its PERSON-key values:
- * the list mixes owned repositories with shared ones, and a fixture with only
- * `"owner"` rows would let a bridge that dropped or defaulted the field still
- * pass. This is the `sgu_` body — the agent key has its OWN fixture below,
- * because `#credential_role` serves a THIRD value there that this one must
- * never be asserted to carry.
+ * `role`'s value forks by credential, and the fixture carries BOTH of its
+ * PERSON-key values: the list mixes owned repositories with shared ones, and a
+ * fixture with only `"owner"` rows would let a bridge that dropped or defaulted
+ * the field still pass. This is the `sgu_` body — the agent key has its OWN
+ * fixture below, because `#credential_role` serves a THIRD value there that
+ * this one must never be asserted to carry.
+ *
+ * The fixtures mirror the REST of what `#serialize` serves too, or the key-set
+ * pin below would positively assert a body the server stopped rendering:
+ *
+ * - `delivery_health` rides EVERY entry (`#delivery_verdicts`) — one entry
+ *   refusing, one quiet, since a fixture of only quiet rows could not catch a
+ *   half-shaped verdict.
+ * - `latest_run` is POPULATED on one entry and `null` on the other, and the
+ *   null is deliberate: `LatestRunSerializer#body` returns nil for a nil run
+ *   and `#index` always passes the block, so the LIST serves `latest_run: null`
+ *   for a repository CI has never reported for — present-and-null, never a
+ *   zeroed block, never an omitted key (the absent-key arm of that marker
+ *   belongs to `#update`'s rename receipt, not to this list). The populated
+ *   entry spells the LIST depth (`LatestRunSerializer::LIST_DEPTH`): run-level
+ *   scalars only, no drill-ins.
+ * - The `credential` block does NOT appear here ON PURPOSE — it is served under
+ *   an agent key and ABSENT under a person key, so this fixture IS the absence
+ *   pin; see AGENT_BODY for the presence pin.
  */
 const BODY = JSON.stringify({
   repositories: [
@@ -43,6 +60,18 @@ const BODY = JSON.stringify({
       name: "app",
       registered_at: "2026-01-04T09:15:00Z",
       role: "owner",
+      delivery_health: { refusing: false, last_rejection_at: null },
+      latest_run: {
+        ingested_at: "2026-02-10T08:00:00Z",
+        branch: "main",
+        commit_sha: "4f1c9d2",
+        total_specs: 400,
+        annotated_specs: 376,
+        annotated_ratio: 0.94,
+        suite_size_measured: true,
+        duration_seconds: 96.4,
+        shards: null,
+      },
     },
     {
       id: "5c9d2a77-1f0b-4c8e-8f5a-2d3e4b5c6d7e",
@@ -50,23 +79,44 @@ const BODY = JSON.stringify({
       name: "billing",
       registered_at: "2026-02-11T17:42:03Z",
       role: "member",
+      delivery_health: { refusing: true, last_rejection_at: "2026-02-12T09:30:00Z" },
+      latest_run: null,
     },
   ],
 });
 
 /**
  * The same surface under the AGENT credential, in the shape the server
- * actually renders there: `Api::V1::UserRepositoriesController#credential_role`
- * returns `"agent"` for EVERY entry when the request was made with an
- * `AgentApiKey` — the key is not a person, so `owner`/`member` are both
- * answers to a question that was not asked, and the honest value is the one
- * that says so. The two entries keep their owner/member fixtures' shape on
- * purpose: the ONLY thing allowed to differ from `BODY` is the role, so a test
- * built on this fixture is evidence about the role fork and nothing else. A
- * shared fixture with `owner`/`member` values here would assert a body the
- * agent path never serves — positive evidence for a false shape.
+ * actually renders there. Two things are allowed to differ from `BODY`, and
+ * BOTH are the point:
+ *
+ * - every entry's `role` is `"agent"` —
+ *   `Api::V1::UserRepositoriesController#credential_role` returns it for EVERY
+ *   entry when the request was made with an `AgentApiKey` — the key is not a
+ *   person, so `owner`/`member` are both answers to a question that was not
+ *   asked, and the honest value is the one that says so. The entries keep
+ *   BODY's per-entry shape otherwise on purpose, so a test built on this
+ *   fixture is evidence about the role fork and nothing else. A shared fixture
+ *   with `owner`/`member` values here would assert a body the agent path never
+ *   serves — positive evidence for a false shape.
+ * - the TOP level carries `credential: {capabilities}` (SPGD-977) — the
+ *   calling key's own grant, derived through `AgentApiKeyPolicy` server-side,
+ *   which is why the reading below is the empty-grant one (`view` true, every
+ *   further verb false — "read only") rather than a copy of a stored
+ *   permissions array. Under a person key the block is ABSENT rather than
+ *   nulled, which is exactly why BODY does not carry it: the person-key
+ *   fixture is the absence pin, this one the presence pin.
  */
 const AGENT_BODY = JSON.stringify({
+  credential: {
+    capabilities: {
+      view: true,
+      keys_manage: false,
+      members_manage: false,
+      repo_delete: false,
+      owner: false,
+    },
+  },
   repositories: [
     {
       id: "0b2f1e14-6f6e-4a1e-9a34-9f2b6a1c77aa",
@@ -74,6 +124,18 @@ const AGENT_BODY = JSON.stringify({
       name: "app",
       registered_at: "2026-01-04T09:15:00Z",
       role: "agent",
+      delivery_health: { refusing: false, last_rejection_at: null },
+      latest_run: {
+        ingested_at: "2026-02-10T08:00:00Z",
+        branch: "main",
+        commit_sha: "4f1c9d2",
+        total_specs: 400,
+        annotated_specs: 376,
+        annotated_ratio: 0.94,
+        suite_size_measured: true,
+        duration_seconds: 96.4,
+        shards: null,
+      },
     },
     {
       id: "5c9d2a77-1f0b-4c8e-8f5a-2d3e4b5c6d7e",
@@ -81,6 +143,8 @@ const AGENT_BODY = JSON.stringify({
       name: "billing",
       registered_at: "2026-02-11T17:42:03Z",
       role: "agent",
+      delivery_health: { refusing: true, last_rejection_at: "2026-02-12T09:30:00Z" },
+      latest_run: null,
     },
   ],
 });
@@ -156,9 +220,17 @@ describe("list_repositories", () => {
     assert.deepEqual(result.structured, JSON.parse(BODY));
 
     const entry = (result.structured?.["repositories"] as Record<string, unknown>[])[0];
+    // The deliberate pin move (SPGD-1067): the set is what `#serialize`
+    // actually renders — the identity fields, the credential-forked `role`,
+    // the per-entry `delivery_health` verdict, and `latest_run` (present on
+    // every list entry, `null` for a repository CI has never reported for).
+    // Freezing exactly this set is what fails a fixture that drifts back to
+    // the pre-SPGD-830 shape, or a bridge that starts dropping a block.
     assert.deepEqual(Object.keys(entry ?? {}).sort(), [
+      "delivery_health",
       "full_name",
       "id",
+      "latest_run",
       "name",
       "registered_at",
       "role",
@@ -215,6 +287,48 @@ describe("list_repositories", () => {
     assert.match(description, /`member`/);
     assert.match(description, /every\s.*entry is `agent`/);
     assert.match(description, /ownership question does not apply/);
+  });
+
+  it("names the per-entry delivery verdict, the latest-run summary, and the agent key's own grant block", async () => {
+    // The SPGD-953 instrument (see `repository-overview.test.ts`): a
+    // description is the one part of a tool nothing else exercises, and the
+    // claim that rotted here was the enumeration itself — "Each entry carries
+    // `id`, `full_name`, `name`, `registered_at` and `role`" was true the day
+    // it was written and false every day since the controller grew the verdict
+    // and the run block. The data ALREADY arrives (the pass-through pins above
+    // prove it); the defect is that an agent reading the description could not
+    // know it does, and would pay one overview call per repository for a
+    // verdict it was handed here. Asserted rather than trusted to review.
+    const description = listRepositories.description;
+
+    // The stale enumeration is GONE, not merely outnumbered: the sentence that
+    // ended at `role` must not come back.
+    assert.doesNotMatch(
+      description,
+      /`registered_at` and `role`/,
+      "the description must not enumerate the entries without the blocks the server adds",
+    );
+
+    // The delivery verdict is named, with the reading that makes it usable:
+    // the one-call triage across the reachable set, and the quiet-answer rule.
+    assert.match(description, /`delivery_health`/);
+    assert.match(
+      description,
+      /one call triages ingest-pipeline health across the whole reachable set/,
+    );
+    assert.match(description, /`refusing: false`/);
+    assert.match(description, /a finding, not a gap/);
+
+    // The latest-run summary is named, with the null reading pinned — the
+    // never-reported state, never a zeroed suite.
+    assert.match(description, /`latest_run`/);
+    assert.match(description, /`null` means CI has never reported/);
+
+    // The agent key's own grant block is named, with both credential arms:
+    // top level under an agent key, ABSENT — not nulled — under a person key.
+    assert.match(description, /`credential\.capabilities`/);
+    assert.match(description, /Under an AGENT key/);
+    assert.match(description, /ABSENT, not `null`/);
   });
 
   it("renders the same object it returns, so the two cannot disagree", async () => {

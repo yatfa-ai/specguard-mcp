@@ -367,16 +367,35 @@ blank value is no ask: passing an empty string and omitting the argument make th
 | `sort` | `"stale"` — re-order stalest-first: repositories CI has never ingested a run for first, then least-recently-ingested, with `full_name` breaking ties so two calls agree element for element. The same entries, a different order; the default order stays `full_name` ascending |
 
 The body comes back as SpecGuard serves it — `{"repositories": […]}`, each entry carrying `id`,
-`full_name`, `name`, `registered_at` and `role`, ordered by `full_name` ascending unless `sort`
-asks otherwise. The first four are
-deliberately the same four fields, under the same names, that `get_repository_overview` serves in its
-own `repository` block, so a client that reads one reads the other. `role` has one value per
+`full_name`, `name`, `registered_at`, `role`, `delivery_health` and `latest_run`, ordered by
+`full_name` ascending unless `sort` asks otherwise. The identity fields are deliberately the same
+fields, under the same names, that `get_repository_overview` serves in its own `repository` block,
+so a client that reads one reads the other.
+
+`delivery_health` is the entry's delivery verdict — `refusing` beside `last_rejection_at` — served
+on **every** entry, so this one call triages ingest-pipeline health across the whole reachable set
+instead of paying one `get_repository_overview` call per repository. It is the coarse sibling of
+the overview's fuller per-repository block. A quiet verdict is a finding, not a gap:
+`refusing: false` means nothing was refused, never that delivery is untracked.
+
+`latest_run` is the entry's newest run — when CI last reported, on what branch and commit, how big
+the suite is, how much of it SpecGuard can read, and the run-level cost scalars. `null` means CI
+has **never reported** for that repository — never a run that found an empty suite.
+
+`role` has one value per
 credential kind: under a **user** key (`sgu_…`) it is `owner` or `member` — the list mixes
 repositories this person owns with repositories somebody shared with them, and nothing else tells
 them apart — while under an **agent** key (`sga_…`) every entry is `agent`, the value that says the
 ownership question does not apply because the key speaks for nobody (branching on owner/member
-correctly reads false for both). Read it before assuming a repository is one you may administer. An
-empty list means no access, not an error.
+correctly reads false for both). Read it before assuming a repository is one you may administer.
+
+Under an **agent** key the top level also carries `credential.capabilities` — the calling key's own
+grant, read through the server's policy, so an agent key learns what it was granted here instead of
+discovering its permissions by hitting refusals; under a **user** key the block is absent, not
+`null` — a person key has no mint-time permission set, and a null would assert one exists and is
+empty.
+
+An empty list means no access, not an error.
 
 **It reads a different key from `get_repository_overview` — either of two, whichever is set.**
 `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the answer is then the repository set granted
