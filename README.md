@@ -34,8 +34,8 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
-| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository`, `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_agent_keys`, `revoke_repository_agent_key`, `list_repository_agent_keys_presented_revoked`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
-| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, `list_repositories` uses **this** one, so discovery stays inside the set the other tools can reach |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_agent_keys`, `revoke_repository_agent_key`, `list_repository_agent_keys_presented_revoked`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository`, `get_repository_overview` / `near_duplicate_clusters` **with** `repository` | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, `list_repositories` uses **this** one, so discovery stays inside the set the other tools can reach |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -562,9 +562,13 @@ Authorization is the `repo.delete` capability at **either surface** — an owner
 `repo.delete`, may remove the repository. A member without it is refused `403` with SpecGuard's own
 sentence, verbatim. The repository's CI keys stop authenticating the moment it succeeds.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`repo.delete` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the removal answers inside the same set
+`list_repositories` reports.
 
 ### `create_repository_api_key`
 
