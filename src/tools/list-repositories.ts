@@ -95,11 +95,51 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * Same rule as every other tool here (`types.ts`: "A thin client that reshapes
  * its upstream is not thin"), and it has real content on this body. The
- * controller serves each entry as `id`, `full_name`, `name`, `registered_at`
- * and `role`, and says why: the first four are DELIBERATELY the same four
- * fields, under the same names, that `GET /api/v1/repository` serves in its own
- * `repository` block, so a client that has read one knows how to read the other.
- * Renaming or flattening anything here would spend that parity on the last hop.
+ * controller serves each entry as `id`, `full_name`, `name`, `registered_at`,
+ * `role`, `delivery_health` and `latest_run`
+ * (`Api::V1::UserRepositoriesController#serialize`), and it says why about the
+ * identity fields: `id`, `full_name`, `name` and `registered_at` are
+ * DELIBERATELY the same fields, under the same names, that
+ * `GET /api/v1/repository` serves in its own `repository` block, so a client
+ * that has read one knows how to read the other. Renaming or flattening
+ * anything here would spend that parity on the last hop. The rest of each
+ * entry — and the block beside `repositories:` at the top level — is payload an
+ * agent must know ARRIVES: a description that omits it sends the agent to pay
+ * per-repository calls for data this one call already handed it (SPGD-1067).
+ *
+ * `delivery_health` rides EVERY entry (`#delivery_verdicts`): `{refusing,
+ * last_rejection_at}` — the staleness verdict `get_repository_overview` serves
+ * in its fuller per-repository block, spelled here as the one-call fleet
+ * triage. "Which of my repositories has a refusing ingest pipeline?" is
+ * answerable from THIS call alone, never one overview call per repository. A
+ * quiet verdict is a finding, not a gap, on the same rule the overview's
+ * description states: `refusing: false` is "nothing was refused", not
+ * "delivery is untracked".
+ *
+ * `latest_run` is the entry's newest run at the serializer's LIST depth
+ * (`LatestRunSerializer::LIST_DEPTH`): when CI last reported, on what branch
+ * and commit, how big the suite is, how much of it SpecGuard can read, and the
+ * run-level cost scalars — the drill-ins stay on the overview's full depth.
+ * `null` means CI has NEVER reported for that repository, and on this list the
+ * key is PRESENT-and-null (`#index` always passes the block;
+ * `LatestRunSerializer#body` returns nil for a nil run), the serializer's
+ * "nil, not a zeroed block" rule — a repository CI has never run must not read
+ * byte-identically to one that ran and found an empty suite. The ABSENT-key arm
+ * of that same marker belongs to `#update`'s rename receipt, not to this list.
+ *
+ * `credential` is the block that is NOT repository-scoped: under an `sga_` key
+ * the TOP level carries `credential: {capabilities}` — the calling key's own
+ * grant (SPGD-977), with every capability in `RepositoryPolicy::CAPABILITIES`
+ * ASKED of `AgentApiKeyPolicy` server-side, so the booleans cannot disagree
+ * with a 403 the same key would get (an empty permission set thereby reads
+ * affirmatively — `view` true, every further verb false, the machine
+ * counterpart of the account page's "read only" — rather than a copy of the
+ * stored permissions array, which under-states and over-states the grant at
+ * once). Its only other carrier is the minting person's browser account page,
+ * so before it a machine credential's only discovery path for its own
+ * permissions was 403 trial-and-error. Under an `sgu_` key the block is ABSENT
+ * rather than nulled — a person key has no mint-time permission set, and a null
+ * would assert one exists and is empty.
  *
  * `role` is the field this surface adds, and its value depends on WHICH
  * credential answered — three values, one per credential kind, and all three
@@ -133,13 +173,27 @@ const listRepositories: ToolDefinition = {
     "ask about\", which no other tool here can give, because every other tool is already scoped " +
     "to one repository by its key. " +
     "Each entry carries `id`, `full_name` (`org/repo`, and the handle every other surface names " +
-    "a repository by), `name`, `registered_at` and `role`. " +
+    "a repository by), `name`, `registered_at`, `role`, `delivery_health` and `latest_run`. " +
+    "`delivery_health` is the entry's delivery verdict — `refusing` beside `last_rejection_at` — " +
+    "served on every entry, so this one call triages ingest-pipeline health across the whole " +
+    "reachable set (the coarse sibling of get_repository_overview's fuller per-repository block) " +
+    "instead of paying one overview call per repository. A quiet verdict is a finding, not a " +
+    "gap: `refusing: false` means nothing was refused, never that delivery is untracked. " +
+    "`latest_run` is the entry's newest run — when CI last reported, on what branch and commit, " +
+    "how big the suite is, how much of it SpecGuard can read, and the run-level cost scalars; " +
+    "`null` means CI has never reported for that repository, never a run that found an empty " +
+    "suite. " +
     "`role` has one value per credential kind. Under a PERSON key (`sgu_…`) it is `owner` or " +
     "`member`: the list mixes repositories this person owns with repositories somebody shared " +
     "with them, and nothing else distinguishes the two. Under an AGENT key (`sga_…`) every " +
     "entry is `agent` — the value that says the ownership question does not apply because the " +
     "key speaks for nobody; branching on owner/member correctly reads false for both. Read it " +
     "before assuming a repository is yours to administer. " +
+    "Under an AGENT key the top level also carries `credential.capabilities` — the calling " +
+    "key's own grant, read through the server's policy, so an agent key sees what it was " +
+    "granted here instead of discovering its permissions by hitting refusals; under a PERSON " +
+    "key the block is ABSENT, not `null`, because a person key has no mint-time permission " +
+    "set. " +
     "Three optional asks narrow WITHIN that set — none of them can widen it — all optional, " +
     "composable on one call: `q` (case-insensitive substring on `full_name`), " +
     "`role: \"owned\"` or `\"shared\"` (one half of the owned/shared mix — note the ask is " +
