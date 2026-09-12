@@ -96,12 +96,12 @@ import type { ToolDefinition } from "./types.js";
  * carrying the same `{error, message}` contract — the identical defect, given
  * the identical remedy.
  *
- * The user-scoped surface as it now stands is therefore three tools: read the
- * list, read the gate's answer, write a registration. The standing rule is
- * unchanged and still binding, which is what keeps the rest out:
- * `DELETE /api/v1/repositories/:id` and the API-key endpoints (SPGD-754) are
- * NOT on `origin/main`, so they may not be wrapped here however useful a tool
- * for them would be. What moved was the platform, not the bar.
+ * The registration gate was the newest user-scoped entry when it landed; the
+ * sections below record how the surface grew after it. The standing rule is
+ * unchanged and still binding, and what it keeps out today is what has not
+ * shipped — `/check-intent` has no backing endpoint (`routes.rb` mounts it as
+ * a comment only), so it stays unwrapped. What moved was the platform, not
+ * the bar.
  *
  * == Removal and the key lifecycle
  *
