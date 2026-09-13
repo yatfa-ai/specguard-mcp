@@ -649,7 +649,7 @@ describe("a 401 that carries SpecGuard's revoked-credential disclosure", () => {
       // Every non-disclosure body — including one that fails to parse — falls
       // back to today's sentence, never to a thrown parse error or an invented
       // reading. The canned sentence for THIS credential slot itself contains
-      // the word "revoked" ("a revoked key reads the same as a wrong one"), so
+      // the word "revoked" ("a revoked key's 401 names the revocation"), so
       // what is pinned is the platform remedy's ABSENCE plus the sentence's
       // own halves — never the bare word.
       const error = await rejects(

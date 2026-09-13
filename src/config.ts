@@ -208,9 +208,9 @@ export interface Credential {
 /**
  * The `sgk_` key: one repository, and the same variable CI already sets.
  *
- * The 401 wording is unchanged from when this was the only credential — it is
- * accurate about this kind, and the reason a second kind exists is precisely
- * that it was never accurate about the other.
+ * The 401 wording states what is true of this kind: keys are per-repository,
+ * and a revoked key's 401 identifies the revocation rather than reading as a
+ * wrong key. The other two credential kinds carry their own refusals.
  */
 export const REPOSITORY_CREDENTIAL: Credential = {
   variable: "SPECGUARD_API_KEY",
@@ -218,7 +218,7 @@ export const REPOSITORY_CREDENTIAL: Credential = {
   issuedFrom: "issued from its API keys page",
   rejection:
     "for the repository you are asking about — keys are per-repository, and a " +
-    "revoked key reads the same as a wrong one",
+    "revoked key's 401 names the revocation",
 };
 
 /**
@@ -236,7 +236,7 @@ export const USER_CREDENTIAL: Credential = {
   rejection:
     "for your own SpecGuard account — a user key speaks for a person and lists what " +
     "that person may open, an sgk_… repository key is refused here without a lookup, " +
-    "and a revoked key reads the same as a wrong one",
+    "and a revoked key's 401 names the revocation",
 };
 
 /**
@@ -266,7 +266,7 @@ export const AGENT_CREDENTIAL: Credential = {
   rejection:
     "for this agent — an agent key speaks for nobody and reaches only the repository set " +
     "granted onto it at mint time, an sgk_… repository key or an sgu_… user key is refused " +
-    "here without a lookup, and a revoked key reads the same as a wrong one",
+    "here without a lookup, and a revoked key's 401 names the revocation",
 };
 
 /**
