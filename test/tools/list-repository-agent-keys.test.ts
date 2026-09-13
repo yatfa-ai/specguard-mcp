@@ -18,7 +18,10 @@ const AGENT_ENV = {
 /**
  * The 200 body `user_repository_agent_keys_controller#index` serves:
  * `{agent_keys: [row]}`, one row per LIVE key covering the repository —
- * the controller's own serialization, pass-through.
+ * the controller's own serialization, pass-through. Two rows, because the
+ * field this fixture exists to carry reads BOTH ways: row 9 was presented
+ * minutes ago, row 10 was minted and never presented — its `last_used_at`
+ * rides the row as null, the negative served rather than omitted.
  */
 const BODY = JSON.stringify({
   agent_keys: [
@@ -30,6 +33,17 @@ const BODY = JSON.stringify({
       repository_count: 3,
       permissions: "read only",
       created_at: "2026-09-08T12:00:00Z",
+      last_used_at: "2026-09-13T11:58:00Z",
+    },
+    {
+      id: 10,
+      name: "minted-never-presented",
+      owner: "Ada Lovelace",
+      token_hint: "sga_c3d4…",
+      repository_count: 1,
+      permissions: "read only",
+      created_at: "2026-09-12T08:00:00Z",
+      last_used_at: null,
     },
   ],
 });

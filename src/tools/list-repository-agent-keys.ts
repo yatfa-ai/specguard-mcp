@@ -23,7 +23,10 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * this repository: `id`, `name`, `owner`, `token_hint`, `repository_count`
  * (the size of the key's stored set — the blast radius a revoke would land
  * on), `permissions` (rendered the way the web panel renders it, "read only"
- * for the minimal grant) and `created_at`. `token_hint` is a hint and never
+ * for the minimal grant), `created_at` and `last_used_at` (SPGD-1108 — the
+ * offboarding arc's decision half: when the key's token last authenticated,
+ * null meaning the key has NEVER been presented — the negative is served, not
+ * omitted). `token_hint` is a hint and never
  * the token: the plaintext existed for exactly one response at mint time and
  * nothing persisted it. Revoked rows leave the listing — a retained revoked
  * row is not a credential — and the still-presented triage over those rows is
@@ -43,7 +46,10 @@ const listRepositoryAgentKeys: ToolDefinition = {
   description:
     "Lists the agent keys (`sga_…` keys) covering a SpecGuard repository: one row per live key " +
     "with its `id`, `name`, `owner`, `token_hint`, `repository_count` (how many repositories the " +
-    "key's grant covers — the blast radius), `permissions` and `created_at`. " +
+    "key's grant covers — the blast radius), `permissions`, `created_at` and `last_used_at` — " +
+    "when the key's token last authenticated, null meaning the key has never been presented, so " +
+    "the inventory answers \"is this live key still being used\" before a revoke — the decision " +
+    "half of offboarding. " +
     "Agent keys have NO mint tool on this bridge — minting is deliberately web-only — so the `id` " +
     "this listing serves is the ONLY way to name a key to `revoke_repository_agent_key`: list " +
     "first, then revoke. " +
