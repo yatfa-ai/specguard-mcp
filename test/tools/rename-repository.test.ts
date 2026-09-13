@@ -11,8 +11,10 @@ const USER_ENV = {
 
 /**
  * The 200 body `user_repositories_controller#update` serves:
- * `{repository: serialize(...)}` — the same serialize shape
- * `list_repositories` serves, so the test pins it UNRESHAPED.
+ * `{repository: serialize(...)}` — the same serializer `list_repositories`
+ * serves, but a rename receipt: the identity fields and `delivery_health`,
+ * WITHOUT the list's per-entry `latest_run` (absent entirely, never null).
+ * The test pins it UNRESHAPED.
  */
 const BODY = JSON.stringify({
   repository: {
@@ -63,13 +65,39 @@ describe("rename_repository", () => {
     assert.equal(http.requests.length, 0, "a malformed call must not cost a write");
   });
 
-  it("returns the 200 body UNRESHAPED — the list_repositories serialize shape", async () => {
+  it("returns the 200 body UNRESHAPED — the receipt shape, without the list's latest_run", async () => {
     const result = await renameRepository.run(
       { repository_id: "42", github_full_name: "octocat/new-name" },
       toolContext({ env: USER_ENV, fetch: stubFetch({ status: 200, body: BODY }).fetch }),
     );
 
     assert.deepEqual(result.structured, JSON.parse(BODY));
+  });
+
+  it("describes the receipt shape exactly — latest_run absent, never \"the same shape\"", async () => {
+    // The description is the one part of a tool nothing else exercises (the
+    // SPGD-1067 instrument, see `list-repositories.test.ts`): an agent's only
+    // pre-call knowledge of what this tool returns is this text, and the old
+    // sentence — "the same shape `list_repositories` serves" — predicted a
+    // `latest_run` member the receipt deliberately omits, because naming it
+    // would assert CI state about a repository the endpoint knows was
+    // untouched by the rename. Asserted rather than trusted to review.
+    const description = renameRepository.description;
+
+    // The old claim is GONE, not merely outnumbered.
+    assert.doesNotMatch(
+      description,
+      /same shape\s+`list_repositories`/,
+      "the description must not claim the rename receipt is the list_repositories shape",
+    );
+
+    // The corrected statement is pinned: same serializer, the receipt's own
+    // member set, the absent-key-not-null reading, and the deliberate silence.
+    assert.match(description, /same serializer\s+`list_repositories`/);
+    assert.match(description, /identity\s+fields and `delivery_health`/);
+    assert.match(description, /`latest_run` is absent entirely/);
+    assert.match(description, /an absent key, never a null/);
+    assert.match(description, /claims nothing about the repository's CI state/);
   });
 
   it("surfaces the server's whole 403 sentence when the grant is nil or stale", async () => {
