@@ -9,6 +9,12 @@ const USER_ENV = {
   SPECGUARD_USER_API_KEY: "sgu_test",
 };
 
+/** Only the AGENT key — the environment an agent-configured operator has. */
+const AGENT_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_AGENT_API_KEY: "sga_test",
+};
+
 /**
  * The 200 body `user_repository_members_controller#update` serves:
  * `{member: {id, handle, permissions, granted_by, created_at}}` — the
@@ -183,7 +189,46 @@ describe("update_repository_member_permissions", () => {
     );
   });
 
-  it("names the USER variable when only the repository key is set", async () => {
+  it("authenticates with the agent key when that is the only key set", async () => {
+    // The member WRITES answer BOTH key kinds since SPGD-973 (`dee29bf`) — the edit
+    // is then bounded by the key's own set and its `members.manage` — so an agent
+    // holding only the agent credential can replace a permission set. Nothing on
+    // the wire changes beyond the Bearer: same PATCH, same top-level body.
+    const http = stubFetch({ status: 200, body: BODY });
+
+    await updateRepositoryMemberPermissions.run(
+      { repository_id: "42", member_id: "7", permissions: ["view"] },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    const request = http.requests[0];
+    assert.equal(request?.method, "PATCH");
+    assert.equal(request?.url, "https://sg.example.com/api/v1/repositories/42/members/7");
+    assert.deepEqual(JSON.parse(request?.body ?? "null"), { permissions: ["view"] });
+    assert.equal(request?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("prefers the agent key when BOTH credentials are set", async () => {
+    // Scope consistency, not preference: the agent set is what
+    // `list_repositories` reports and what the other agent-keyed tools answer
+    // inside, so an answer from the person's wider set could name something
+    // the agent's own discovery never showed. Asserted ONCE per tool — the
+    // precedence is the helper's (`config.ts`), not this tool's behavior to
+    // re-prove.
+    const http = stubFetch({ status: 200, body: BODY });
+
+    await updateRepositoryMemberPermissions.run(
+      { repository_id: "42", member_id: "7", permissions: ["view"] },
+      toolContext({
+        env: { ...USER_ENV, SPECGUARD_AGENT_API_KEY: "sga_test" },
+        fetch: http.fetch,
+      }),
+    );
+
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("names BOTH variables when only the repository key is set", async () => {
     const http = stubFetch({ status: 200, body: BODY });
 
     const error = await rejects(
@@ -194,10 +239,17 @@ describe("update_repository_member_permissions", () => {
           fetch: http.fetch,
         }),
       ),
-      /SPECGUARD_USER_API_KEY is not set/,
+      /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/,
     );
 
+    // The one-message rule at double width: this tool accepts EITHER
+    // credential, so refusing with a single name would send the operator to
+    // fix a variable, re-call, and be told about the other. The prefixes ride
+    // the same sentence — and no mention of the `sgk_` variable they DID set,
+    // which is correct and is not the problem.
     assert.match(error.message, /sgu_… key/);
+    assert.match(error.message, /sga_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 });
