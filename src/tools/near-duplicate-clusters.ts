@@ -1,5 +1,5 @@
-import { requireAgentApiConfig, requireApiConfig } from "../config.js";
-import { getJsonObject } from "../support/specguard-api.js";
+import { requireApiConfig } from "../config.js";
+import { getJsonObject, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
 import { optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -35,14 +35,18 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * run, and one call returns them all. What IS choosable, since SPGD-953, is
  * WHICH REPOSITORY is censused: an optional `repository` argument (a numeric id
  * from `list_repositories`) moves the call to the plural endpoint
- * `GET /api/v1/repositories/:id` under the AGENT key, same body (minus the
- * `api_key` block, which is ABSENT on that surface rather than nulled — see
- * `repository-overview.ts` for why the omission is the server's, deliberately),
- * same ask, same cost gate. Without it the request is byte-for-byte the singular,
- * `sgk_`-bound one this tool has always made — and the cost argument above is
- * exactly why the argument is OPTIONAL rather than required: an agent that has
- * only ever had one reachable repository should not be asked to learn a second
- * credential to keep reading it.
+ * `GET /api/v1/repositories/:id` under either member credential, whichever is
+ * set — the AGENT key preferred, and the USER key (a person credential, whose
+ * accessible set is the boundary the id is resolved inside) when no agent key
+ * is set; SPGD-1106 widened the plural arm from agent-only, on the same
+ * agent-wins/user-fallback terms every either-credential tool answers by. Same
+ * body (minus the `api_key` block, which is ABSENT on that surface rather than
+ * nulled — see `repository-overview.ts` for why the omission is the server's,
+ * deliberately), same ask, same cost gate. Without it the request is
+ * byte-for-byte the singular, `sgk_`-bound one this tool has always made — and
+ * the cost argument above is exactly why the argument is OPTIONAL rather than
+ * required: an agent that has only ever had one reachable repository should not
+ * be asked to learn a second credential to keep reading it.
  *
  * `near_duplicates: "true"` is built rather than stringified for the same
  * reason `repository-overview.ts` builds its `unannotated_examples` key:
@@ -86,9 +90,10 @@ const nearDuplicateClusters: ToolDefinition = {
     "`near_duplicates: null` on the plain overview. Calling this tool IS the ask; nothing about the " +
     "census is choosable — the clusters are the repository's, computed over every run, and one call " +
     "returns them all. WHICH repository is censused is the one choice there is: pass `repository` " +
-    "(a numeric id from `list_repositories`) to census that named repository under the agent key, " +
-    "or omit it to census the repository the configured sgk_… key resolves to, exactly as before " +
-    "the argument existed. " +
+    "(a numeric id from `list_repositories`) to census that named repository under either member " +
+    "credential — the agent key preferred, the person key when no agent key is set — or omit it to " +
+    "census the repository the configured sgk_… key resolves to, exactly as before the argument " +
+    "existed. " +
     "READ THE DISCLOSURE KEYS BEFORE THE COUNT: `similarity_floor` and `similarity_basis` sit FIRST " +
     "in the block and qualify every cluster below them — a cluster count without what 'similar' " +
     "meant is a figure you cannot act on. `truncated: true` means the cluster list was cut at the " +
@@ -108,16 +113,18 @@ const nearDuplicateClusters: ToolDefinition = {
     "(`recorded_count: 0`), nothing embedded (`identity_count: 0`), nothing alike — are kept " +
     "distinguishable by those counts rather than collapsed into one empty list. " +
     "Same endpoints and credentials as `get_repository_overview`: without `repository`, an " +
-    "`sgk_` repository key on `GET /api/v1/repository`; with `repository`, an `sga_` agent key " +
-    "(SPECGUARD_AGENT_API_KEY) on `GET /api/v1/repositories/:id`, whose answer the key's own " +
-    "granted repository set bounds. SpecGuard refuses each credential in the other's place, so " +
-    "a `repository` ask without the agent key set is refused HERE, by name, before any request " +
-    "is made. " +
+    "`sgk_` repository key on `GET /api/v1/repository`; with `repository`, EITHER member " +
+    "credential, whichever is set, on `GET /api/v1/repositories/:id` — SPECGUARD_AGENT_API_KEY " +
+    "(an sga_… agent key, whose mint-time granted repository set bounds the answer) preferred, " +
+    "and, when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key — a PERSON key, whose " +
+    "accessible set bounds the answer instead); with both set the agent key wins. The server " +
+    "owns the refusals on that path: a repository outside the presented credential's grant " +
+    "answers 404, person and agent alike. " +
     "The response is the endpoint's full body with the `near_duplicates` block OPENED, passed " +
     "through unmodified — with the one surface difference `get_repository_overview` documents " +
     "for its own `repository` ask: on that plural path the `api_key` block is ABSENT from the " +
-    "body rather than nulled (it describes the credential that made the request, and an agent " +
-    "key is not a repository key), so an absent `api_key` there is the surface's shape, never " +
+    "body rather than nulled (it describes the credential that made the request, and no member " +
+    "credential is a repository key), so an absent `api_key` there is the surface's shape, never " +
     "a dropped block.",
 
   inputSchema: {
@@ -129,11 +136,14 @@ const nearDuplicateClusters: ToolDefinition = {
           "Census THIS repository instead of the one the configured sgk_… key resolves to. The " +
           "value is the repository's NUMERIC ID, exactly as served in `list_repositories` " +
           "entries' `id` — not the `org/repo` handle. " +
-          "The credential changes with it, because SpecGuard refuses each key kind in the " +
-          "other's place: the call authenticates with SPECGUARD_AGENT_API_KEY (an sga_… agent " +
-          "key) instead of SPECGUARD_API_KEY, and the key's granted repository set is the " +
-          "boundary the id is resolved inside — a repository outside the set answers 404, " +
-          "indistinguishable from one that does not exist. The census itself is identical on " +
+          "The credential changes with it: the call authenticates with EITHER member credential, " +
+          "whichever is set — SPECGUARD_AGENT_API_KEY (an sga_… agent key; the set of " +
+          "repositories granted onto it at mint time is the boundary the id is resolved " +
+          "inside) and, when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key — a PERSON " +
+          "key, whose accessible set is the boundary instead); with both set the agent key " +
+          "wins. The server owns the refusals on that path: a repository outside the " +
+          "presented credential's grant answers 404, indistinguishable from one that does " +
+          "not exist — person and agent alike. The census itself is identical on " +
           "either path: same block, same caps, same disclosure keys. " +
           "Omit it — or pass a blank — and the call is byte-for-byte the singular one under " +
           "SPECGUARD_API_KEY, exactly as before this argument existed.",
@@ -148,11 +158,13 @@ const nearDuplicateClusters: ToolDefinition = {
     // for the reason `repository-overview.ts` states at its own call site: the
     // pair (path, credential) must not be mixable, because either mixed pairing
     // is a 401 at the deployment by design and both are refused here, legibly,
-    // instead.
+    // instead. The plural arm answers either member credential — the agent key
+    // preferred, the user key when no agent key is set (SPGD-1106) — and the
+    // singular arm is unchanged.
     const api =
       repository === undefined
         ? requireApiConfig(context.config)
-        : requireAgentApiConfig(context.config);
+        : requireUserOrAgentApiConfig(context.config);
     const path =
       repository === undefined
         ? "/api/v1/repository"
