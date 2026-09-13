@@ -38,10 +38,16 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * description says so because it is the one answer an agent is most likely to
  * mispredict.
  *
- * == The 200 body is the list_repositories shape
+ * == The 200 body is the receipt shape — WITHOUT the list's `latest_run`
  *
  * `{repository: serialize(...)}` — the same serializer `list_repositories`
- * serves, so the response needs no reshaping and gets none.
+ * serves, so the response needs no reshaping and gets none. But the entry is
+ * a rename receipt, not a list entry: it carries the identity fields and
+ * `delivery_health`, and `latest_run` is ABSENT — an absent key, never a
+ * null — deliberately: naming `latest_run` in a receipt would assert "CI has
+ * never reported" about a repository the endpoint knows was untouched by the
+ * rename. `list_repositories` is the only surface of the two that serves a
+ * run summary (present-and-null there when CI has never reported).
  */
 const renameRepository: ToolDefinition = {
   name: "rename_repository",
@@ -56,8 +62,11 @@ const renameRepository: ToolDefinition = {
     "redeems a browser-issued grant valid for 7 days; a nil or stale one is refused 403 in " +
     "SpecGuard's own words, and that sentence names the fix (re-grant via the browser). " +
     "A name another repository already holds is refused 400 — `taken`, not 409 — with " +
-    "SpecGuard's own sentence. The 200 body is `{repository: …}` in the same shape " +
-    "`list_repositories` serves. " +
+    "SpecGuard's own sentence. The 200 body is `{repository: …}` — served by the same serializer " +
+    "`list_repositories` uses, but a rename receipt, not a list entry: it carries the identity " +
+    "fields and `delivery_health`, and `latest_run` is absent entirely (an absent key, never a " +
+    "null), deliberately, so the receipt claims nothing about the repository's CI state — " +
+    "`list_repositories` is the tool to ask for a run summary. " +
     "Takes `repository_id` — the numeric id `add_repository` returns and `list_repositories` " +
     "reports, not the `org/repo` handle — and `github_full_name`, the new `org/repo` name. " +
     "Needs SPECGUARD_USER_API_KEY (an sgu_… key), the same credential `add_repository` " +
@@ -101,8 +110,9 @@ const renameRepository: ToolDefinition = {
       context.fetch,
     );
 
-    // Unreshaped, the standing rule — the 200 body (`{repository: serialize}` ,
-    // the `list_repositories` shape) is this verb's whole answer.
+    // Unreshaped, the standing rule — the 200 body (`{repository: serialize}`,
+    // the receipt shape: the identity fields and `delivery_health`, WITHOUT the
+    // list's `latest_run`, absent here — never null) is this verb's whole answer.
     return {
       text: JSON.stringify(updated, null, 2),
       structured: updated,

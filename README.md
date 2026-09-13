@@ -810,7 +810,10 @@ is owner-only** — deliberately narrower than removal: a member granted `repo.d
 the repository but may not rename it. The owner check also redeems a browser-issued grant valid for
 7 days; a nil or stale one is refused `403` with SpecGuard's own sentence naming the fix
 (re-grant via the browser). A name another repository already holds is refused `400` — `taken`, not
-`409` — verbatim. The `200` body is `{repository: …}` in the same shape `list_repositories` serves.
+`409` — verbatim. The `200` body is `{repository: …}` — the serializer `list_repositories` uses, but a
+rename receipt, not a list entry: it carries the identity fields and `delivery_health`, and
+`latest_run` is absent — an absent key, never a null — deliberately, so the receipt claims nothing
+about the repository's CI state. `list_repositories` is where a run summary comes from.
 
 It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
 a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
