@@ -34,8 +34,8 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
-| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key`, `revoke_repository_api_key`, `list_repository_agent_keys`, `revoke_repository_agent_key`, `list_repository_agent_keys_presented_revoked`, `list_repository_members`, `add_repository_member`, `update_repository_member_permissions`, `remove_repository_member`, `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
-| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, `list_repositories` and `remove_repository` use **this** one, so discovery stays inside the set the other tools can reach |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every repository-administration tool that answers either key — `list_repositories`, `remove_repository`, the members tools and the key-lifecycle tools — uses **this** one, so discovery stays inside the set the other tools can reach |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -410,7 +410,8 @@ never used.
 Registering a repository is `add_repository`, below — it reads `SPECGUARD_USER_API_KEY` (an
 `sgu_…` key, which this tool also accepts but does not require) and takes the `full_name` this
 tool reports. Removal and the key lifecycle (`remove_repository`,
-`create_repository_api_key`, `revoke_repository_api_key`) are below too, on the same key; a tool
+`create_repository_api_key`, `revoke_repository_api_key`) are below too, on the same
+either-credential rule; a tool
 here is a promise the agent will act on, so each waits for the capability rather than the other way
 round.
 
@@ -592,9 +593,15 @@ The body comes back as SpecGuard serves it: an `api_key` block (`name`, `token`,
 Authorization is the `keys_manage` capability; a member without it is refused `403` with SpecGuard's
 own sentence, verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`keys.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the mint answers inside the same set
+`list_repositories` reports. Minting under the agent credential attributes the new key to the agent
+key's **owner** (the server's `attributed_user` rule), so minted-key counts keep naming a person
+rather than nobody.
 
 ### `revoke_repository_api_key`
 
@@ -615,9 +622,13 @@ replacement with `create_repository_api_key` and deploy it BEFORE revoking the o
 first and the repository's CI is locked out until a human mints a new key in a browser. A `204`
 means the key is revoked.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`keys.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the revoke answers inside the same set
+`list_repositories` reports.
 
 ### `list_repository_agent_keys`
 
@@ -640,8 +651,14 @@ arriving is `list_repository_agent_keys_presented_revoked`'s question.
 time and nothing persisted it. Authorization is the `keys_manage` capability; a caller without it
 is refused `403` with SpecGuard's own sentence, verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
-`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`keys.manage` — a repository outside that set is answered `404` in SpecGuard's own words, so an
+agent credential administers the agent keys covering its own set without a person's `sgu_` key.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the answer stays inside the same set
+`list_repositories` reports.
 
 ### `revoke_repository_agent_key`
 
@@ -667,8 +684,14 @@ or one already revoked, is refused `404`, never a cross-repository cut. Authoriz
 `keys_manage` capability; a caller without it is refused `403` with SpecGuard's own sentence,
 verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
-`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`keys.manage` — a repository outside that set is answered `404` in SpecGuard's own words, so an
+agent credential can cut one of its own kind without a person's `sgu_` key.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the cut answers inside the same set
+`list_repositories` reports.
 
 ### `list_repository_agent_keys_presented_revoked`
 
@@ -691,8 +714,14 @@ it as the offboarding having fully taken.
 time and nothing persisted it. Authorization is the `keys_manage` capability; a caller without it
 is refused `403` with SpecGuard's own sentence, verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`), the same credential as `list_repositories` and
-`add_repository` and a different one from the `sgk_…` key `get_repository_overview` uses.
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`keys.manage` — a repository outside that set is answered `404` in SpecGuard's own words, so an
+agent credential can verify its own offboarding without a person's `sgu_` key.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the triage stays inside the same set
+`list_repositories` reports.
 
 ### `list_repository_members`
 
@@ -714,9 +743,13 @@ Authorization is the `members.manage` capability: a caller who is not a member i
 (the repository's existence stays hidden), and a member without `members.manage` is refused `403`
 with SpecGuard's own sentence, verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`members.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the answer stays inside the same set
+`list_repositories` reports.
 
 ### `add_repository_member`
 
@@ -732,7 +765,8 @@ permissions.
 Each resolution failure — nobody has signed in as that handle yet, the account is archived, the
 handle is ambiguous, the handle is not a login — arrives as a **distinguishable** 400 message
 naming the exact next move. The grantor recorded on the membership is always the person behind
-`SPECGUARD_USER_API_KEY`; no argument can name a different one.
+the credential — the one an `sgu_…` key speaks for, or the **owner** of the `sga_…` agent key.
+The server stamps it; no argument can name a different one.
 
 On success (`201`) the response carries a `member` block whose **`id` is the membership id**
 (alongside `handle`, `permissions`, `granted_by`, `created_at`) — the identifier
@@ -740,9 +774,15 @@ On success (`201`) the response carries a `member` block whose **`id` is the mem
 `members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
 verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`members.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the grant answers inside the same set
+`list_repositories` reports. Under the agent credential the grant is bounded twice: the key cannot
+grant a permission it does not itself hold — SpecGuard answers `400` naming the over-reach — and
+the membership is recorded against the key's **owner**.
 
 ### `update_repository_member_permissions`
 
@@ -766,9 +806,15 @@ ids are scoped to the repository (a foreign id is refused `404`). Authorization 
 `members.manage` capability; a member without it is refused `403` with SpecGuard's own sentence,
 verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`members.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the edit answers inside the same set
+`list_repositories` reports. Under the agent credential the replacement set is bounded twice: the
+key cannot grant a permission it does not itself hold — SpecGuard answers `400` naming the
+over-reach — and the re-stamped grantor is the key's **owner**.
 
 ### `remove_repository_member`
 
@@ -790,9 +836,13 @@ number on the wire, so pass it as a string, not as a number (see the edit tool a
 Authorization is the `members.manage` capability; a member without it is refused `403` with
 SpecGuard's own sentence, verbatim.
 
-It reads `SPECGUARD_USER_API_KEY` (`sgu_…`) — the same **person** key `add_repository` reads, and
-a different one from the `sgk_…` key `get_repository_overview` uses; `list_repositories` also
-accepts that key but does not require it (its agent key wins when both are set).
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`members.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the revoke answers inside the same set
+`list_repositories` reports.
 
 ### `rename_repository`
 

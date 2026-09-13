@@ -1,4 +1,4 @@
-import { postJsonObject, requireUserApiConfig } from "../support/specguard-api.js";
+import { postJsonObject, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
 import { optionalString, requireString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -43,9 +43,17 @@ const createRepositoryApiKey: ToolDefinition = {
     "`name`, which the server defaults when omitted. " +
     "Authorization is the `keys_manage` capability — a member without it is refused 403 " +
     "in SpecGuard's own words. " +
-    "Needs SPECGUARD_USER_API_KEY (an sgu_… key), the same credential `add_repository` " +
-    "writes with and a DIFFERENT one from the sgk_… repository key " +
-    "`get_repository_overview` uses.",
+    "It authenticates with EITHER of this server's two key-administration credentials, whichever " +
+    "is set: SPECGUARD_AGENT_API_KEY (an sga_… key — the call then reaches only the repositories " +
+    "granted onto that key at mint time, and only where the grant carries `keys.manage`; a " +
+    "repository outside that set answers 404 in SpecGuard's own words, never a probe here) and, " +
+    "when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key, the same credential " +
+    "`add_repository` writes with). With both set the agent key wins, so the mint answers inside " +
+    "the same set `list_repositories` reports. Minting under the agent credential attributes the " +
+    "new key to the agent key's OWNER (the server's `attributed_user` rule), so minted-key counts " +
+    "keep naming a person rather than nobody. " +
+    "Either way it is a DIFFERENT credential from the sgk_… repository key " +
+    "`get_repository_overview` uses; SpecGuard refuses each in the other's place.",
   inputSchema: {
     type: "object",
     properties: {
@@ -72,7 +80,7 @@ const createRepositoryApiKey: ToolDefinition = {
     const repositoryId = requireString(args["repository_id"], "repository_id");
     const name = optionalString(args["name"], "name");
 
-    const api = requireUserApiConfig(context.config);
+    const api = requireUserOrAgentApiConfig(context.config);
 
     // `name` omitted when absent rather than sent as null, so the server's own
     // `ApiKey::DEFAULT_NAME` default applies — this bridge expresses "no
