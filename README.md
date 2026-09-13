@@ -643,7 +643,9 @@ reads. With both set the **agent** key wins, so the revoke answers inside the sa
 Lists the agent keys (`sga_…` keys) covering a SpecGuard repository — the keys minted for people
 or automation principals from the /account page, each covering one or more repositories. One row
 per live key: `id`, `name`, `owner`, `token_hint`, `repository_count` (how many repositories the
-key's grant covers — the blast radius), `permissions` and `created_at`.
+key's grant covers — the blast radius), `permissions`, `created_at` and `last_used_at` — when the
+key's token last authenticated, `null` meaning the key has never been presented, so the inventory
+answers "is this live key still being used" before you cut anything.
 
 | argument | |
 | --- | --- |
