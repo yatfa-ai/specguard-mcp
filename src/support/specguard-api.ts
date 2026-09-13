@@ -390,9 +390,18 @@ function timedOut(api: ApiConfig): ApiError {
  * The status turned into something the agent can act on.
  *
  * 401 is called out by name because it is the one an operator will actually
- * hit, and because SpecGuard answers it deliberately flat — "a valid Bearer API
- * key is required", with no detail about why — so the useful half of the
- * diagnosis has to be supplied from this side.
+ * hit. SpecGuard's 401 body is a contract — `{error: "unauthorized"}` plus a
+ * `message` — in which `reason` appears on exactly one fork: a token whose
+ * digest resolves a REVOKED key answers `reason: "revoked"` with a message
+ * naming the remedy. The backend licenses that disclosure precisely because
+ * only someone presenting the exact token can land on the branch, so where the
+ * body carries it, this one stops discarding the body and hands the platform's
+ * sentence through (`revokedCredentialMessage` below) — the same
+ * surfacing-not-reshaping doctrine `refusalMessage` follows for 400/403. In
+ * EVERY other case — `reason` absent, a blank or non-string `message`, a body
+ * that does not parse — the generic body still names no cause at all, so the
+ * useful half of the diagnosis is supplied from this side and the key keeps
+ * reading as an unknown key.
  *
  * WHICH VARIABLE AND WHICH PREFIX ARE READ OFF `api.credential`, never spelled
  * out here. SpecGuard has three credential kinds that refuse each other's
@@ -407,6 +416,12 @@ function timedOut(api: ApiConfig): ApiError {
  */
 function describeFailure(status: number, body: string, api: ApiConfig): ApiError {
   if (status === 401) {
+    // The one 401 whose cause the platform names itself. Everything else —
+    // including an unparseable body — must keep reading as an unknown key, so
+    // the fallback below stays byte-identical to what it has always been.
+    const revoked = revokedCredentialMessage(body);
+    if (revoked !== undefined) return new ApiError(revoked, status);
+
     const { variable, prefix, rejection } = api.credential;
 
     return new ApiError(
@@ -487,6 +502,55 @@ function refusalMessage(body: string, status: number): string | undefined {
   if (typeof message !== "string" || message.trim() === "") return undefined;
 
   return `SpecGuard refused the request (${status}): ${message.trim()}`;
+}
+
+/**
+ * The one 401 whose cause SpecGuard names itself, or nothing.
+ *
+ * `Api::BaseController` forks a single arm off the generic 401: a Bearer token
+ * whose digest resolves a REVOKED key renders
+ * `{error: "unauthorized", reason: "revoked", message: …}`. The backend
+ * licenses that disclosure because only someone presenting the exact token can
+ * reach the branch — the lookup runs on the digest they carried — and the
+ * message names the remedy: mint a replacement and update whatever presents
+ * this one. That is the OPPOSITE move from what the canned sentence in
+ * `describeFailure` prescribes (re-check which variable holds which kind of
+ * key), which is why flattening this arm back into that sentence sends a
+ * revoked-key operator to configuration when the actual fix is rotation.
+ *
+ * SURFACING IT IS THE OPPOSITE OF RESHAPING IT, the same doctrine
+ * `refusalMessage` states one branch over: the platform's message is a
+ * complete, operator-ready sentence, so it is handed through verbatim — no
+ * prefix, no framing; only a whitespace-only `message` counts as absent. The
+ * 401 status still rides the `ApiError`, so nothing downstream loses it.
+ *
+ * The discriminator is the `reason` FIELD, never the presence of a `message`:
+ * the generic 401 body carries a message too and carries NO `reason`, and the
+ * backend pins that an unknown token must keep reading as an unknown token —
+ * the canned sentence stays the contract for everything that is not this
+ * disclosure. Returns `undefined` rather than a fallback for the same reason
+ * `refusalMessage` does, so the decision about what to say stays in one place:
+ * a body that does not parse, is not an object, carries any other `reason`, or
+ * whose `message` is absent, blank or not a string falls back to the canned
+ * sentence rather than to a thrown parse error or an invented reading.
+ */
+function revokedCredentialMessage(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+
+  const record = parsed as Record<string, unknown>;
+  if (record["reason"] !== "revoked") return undefined;
+
+  const message = record["message"];
+  if (typeof message !== "string" || message.trim() === "") return undefined;
+
+  return message;
 }
 
 export { requireApiConfig, requireUserApiConfig, requireAgentApiConfig, requireUserOrAgentApiConfig };

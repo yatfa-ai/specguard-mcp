@@ -550,3 +550,116 @@ describe("a 403 that carries SpecGuard's own refusal", () => {
     assert.doesNotMatch(error.message, /refused the request/);
   });
 });
+
+/**
+ * THE 401 BRANCH — the one fork where SpecGuard names the cause itself.
+ *
+ * `Api::BaseController` answers every 401 with `{error: "unauthorized",
+ * message}` and no `reason` — except the one arm its digest lookup licenses: a
+ * token that resolves a REVOKED key renders `reason: "revoked"` plus a message
+ * naming the remedy. Flattening that arm back into the wrong-kind sentence
+ * tells an operator holding a REVOKED — but correctly-kind — key to re-check
+ * configuration instead of rotating the key, which is the one diagnosis this
+ * branch must never give.
+ *
+ * Asserted in BOTH directions, for the same reason the 400 and 403 blocks are:
+ * a branch that surfaced `message` whenever it found one would pass the first
+ * test alone. The discriminator is the `reason` field — the generic body
+ * carries a message too — and every body that is not that exact disclosure
+ * must keep reading as an unknown key, in the sentence the tool suites already
+ * pin.
+ */
+describe("a 401 that carries SpecGuard's revoked-credential disclosure", () => {
+  const config = api("2000");
+
+  /** Verbatim from `Api::BaseController::REVOKED_CREDENTIAL_MESSAGE`. */
+  const REVOKED =
+    "This API key has been revoked. Mint a replacement key and update whatever presents this one.";
+
+  /** The body `render_unauthorized` renders with its defaults — a message, but no `reason`. */
+  const GENERIC = JSON.stringify({
+    error: "unauthorized",
+    message: "A valid Bearer API key is required.",
+  });
+
+  function unauthorized(body: string) {
+    return stubFetch({ status: 401, body }).fetch;
+  }
+
+  it("hands the platform's message through verbatim, and never the wrong-kind sentence", async () => {
+    const error = await rejects(
+      getJson(
+        config,
+        "/api/v1/repository",
+        {},
+        unauthorized(JSON.stringify({ error: "unauthorized", reason: "revoked", message: REVOKED })),
+      ),
+      /Mint a replacement key/,
+    );
+
+    // EXACTLY the platform's sentence — no prefix, no framing, no trim. The
+    // message IS the diagnosis, and reshaping it is how "mint a replacement"
+    // decays back into a configuration lecture. The 401 status still rides
+    // the error for anything downstream that branches on it.
+    assert.equal(error.message, REVOKED);
+    assert.equal((error as ApiError).status, 401);
+  });
+
+  it("reaches the write path through the same shared branch", async () => {
+    // The 401 branch sits in `describeFailure`, so it serves every verb and —
+    // parameterised on `api.credential` — every credential slot. One read-path
+    // test does not prove the POST half of that claim.
+    const error = await rejects(
+      postJson(
+        config,
+        "/api/v1/repositories",
+        { github_full_name: "acme/app" },
+        unauthorized(JSON.stringify({ error: "unauthorized", reason: "revoked", message: REVOKED })),
+      ),
+      /Mint a replacement key/,
+    );
+
+    assert.equal(error.message, REVOKED);
+  });
+
+  it("keeps the canned sentence for the generic body the default render answers", async () => {
+    // The generic 401 carries a `message` but NO `reason` — so a branch keyed
+    // on message-presence instead of `reason` would fail exactly here, reading
+    // an unknown key as a revoked one. The backend pins the miss arm: an
+    // unknown token must keep reading as an unknown token.
+    const error = await rejects(
+      getJson(config, "/api/v1/repository", {}, unauthorized(GENERIC)),
+      /SpecGuard rejected the API key \(401\)/,
+    );
+
+    assert.match(error.message, /must be an sgk_… key issued by https:\/\/sg\.example\.com/);
+    assert.doesNotMatch(error.message, /Mint a replacement key/);
+    assert.equal((error as ApiError).status, 401);
+  });
+
+  for (const [shape, body] of [
+    ["a reason of another kind", '{"error":"unauthorized","reason":"expired","message":"come back later"}'],
+    ["a revoked reason whose message is not a string", '{"error":"unauthorized","reason":"revoked","message":{"nested":"thing"}}'],
+    ["a revoked reason whose message is blank", '{"error":"unauthorized","reason":"revoked","message":"   "}'],
+    ["a revoked reason with no message at all", '{"error":"unauthorized","reason":"revoked"}'],
+    ["not JSON at all", "<html><body>Unauthorized</body></html>"],
+    ["a JSON array", '["unauthorized"]'],
+  ] as const) {
+    it(`degrades to the canned sentence for a 401 body that is ${shape}`, async () => {
+      // Every non-disclosure body — including one that fails to parse — falls
+      // back to today's sentence, never to a thrown parse error or an invented
+      // reading. The canned sentence for THIS credential slot itself contains
+      // the word "revoked" ("a revoked key reads the same as a wrong one"), so
+      // what is pinned is the platform remedy's ABSENCE plus the sentence's
+      // own halves — never the bare word.
+      const error = await rejects(
+        getJson(config, "/api/v1/repository", {}, unauthorized(body)),
+        /SpecGuard rejected the API key \(401\)/,
+      );
+
+      assert.match(error.message, /must be an sgk_… key issued by https:\/\/sg\.example\.com/);
+      assert.doesNotMatch(error.message, /Mint a replacement key/);
+      assert.equal((error as ApiError).status, 401);
+    });
+  }
+});
