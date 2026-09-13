@@ -1,5 +1,5 @@
-import { requireAgentApiConfig, requireApiConfig } from "../config.js";
-import { getJsonObject } from "../support/specguard-api.js";
+import { requireApiConfig } from "../config.js";
+import { getJsonObject, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
 import { optionalBoolean, optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -48,14 +48,19 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * THE CREDENTIAL MOVES WITH IT, because the endpoints refuse each other's
  * tokens before any table is read: the singular path still authenticates with
- * `SPECGUARD_API_KEY` (`sgk_`, one repository), the plural path with
- * `SPECGUARD_AGENT_API_KEY` (`sga_`, the agent credential minted for exactly
- * this — one key, many repositories, each read bounded by the key's own
- * granted set server-side). Omitting `repository` is byte-for-byte today's
- * request, and an operator who never sets the agent variable never sees this
- * half of the tool exist — the blank-is-no-ask rule every argument here follows
- * covers `repository` too, so a blank value falls back to the singular path
- * rather than sending a guaranteed-404 id.
+ * `SPECGUARD_API_KEY` (`sgk_`, one repository), while the plural path answers
+ * with EITHER member credential, whichever is set — `SPECGUARD_AGENT_API_KEY`
+ * (`sga_`, the agent credential minted for exactly this: one key, many
+ * repositories, each read bounded by the key's own granted set server-side)
+ * preferred, and `SPECGUARD_USER_API_KEY` (`sgu_`, a person key whose
+ * accessible set is the boundary ids are resolved inside instead) when no
+ * agent key is set. With both set the agent key wins, so the plural answer
+ * stays inside the same set `list_repositories` reports — scope consistency,
+ * not preference. Omitting `repository` is byte-for-byte today's request, and
+ * an operator who sets neither member variable never sees this half of the
+ * tool exist — the blank-is-no-ask rule every argument here follows covers
+ * `repository` too, so a blank value falls back to the singular path rather
+ * than sending a guaranteed-404 id.
  *
  * == The response is passed through, not re-modelled
  *
@@ -568,13 +573,20 @@ const getRepositoryOverview: ToolDefinition = {
     "with the endpoint: the call goes to GET /api/v1/repositories/:id — the plural surface, " +
     "the same overview body with every parameter above honoured identically, MINUS the " +
     "`api_key` block, which is ABSENT there rather than nulled (it describes the credential " +
-    "that made the request, and this request was not made with a repository key) — under " +
-    "SPECGUARD_AGENT_API_KEY, an sga_… agent key whose granted repository set is the read " +
-    "boundary the id is looked up inside (a repository outside the set answers 404, " +
-    "deliberately indistinguishable from a nonexistent one). SpecGuard refuses each credential " +
-    "in the other's place before it reads anything, so naming `repository` without the agent " +
-    "key — or omitting it with only the agent key set — is refused HERE, by name, before any " +
-    "request is made. " +
+    "that made the request, and no member credential is a repository key) — and it " +
+    "authenticates with EITHER member credential, whichever is set: SPECGUARD_AGENT_API_KEY " +
+    "(an sga_… agent key — the call then reaches only the repositories granted onto that key " +
+    "at mint time; a repository outside that set answers 404, deliberately indistinguishable " +
+    "from a nonexistent one) and, when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key — " +
+    "a PERSON key, whose accessible set is the boundary the id is resolved inside, exactly the " +
+    "set `list_repositories` reports under the same key). With both set the agent key wins, so " +
+    "the answer stays inside the set that key can act on. The server owns every refusal on this " +
+    "path — a repository outside the presented credential's grant answers 404 there, person " +
+    "and agent alike; SpecGuard refuses each credential KIND in the other's place, and the " +
+    "bridge refuses only the credential-less pairing, naming both member variables in one " +
+    "message. Omitting `repository` (or passing a blank) is byte-for-byte today's singular " +
+    "request, so an operator who sets neither member variable never sees this half of the tool " +
+    "exist. " +
     "Figures are null where CI did not report them — a null is 'not measured', never zero. That " +
     "rule is about NULLS and does not run backwards: a non-null figure is not thereby a " +
     "measurement. A run that reported zero tests serves a real `total_specs: 0` beside " +
@@ -593,20 +605,25 @@ const getRepositoryOverview: ToolDefinition = {
           "in `list_repositories` entries' `id` — not the `org/repo` handle: the plural endpoint " +
           "looks the id up inside the calling key's own read boundary, and a handle casts to no " +
           "id and answers 404. " +
-          "The credential changes with it, because SpecGuard refuses each key kind in the " +
-          "other's place: the call authenticates with SPECGUARD_AGENT_API_KEY (an sga_… agent " +
-          "key) instead of SPECGUARD_API_KEY, and the set of repositories the agent key was " +
-          "granted at mint time is the boundary the id is resolved inside — a repository " +
-          "outside the set answers 404, indistinguishable from one that does not exist, and " +
-          "`list_repositories` under the same key lists exactly the set that is reachable. " +
+          "The credential changes with it: the call authenticates with EITHER member credential, " +
+          "whichever is set — SPECGUARD_AGENT_API_KEY (an sga_… agent key; the set of " +
+          "repositories granted onto it at mint time is the boundary the id is resolved " +
+          "inside, and `list_repositories` under the same key lists exactly the set that is " +
+          "reachable) and, when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key — a " +
+          "PERSON key, whose accessible set is the boundary instead). With both set the " +
+          "agent key wins, so the answer stays inside the set that key can act on. SpecGuard " +
+          "refuses each credential KIND in the other's place: a repository outside the " +
+          "presented credential's grant answers 404, indistinguishable from one that does " +
+          "not exist — person and agent alike. " +
           "Every parameter means the same thing on either path: same ladder, same `run_anchor` " +
           "contract, same overview body with ONE difference this path owns — `api_key` is " +
           "ABSENT from the plural response, not null (the block describes the credential that " +
-          "made the request, and an agent-key caller is not a repository key), so its absence " +
+          "made the request, and a member-key caller — agent or person — is not a repository " +
+          "key), so its absence " +
           "is the plural surface's shape, never a dropped key. " +
           "Omit it — or pass a blank — and the call is byte-for-byte the singular one: " +
           "SPECGUARD_API_KEY on GET /api/v1/repository, exactly as before this argument " +
-          "existed, so an operator who never sets the agent key is unaffected.",
+          "existed, so an operator who sets neither member key is unaffected.",
       },
       branch: {
         type: "string",
@@ -891,18 +908,20 @@ const getRepositoryOverview: ToolDefinition = {
       "unannotated_examples",
     );
     // WHICH ENDPOINT AND WHICH CREDENTIAL is decided here, once, from the one
-    // ask: `repository` present means the plural surface under the agent key,
+    // ask: `repository` present means the plural surface under either member
+    // credential (the agent key preferred, the user key when no agent key is
+    // set — the SPGD-1106 widening; the route has served both since SPGD-952),
     // absent means the singular surface under the `sgk_` slot — byte-for-byte
     // the request this tool made before the argument existed. The two are kept
     // as one branch point rather than spread across the call below, so the
     // pair (path, credential) cannot be mixed: a plural path under the
-    // repository key, or a singular path under the agent key, is a 401 at the
+    // repository key, or a singular path under a member key, is a 401 at the
     // deployment by design, and both mistakes are refused HERE, legibly,
     // instead.
     const api =
       repository === undefined
         ? requireApiConfig(context.config)
-        : requireAgentApiConfig(context.config);
+        : requireUserOrAgentApiConfig(context.config);
     const path =
       repository === undefined
         ? "/api/v1/repository"

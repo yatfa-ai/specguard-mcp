@@ -13,6 +13,12 @@ const AGENT_ENV = {
   SPECGUARD_AGENT_API_KEY: "sga_test",
 };
 
+/** Only the USER key — the environment an sgu_-only deployment has. */
+const USER_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_USER_API_KEY: "sgu_test",
+};
+
 /**
  * A plain `GET /api/v1/repository` response, in the shape
  * `Api::V1::RepositoriesController#show` renders — MINIMAL but honest: the keys
@@ -161,6 +167,41 @@ describe("near_duplicate_clusters — the request it makes", () => {
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
   });
 
+  it("censuses the named repository with the USER key when that is the only key set", async () => {
+    // SPGD-1106: the plural route answers the sgu_ person key too — the same
+    // shared body, the same census, with no `api_key` block for ANY credential
+    // — so an sgu_-only deployment is no longer refused at the bridge tip
+    // before any request. The ask is unchanged; nothing on the wire changes
+    // beyond the Bearer.
+    const http = stubFetch({ body: ASKED_BODY });
+
+    await nearDuplicateClusters.run(
+      { repository: "42" },
+      toolContext({ env: USER_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42?near_duplicates=true");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgu_test");
+  });
+
+  it("prefers the agent key when BOTH member credentials are set", async () => {
+    // Scope consistency, not preference — the same precedence every
+    // either-credential tool keeps since SPGD-953/1070/1097. Asserted ONCE per
+    // tool: the precedence is the helper's (`config.ts`), not this tool's
+    // behavior to re-prove.
+    const http = stubFetch({ body: ASKED_BODY });
+
+    await nearDuplicateClusters.run(
+      { repository: "42" },
+      toolContext({
+        env: { ...USER_ENV, SPECGUARD_AGENT_API_KEY: "sga_test" },
+        fetch: http.fetch,
+      }),
+    );
+
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
   it("treats a blank repository as NO ASK: the singular census, under the sgk_ slot", async () => {
     const http = stubFetch({ body: ASKED_BODY });
 
@@ -173,7 +214,11 @@ describe("near_duplicate_clusters — the request it makes", () => {
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
   });
 
-  it("refuses the `repository` ask by name when the agent key is not set, before any request", async () => {
+  it("refuses the `repository` ask by name when NEITHER member key is set, before any request", async () => {
+    // SPGD-1106 moved this pin's message: the plural path no longer demands
+    // the agent key specifically — either member credential answers it — so
+    // the refusal is the helper's plural rule, naming BOTH variables in one
+    // sentence. The `sgk_` slot being set is correct and is not the problem.
     const http = stubFetch({ body: ASKED_BODY });
 
     const error = await rejects(
@@ -181,10 +226,12 @@ describe("near_duplicate_clusters — the request it makes", () => {
         { repository: "42" },
         toolContext({ env: ENV, fetch: http.fetch }),
       ),
-      /SPECGUARD_AGENT_API_KEY is not set/,
+      /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/,
     );
 
-    assert.match(error.message, /an sga_… key/);
+    assert.match(error.message, /sgu_… key/);
+    assert.match(error.message, /sga_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 

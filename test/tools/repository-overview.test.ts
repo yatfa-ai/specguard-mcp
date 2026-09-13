@@ -12,6 +12,12 @@ const AGENT_ENV = {
   SPECGUARD_AGENT_API_KEY: "sga_test",
 };
 
+/** Only the USER key — the environment an sgu_-only deployment has. */
+const USER_ENV = {
+  SPECGUARD_ENDPOINT: "https://sg.example.com",
+  SPECGUARD_USER_API_KEY: "sgu_test",
+};
+
 /** A response in the shape `Api::V1::RepositoriesController#show` renders. */
 const BODY = JSON.stringify({
   repository: { id: 1, full_name: "acme/app", name: "app", registered_at: "2026-01-01T00:00:00Z" },
@@ -310,6 +316,45 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
   });
 
+  it("answers the `repository` ask with the USER key when that is the only key set", async () => {
+    // SPGD-1106: the plural route is served under the sgu_ person key too —
+    // `UserRepositoriesController#show` declares `accepts_user_credential` and
+    // renders the same shared body, with no `api_key` block for ANY credential
+    // — so an sgu_-only deployment is no longer refused at the bridge tip
+    // before any request. Nothing on the wire changes beyond the Bearer: same
+    // GET, same path, same ladder.
+    const http = stubFetch({ body: PLURAL_BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42" },
+      toolContext({ env: USER_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgu_test");
+  });
+
+  it("prefers the agent key when BOTH member credentials are set", async () => {
+    // Scope consistency, not preference — the same precedence every
+    // either-credential tool keeps since SPGD-953/1070/1097: the agent set is
+    // what `list_repositories` reports and what the other agent-keyed tools
+    // answer inside, so an answer from the person's wider set could name
+    // something the agent's own discovery never showed. Asserted ONCE per
+    // tool — the precedence is the helper's (`config.ts`), not this tool's
+    // behavior to re-prove.
+    const http = stubFetch({ body: PLURAL_BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42" },
+      toolContext({
+        env: { ...USER_ENV, SPECGUARD_AGENT_API_KEY: "sga_test" },
+        fetch: http.fetch,
+      }),
+    );
+
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
   it("keeps the drill-down params riding along identically on the plural path", async () => {
     // The ticket's contract: same ladder, same body, only the subject moves.
     // Every parameter below is forwarded exactly as the singular path forwards
@@ -360,20 +405,24 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
   });
 
-  it("refuses the `repository` ask by name when the agent key is not set, before any request", async () => {
-    // The two credential slots refuse each other's endpoints at the
-    // deployment; the legible place to catch the pairing is HERE, naming the
-    // variable the operator has to set, rather than as a flat 401 after the
-    // wire. And it is the AGENT variable that is named — the `sgk_` slot being
-    // set is correct and is not the problem.
+  it("refuses the `repository` ask by name when NEITHER member key is set, before any request", async () => {
+    // SPGD-1106 moved this pin's message: the plural path no longer demands
+    // the agent key specifically — either member credential answers it — so
+    // the refusal is the helper's plural rule, naming BOTH variables in one
+    // sentence (the one-message rule at double width: refusing with a single
+    // name would send the operator to fix a variable, re-call, and be told
+    // about the other). The `sgk_` slot being set is correct and is not the
+    // problem.
     const http = stubFetch({ body: BODY });
 
     const error = await rejects(
       getRepositoryOverview.run({ repository: "42" }, toolContext({ env: ENV, fetch: http.fetch })),
-      /SPECGUARD_AGENT_API_KEY is not set/,
+      /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/,
     );
 
-    assert.match(error.message, /an sga_… key/);
+    assert.match(error.message, /sgu_… key/);
+    assert.match(error.message, /sga_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
   });
 
