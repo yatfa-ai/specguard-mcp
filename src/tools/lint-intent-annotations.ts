@@ -81,8 +81,10 @@ const lintIntentAnnotations: ToolDefinition = {
       changed: {
         type: "boolean",
         description:
-          "Check only spec files that differ from the merge base with the default branch — the " +
-          "mode CI uses. Cannot be combined with `paths`.",
+          "Check the spec files the branch changed since the merge base with the default branch — " +
+          "the mode CI uses. Untracked spec files count as changed too, so a brand-new spec needs " +
+          "no `git add`; `.gitignore`d paths never enter the selection. Cannot be combined with " +
+          "`paths`.",
       },
       base: {
         type: "string",
@@ -275,8 +277,9 @@ function parseReport(result: CommandResult): LintReport {
       throw new CommandError(
         `specguard-lint produced more than ${MAX_OUTPUT_BYTES / 1024 / 1024} MB of output, so ` +
           "this bridge truncated it and the JSON document is incomplete — no findings could be " +
-          "read from it. Narrow the run with `paths`, or with `changed` to check only what " +
-          "differs from the merge base.",
+          "read from it. Narrow the run with `paths`, or with `changed` to check what the " +
+          "branch changed — the diff since the merge base plus untracked spec files; " +
+          "`.gitignore`d paths never enter the selection.",
       );
     }
 
