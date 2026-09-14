@@ -34,8 +34,8 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
-| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
-| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -581,17 +581,20 @@ reads. With both set the **agent** key wins, so the removal answers inside the s
 
 ### `create_repository_api_key`
 
-Mints a new CI API key (`sgk_…`) for a SpecGuard repository and returns it alongside the
-repository's existing keys. Minting does not disturb existing keys — each key on a repository
-authenticates independently until revoked.
+Mints a new CI API key (`sgk_…`) for a SpecGuard repository, returning the new key **alone** in
+an `api_key` block — the repository's full key set (keys minted in the web panel or in an
+earlier session included) is `list_repository_api_keys`' answer, never this response's.
+Minting does not disturb existing keys — each key on a repository authenticates independently
+until revoked.
 
 | argument | |
 | --- | --- |
 | `repository_id` | the repository to mint the key for — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
 | `name` | an optional label for the key; omit it to let SpecGuard use its default name |
 
-The body comes back as SpecGuard serves it: an `api_key` block (`name`, `token`, `hint`,
-`created_at`) — the same shape `add_repository` serves.
+The body comes back as SpecGuard serves it: an `api_key` block (`id`, `name`, `token`, `hint`,
+`created_at`) — the same shape `add_repository` serves. `id` is the key's durable handle (the
+token is reveal-once); every **other** key's id comes from `list_repository_api_keys`.
 
 > ⚠️ **`api_key.token` is shown once and never again.** Nothing stores it and no endpoint can
 > re-serve it. Hand it to the person you are working for in your reply. If it is dropped, the
@@ -610,6 +613,45 @@ reads. With both set the **agent** key wins, so the mint answers inside the same
 `list_repositories` reports. Minting under the agent credential attributes the new key to the agent
 key's **owner** (the server's `attributed_user` rule), so minted-key counts keep naming a person
 rather than nobody.
+
+### `list_repository_api_keys`
+
+Lists a SpecGuard repository's CI API keys (`sgk_…` keys) — every row of the repository's own key
+set, **live and revoked alike** (unlike the `sga_` listing `list_repository_agent_keys`, which
+serves live rows only). One row per key: `id`, `name`, `token_hint`, `created_at`, `created_by`,
+`last_used_at` — `null` meaning the key has never presented, the negative served rather than
+omitted — `rotated_at`, and `rotated_and_unused` (live-scoped: the stranded shape
+`get_repository_overview`'s `credential_health` reports, at row grain). `status` is
+`live`/`revoked`, with `revoked_at` present only on revoked rows — a revoked `sgk_` row is not a
+credential either, but the rotation's story lives in the population.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository whose API keys to list — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+
+**This is the verify step of the mint-and-replace rotation.** After minting a replacement with
+`create_repository_api_key` and deploying it, list here and check the replacement's
+`last_used_at` BEFORE revoking the old key — `null` means the new token has not presented itself
+yet, and cutting the old key then locks the repository's CI out until a human mints in a browser.
+Neither the mint response (point-in-time by construction: it describes only the key it just made)
+nor `credential_health` (findings only — a never-presented replacement is neither stranded nor
+presented-revoked) can answer this.
+
+**This is the id source for every row this session did not mint.** The mint response carries the
+id of the key IT minted (SPGD-993); a key minted in the web panel, or in an earlier session, has
+no other bridge-learnable id — list here to name a `key_id` for `revoke_repository_api_key`.
+
+`token_hint` is a hint, never the token — the plaintext existed for exactly one response at mint
+time and nothing persisted it. There is no regenerate: rotation is mint-and-replace
+(`create_repository_api_key` → deploy → verify here → `revoke_repository_api_key`).
+
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`keys.manage` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key
+`add_repository` reads. With both set the **agent** key wins, so the listing answers inside the
+same set `list_repositories` reports.
 
 ### `revoke_repository_api_key`
 
