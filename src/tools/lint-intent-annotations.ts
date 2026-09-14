@@ -83,8 +83,11 @@ const lintIntentAnnotations: ToolDefinition = {
         description:
           "Check the spec files the branch changed since the merge base with the default branch — " +
           "the mode CI uses. Untracked spec files count as changed too, so a brand-new spec needs " +
-          "no `git add`; `.gitignore`d paths never enter the selection. Cannot be combined with " +
-          "`paths`.",
+          "no `git add`; `.gitignore`d paths never enter the selection. When `changed` is set and " +
+          "files were selected, the selection provenance line — the base actually diffed against " +
+          "and how many selected files arrived untracked — rides `linter_stderr`, so verifying the " +
+          "selection means reading that field, not doing arithmetic on `summary.files`. Cannot be " +
+          "combined with `paths`.",
       },
       base: {
         type: "string",
