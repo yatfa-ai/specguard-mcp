@@ -81,8 +81,9 @@ const listRepositoryApiKeys: ToolDefinition = {
     "Takes `repository_id` (the numeric id `list_repositories` reports, not the `org/repo` handle). " +
     "It authenticates with EITHER of this server's two key-administration credentials, whichever " +
     "is set: SPECGUARD_AGENT_API_KEY (an sga_… key — the call then reaches only the repositories " +
-    "granted onto that key at mint time, and only where the grant carries `keys.manage`; a " +
-    "repository outside that set answers 404 in SpecGuard's own words, never a probe here) and, " +
+    "granted onto that key at mint time, and only where the grant carries `keys.manage`; a caller " +
+    "without that capability is refused 403 in SpecGuard's own words, and a repository outside " +
+    "the credential's reach answers 404 — this tool predicts neither) and, " +
     "when that is not set, SPECGUARD_USER_API_KEY (an sgu_… key, the same credential the other " +
     "key-administration tools read). With both set the agent key wins, so the answer stays " +
     "inside the same set `list_repositories` reports. " +
