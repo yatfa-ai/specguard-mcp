@@ -29,14 +29,18 @@ const createRepositoryApiKey: ToolDefinition = {
   name: "create_repository_api_key",
   title: "Create repository API key",
   description:
-    "Mints a new CI API key (an sgk_… key) for a SpecGuard repository, and returns it " +
-    "alongside the repository's existing keys. " +
+    "Mints a new CI API key (an sgk_… key) for a SpecGuard repository, returning the new key " +
+    "ALONE in an `api_key` block — the repository's full key set (keys minted in the web panel " +
+    "or in an earlier session included) is `list_repository_api_keys`' answer, never this " +
+    "response's. " +
     "⚠️ `api_key.token` is shown THIS ONCE AND NEVER AGAIN — nothing stores it and no " +
     "endpoint can re-serve it, so hand it to the user in your reply rather than assuming " +
     "it can be fetched later. If it is dropped, the recovery is minting another key with " +
     "this same tool (the platform has no regenerate), then revoking the orphaned one. " +
-    "On success the response carries an `api_key` block (`name`, `token`, `hint`, " +
-    "`created_at`) — the same reveal-once shape `add_repository` serves. " +
+    "On success the response carries an `api_key` block (`id`, `name`, `token`, `hint`, " +
+    "`created_at`) — the same reveal-once shape `add_repository` serves; `id` is the key's " +
+    "durable handle (the token is reveal-once), and every OTHER key's id comes from " +
+    "`list_repository_api_keys`. " +
     "Minting does not disturb existing keys: each key on a repository authenticates " +
     "independently until revoked. " +
     "Takes `repository_id` (the numeric id `list_repositories` reports) and an optional " +

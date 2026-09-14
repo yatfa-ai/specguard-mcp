@@ -5,6 +5,7 @@ import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
 import listRepositoryAgentKeys from "./list-repository-agent-keys.js";
 import listRepositoryAgentKeysPresentedRevoked from "./list-repository-agent-keys-presented-revoked.js";
+import listRepositoryApiKeys from "./list-repository-api-keys.js";
 import listRepositoryMembers from "./list-repository-members.js";
 import nearDuplicateClusters from "./near-duplicate-clusters.js";
 import getRepositoryOverview from "./repository-overview.js";
@@ -118,6 +119,12 @@ import type { ToolDefinition } from "./types.js";
  * returns the raw body text instead of routing an empty 204 through
  * `requestJson`'s JSON parse.
  *
+ *   - `list_repository_api_keys` wraps the same controller's inventory read
+ *     (`GET repositories/:repository_id/api_keys`; shipped: SPGD-993,
+ *     specguard) — the verify step of the mint-and-replace rotation the pair
+ *     above prescribe, and the id source for every `sgk_` row this session
+ *     did not mint.
+ *
  * The standing rule itself is unchanged and still binding — which still keeps
  * out `/check-intent`: it has no backing endpoint (`routes.rb:113` mounts it
  * as a comment only). A tool advertised in `tools/list` remains a promise an
@@ -202,6 +209,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   removeRepository,
   createRepositoryApiKey,
   revokeRepositoryApiKey,
+  listRepositoryApiKeys,
   nearDuplicateClusters,
   listRepositoryMembers,
   addRepositoryMember,
