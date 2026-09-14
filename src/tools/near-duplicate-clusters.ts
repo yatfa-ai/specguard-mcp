@@ -1,5 +1,4 @@
-import { requireApiConfig } from "../config.js";
-import { getJsonObject, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
+import { getJsonObject, repositoryTarget } from "../support/specguard-api.js";
 import { optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -154,21 +153,14 @@ const nearDuplicateClusters: ToolDefinition = {
 
   async run(args, context): Promise<ToolResult> {
     const repository = optionalString(args["repository"], "repository");
-    // WHICH ENDPOINT AND WHICH CREDENTIAL is one branch point over the one ask,
-    // for the reason `repository-overview.ts` states at its own call site: the
-    // pair (path, credential) must not be mixable, because either mixed pairing
-    // is a 401 at the deployment by design and both are refused here, legibly,
-    // instead. The plural arm answers either member credential — the agent key
-    // preferred, the user key when no agent key is set (SPGD-1106) — and the
-    // singular arm is unchanged.
-    const api =
-      repository === undefined
-        ? requireApiConfig(context.config)
-        : requireUserOrAgentApiConfig(context.config);
-    const path =
-      repository === undefined
-        ? "/api/v1/repository"
-        : `/api/v1/repositories/${encodeURIComponent(repository)}`;
+    // WHICH ENDPOINT AND WHICH CREDENTIAL is one branch point over the one
+    // ask, and it is spelled once in `repositoryTarget`
+    // (`../support/specguard-api.js`): the pair (path, credential) must not
+    // be mixable, because either mixed pairing is a 401 at the deployment by
+    // design and both are refused there, legibly, instead. This site only
+    // decides what it asks — no repository named means the singular census,
+    // a name means the plural one under either member credential (SPGD-1106).
+    const { api, path } = repositoryTarget(context.config, repository);
 
     const overview = await getJsonObject(
       api,
