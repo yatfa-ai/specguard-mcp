@@ -7,6 +7,7 @@ import {
   getJsonObject,
   postJson,
   postJsonObject,
+  repositoryTarget,
   requireApiConfig,
 } from "../../src/support/specguard-api.js";
 import { rejects, stubFetch, stubSlowFetch } from "./stubs.js";
@@ -662,4 +663,120 @@ describe("a 401 that carries SpecGuard's revoked-credential disclosure", () => {
       assert.equal((error as ApiError).status, 401);
     });
   }
+});
+
+/**
+ * The singular/plural branch point, extracted to one seam.
+ *
+ * Synchronous pins on purpose: `repositoryTarget` only PAIRS a credential
+ * with a path and never reaches the network, so every assertion below
+ * resolves without a fetch — and the pair the two tools used to keep as one
+ * branch point is pinned here at the seam itself, beside the transports the
+ * pair is handed to.
+ */
+describe("repositoryTarget — the singular/plural (path, credential) pair, chosen together", () => {
+  const ENDPOINT_ENV = {
+    SPECGUARD_ENDPOINT: "https://sg.example.com",
+    SPECGUARD_API_KEY: "sgk_test",
+  };
+
+  it("pairs the singular path with the sgk_ slot when no repository is named", () => {
+    const { api, path } = repositoryTarget(loadConfig(ENDPOINT_ENV), undefined);
+
+    assert.equal(path, "/api/v1/repository");
+    assert.equal(api.endpoint, "https://sg.example.com");
+    assert.equal(api.apiKey, "sgk_test");
+    assert.equal(api.credential.variable, "SPECGUARD_API_KEY");
+  });
+
+  it("refuses the singular arm when the sgk_ slot is unset — even with a member key present", () => {
+    // The wiring pin for the arm above: the singular path belongs to
+    // `requireApiConfig` specifically, never to whichever member helper reads
+    // `SPECGUARD_USER_API_KEY`. Swapping the seam's singular arm to a member
+    // helper turns this pin and the one above red together, and with them
+    // every tool pin that rides the singular path.
+    assert.throws(
+      () =>
+        repositoryTarget(
+          loadConfig({
+            SPECGUARD_ENDPOINT: "https://sg.example.com",
+            SPECGUARD_API_KEY: undefined,
+            SPECGUARD_USER_API_KEY: "sgu_test",
+          }),
+          undefined,
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /SPECGUARD_API_KEY is not set/);
+        assert.match(error.message, /an sgk_… key/);
+        return true;
+      },
+    );
+  });
+
+  it("pairs the plural path with the agent key when a repository is named and only the agent key is set", () => {
+    const { api, path } = repositoryTarget(
+      loadConfig({
+        SPECGUARD_ENDPOINT: "https://sg.example.com",
+        SPECGUARD_AGENT_API_KEY: "sga_test",
+      }),
+      "42",
+    );
+
+    assert.equal(path, "/api/v1/repositories/42");
+    assert.equal(api.endpoint, "https://sg.example.com");
+    assert.equal(api.apiKey, "sga_test");
+    assert.equal(api.credential.variable, "SPECGUARD_AGENT_API_KEY");
+  });
+
+  it("pairs the plural path with the user key when that is the only member credential set", () => {
+    const { api, path } = repositoryTarget(
+      loadConfig({
+        SPECGUARD_ENDPOINT: "https://sg.example.com",
+        SPECGUARD_USER_API_KEY: "sgu_test",
+      }),
+      "42",
+    );
+
+    assert.equal(path, "/api/v1/repositories/42");
+    assert.equal(api.apiKey, "sgu_test");
+    assert.equal(api.credential.variable, "SPECGUARD_USER_API_KEY");
+  });
+
+  it("prefers the agent key on the plural arm when both member credentials are set", () => {
+    const { api, path } = repositoryTarget(
+      loadConfig({
+        ...ENDPOINT_ENV,
+        SPECGUARD_AGENT_API_KEY: "sga_test",
+        SPECGUARD_USER_API_KEY: "sgu_test",
+      }),
+      "42",
+    );
+
+    assert.equal(path, "/api/v1/repositories/42");
+    assert.equal(api.apiKey, "sga_test");
+  });
+
+  it("refuses the plural arm naming BOTH member variables when neither is set — the sgk_ slot being present is not the problem", () => {
+    assert.throws(
+      () => repositoryTarget(loadConfig(ENDPOINT_ENV), "42"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set/);
+        assert.match(error.message, /sgu_… key/);
+        assert.match(error.message, /sga_… key/);
+        assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
+        return true;
+      },
+    );
+  });
+
+  it("percent-encodes the repository into the plural path", () => {
+    const { path } = repositoryTarget(
+      loadConfig({ ...ENDPOINT_ENV, SPECGUARD_AGENT_API_KEY: "sga_test" }),
+      "a b/c",
+    );
+
+    assert.equal(path, "/api/v1/repositories/a%20b%2Fc");
+  });
 });

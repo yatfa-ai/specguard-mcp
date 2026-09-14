@@ -1,5 +1,4 @@
-import { requireApiConfig } from "../config.js";
-import { getJsonObject, requireUserOrAgentApiConfig } from "../support/specguard-api.js";
+import { getJsonObject, repositoryTarget } from "../support/specguard-api.js";
 import { optionalBoolean, optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
@@ -907,25 +906,17 @@ const getRepositoryOverview: ToolDefinition = {
       args["unannotated_examples"],
       "unannotated_examples",
     );
-    // WHICH ENDPOINT AND WHICH CREDENTIAL is decided here, once, from the one
-    // ask: `repository` present means the plural surface under either member
-    // credential (the agent key preferred, the user key when no agent key is
-    // set — the SPGD-1106 widening; the route has served both since SPGD-952),
-    // absent means the singular surface under the `sgk_` slot — byte-for-byte
-    // the request this tool made before the argument existed. The two are kept
-    // as one branch point rather than spread across the call below, so the
-    // pair (path, credential) cannot be mixed: a plural path under the
-    // repository key, or a singular path under a member key, is a 401 at the
-    // deployment by design, and both mistakes are refused HERE, legibly,
-    // instead.
-    const api =
-      repository === undefined
-        ? requireApiConfig(context.config)
-        : requireUserOrAgentApiConfig(context.config);
-    const path =
-      repository === undefined
-        ? "/api/v1/repository"
-        : `/api/v1/repositories/${encodeURIComponent(repository)}`;
+    // WHICH ENDPOINT AND WHICH CREDENTIAL is decided once, from the one ask:
+    // `repository` present means the plural surface under either member
+    // credential (the SPGD-1106 widening; the route has served both since
+    // SPGD-952), absent means the singular surface under the `sgk_` slot —
+    // byte-for-byte the request this tool made before the argument existed.
+    // The two travel as one branch point through `repositoryTarget`
+    // (`../support/specguard-api.js`) rather than spread across the call
+    // below, so the pair (path, credential) cannot be mixed: either mixed
+    // pairing is a 401 at the deployment by design, and both mistakes are
+    // refused there, legibly, instead.
+    const { api, path } = repositoryTarget(context.config, repository);
 
     const overview = await getJsonObject(
       api,

@@ -4,6 +4,7 @@ import {
   requireUserApiConfig,
   requireUserOrAgentApiConfig,
   type ApiConfig,
+  type Config,
 } from "../config.js";
 import { ApiError } from "../errors.js";
 
@@ -551,6 +552,47 @@ function revokedCredentialMessage(body: string): string | undefined {
   if (typeof message !== "string" || message.trim() === "") return undefined;
 
   return message;
+}
+
+/**
+ * The (credential, path) pair ONE repository ask must travel as — both arms
+ * of the singular/plural branch, chosen together or not at all.
+ *
+ * A tool asks either the whole deployment — the `sgk_` slot
+ * (`SPECGUARD_API_KEY`) against the singular `/api/v1/repository` — or one
+ * repository inside it — either member credential (the agent key preferred,
+ * the user key when no agent key is set; the SPGD-1106 widening; the route
+ * has served both since SPGD-952) against the plural
+ * `/api/v1/repositories/…`. The pair (path, credential) must not be mixable:
+ * a plural path under the `sgk_` slot, or a singular path under a member
+ * key, is a 401 at the deployment by design, and both mistakes are refused
+ * HERE, legibly, instead of reaching the deployment. Holding the two
+ * ternaries in one function is what keeps the two arms one branch point
+ * rather than two lines a call site can re-pair — the module header's "no
+ * second place for the permission model to be got wrong", applied to the
+ * one branch that used to be carried as a copy in each of the two tools
+ * that ask over this axis.
+ *
+ * Both such tools call it — `near-duplicate-clusters.ts` and
+ * `repository-overview.ts` — and a tool that grows a `repository` argument
+ * joins by calling this, not by re-spelling the branch. Blank-string and
+ * `optionalString` handling stays in the tools: this decides transport and
+ * credential from the ask exactly as handed to it, `undefined` being the
+ * one spelling of "no ask".
+ */
+export function repositoryTarget(
+  config: Config,
+  repository: string | undefined,
+): { api: ApiConfig; path: string } {
+  const api =
+    repository === undefined
+      ? requireApiConfig(config)
+      : requireUserOrAgentApiConfig(config);
+  const path =
+    repository === undefined
+      ? "/api/v1/repository"
+      : `/api/v1/repositories/${encodeURIComponent(repository)}`;
+  return { api, path };
 }
 
 export { requireApiConfig, requireUserApiConfig, requireAgentApiConfig, requireUserOrAgentApiConfig };
