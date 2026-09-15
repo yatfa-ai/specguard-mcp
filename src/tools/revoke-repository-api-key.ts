@@ -18,10 +18,11 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * == The id is scoped to the repository
  *
- * `repository.api_keys.find(params[:id])` — a key id belonging to a DIFFERENT
- * repository is a 404, not a cross-repository delete. The bridge relies on that
- * scoping entirely and adds no client-side check of its own, for the reason
- * every tool here states: the server is the gate.
+ * `repository.api_keys.find_by(id: params[:id])` + an explicit raise — a key
+ * id belonging to a DIFFERENT repository is a 404, not a cross-repository
+ * delete. The bridge relies on that scoping entirely and adds no client-side
+ * check of its own, for the reason every tool here states: the server is the
+ * gate.
  *
  * == 204 with no body
  *

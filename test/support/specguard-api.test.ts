@@ -673,11 +673,16 @@ describe("a 401 that carries SpecGuard's revoked-credential disclosure", () => {
  * `render_not_found`, which renders `{error: "not_found", message:}` at 404 —
  * and those messages are complete operator guidance ("No repository with that
  * id is available to this key." from `UserRepositoriesController#show`; the
- * raised case renders the exception's own sentence, since `Exception#as_json`
- * is `to_s`). On the endpoints this bridge wraps, the commonest such body is a
+ * raised case renders the sentence the raise site crafted, byte-pinned
+ * producer-side). The mechanism underneath any exception-borne message is
+ * unchanged and general: `Exception#as_json` is `to_s`, so a raise carrying a
+ * message renders that message — only a message-less raise would render the
+ * class name. On the endpoints this bridge wraps, the commonest such body is a
  * stale or wrong key id on the rotation/orphan-recovery arc the revoke tool
  * itself prescribes (mint replacement → deploy → revoke orphan), reaching here
- * through `repository.api_keys.find`. Answering it with the canned
+ * through `repository.api_keys.find_by` and its crafted raise:
+ * "No API key with that id belongs to this repository."
+ * Answering it with the canned
  * endpoint-config hint recruits the reader toward the wrong remedy — debug
  * `SPECGUARD_ENDPOINT` instead of re-check WHICH key was named — the same
  * fault-assigning defect class the 401 branch's wrong-kind sentence was.

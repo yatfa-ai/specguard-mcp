@@ -436,8 +436,9 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
     // Order by certainty: a body that names its own cause beats the heuristic.
     // The platform's own `render_not_found` body is an in-contract answer with
     // a named cause — most commonly a stale or wrong key id on the
-    // rotation/orphan-recovery arc (`repository.api_keys.find` raising into
-    // it) — so it is surfaced verbatim FIRST, exactly as the 401 branch does
+    // rotation/orphan-recovery arc (`repository.api_keys.find_by` raising into
+    // it with "No API key with that id belongs to this repository.") — so it
+    // is surfaced verbatim FIRST, exactly as the 401 branch does
     // for `reason: "revoked"`. Every body that is not that shape still answers
     // the canned endpoint hint below, because for a 404 whose body is a
     // proxy's HTML (or nothing at all) endpoint misconfiguration remains the
@@ -576,7 +577,9 @@ function revokedCredentialMessage(body: string): string | undefined {
  * wraps, the most common of those is a stale or wrong key id on the
  * rotation/orphan-recovery arc the revoke tool itself prescribes (mint
  * replacement → deploy → revoke orphan), which reaches here through
- * `repository.api_keys.find`. Answering the canned endpoint hint to that body
+ * `repository.api_keys.find_by` and its explicit raise:
+ * "No API key with that id belongs to this repository."
+ * Answering the canned endpoint hint to that body
  * sends the reader to debug `SPECGUARD_ENDPOINT` when the actual fix is
  * re-checking WHICH key it named — a fault-assigning message recruiting the
  * reader toward the wrong remedy, the same defect class the 401 branch's
