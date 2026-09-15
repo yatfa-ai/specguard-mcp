@@ -433,7 +433,9 @@ trip through the browser.
 
 The body comes back as SpecGuard serves it: a `repository` block (`id`, `full_name`, `name`,
 `registered_at` — deliberately the same four fields `get_repository_overview` serves in its own
-`repository` block) and an `api_key` block (`name`, `token`, `hint`, `created_at`).
+`repository` block) and an `api_key` block (`id`, `name`, `token`, `hint`, `created_at`). `id` is
+the key's durable handle (the token is reveal-once); every **other** key's id comes from
+`list_repository_api_keys`.
 
 > ⚠️ **`api_key.token` is shown once and never again.** Nothing stores it and no endpoint can
 > re-serve it. Capture it from this response — an agent should hand it straight to the person it is

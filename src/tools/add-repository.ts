@@ -63,7 +63,9 @@ const addRepository: ToolDefinition = {
     "Takes `full_name` as `org/repo` — the same handle `list_repositories` reports and every other " +
     "SpecGuard surface names a repository by. " +
     "On success the response carries a `repository` block (`id`, `full_name`, `name`, " +
-    "`registered_at`) and an `api_key` block (`name`, `token`, `hint`, `created_at`). " +
+    "`registered_at`) and an `api_key` block (`id`, `name`, `token`, `hint`, " +
+    "`created_at`); `id` is the key's durable handle (the token is reveal-once), and every " +
+    "OTHER key's id comes from `list_repository_api_keys`. " +
     "⚠️ `api_key.token` is shown THIS ONCE AND NEVER AGAIN — nothing stores it and no endpoint can " +
     "re-serve it, so hand it to the user in your reply rather than assuming it can be fetched " +
     "later. " +
