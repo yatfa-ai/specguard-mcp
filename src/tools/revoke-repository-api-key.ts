@@ -43,8 +43,10 @@ const revokeRepositoryApiKey: ToolDefinition = {
     "a human mints a new key in a browser. " +
     "Authorization is the `keys_manage` capability — a member without it is refused " +
     "403 in SpecGuard's own words. A 204 means the key is revoked. " +
-    "Takes `repository_id` (the numeric id `list_repositories` reports) and `key_id` " +
-    "(the id from `add_repository`'s or `create_repository_api_key`'s response). " +
+    "Takes `repository_id` (the numeric id `list_repositories` reports) and `key_id` — the mint " +
+    "response carries the id of the key IT minted in its `api_key` block " +
+    "(`create_repository_api_key`, or `add_repository` for the registration key), and every OTHER " +
+    "key's id comes from `list_repository_api_keys`. " +
     "It authenticates with EITHER of this server's two key-administration credentials, whichever " +
     "is set: SPECGUARD_AGENT_API_KEY (an sga_… key — the call then reaches only the repositories " +
     "granted onto that key at mint time, and only where the grant carries `keys.manage`; a " +
@@ -66,9 +68,11 @@ const revokeRepositoryApiKey: ToolDefinition = {
       key_id: {
         type: "string",
         description:
-          "The id of the key to revoke, as served in the `api_key` block of " +
-          "`add_repository` or `create_repository_api_key` (or the repository's " +
-          "API-keys page). Scoped to `repository_id`: a foreign key id is refused 404.",
+          "The id of the key to revoke. The mint response carries the id of the key IT minted " +
+          "in its `api_key` block (`create_repository_api_key`, or `add_repository` for the " +
+          "registration key); every OTHER key's id comes from `list_repository_api_keys` — keys " +
+          "minted in the web panel or in an earlier session have no other bridge-learnable id. " +
+          "Scoped to `repository_id`: a foreign key id is refused 404.",
       },
     },
     required: ["repository_id", "key_id"],

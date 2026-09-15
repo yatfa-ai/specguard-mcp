@@ -661,7 +661,7 @@ Revokes one CI API key on a SpecGuard repository. The key stops authenticating i
 | argument | |
 | --- | --- |
 | `repository_id` | the repository the key belongs to — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
-| `key_id` | the id of the key to revoke, as served in the `api_key` block of `add_repository` or `create_repository_api_key` |
+| `key_id` | the id of the key to revoke — the mint response carries the id of the key it minted in its `api_key` block (`create_repository_api_key`, or `add_repository` for the registration key); every **other** key's id comes from `list_repository_api_keys` |
 
 The `key_id` is scoped to `repository_id`: a key id belonging to a different repository is refused
 `404`, never a cross-repository delete. Authorization is the `keys_manage` capability; a member
