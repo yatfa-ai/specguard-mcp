@@ -433,6 +433,18 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
   }
 
   if (status === 404) {
+    // Order by certainty: a body that names its own cause beats the heuristic.
+    // The platform's own `render_not_found` body is an in-contract answer with
+    // a named cause — most commonly a stale or wrong key id on the
+    // rotation/orphan-recovery arc (`repository.api_keys.find` raising into
+    // it) — so it is surfaced verbatim FIRST, exactly as the 401 branch does
+    // for `reason: "revoked"`. Every body that is not that shape still answers
+    // the canned endpoint hint below, because for a 404 whose body is a
+    // proxy's HTML (or nothing at all) endpoint misconfiguration remains the
+    // likeliest cause and the hint is the right diagnosis for it.
+    const notFound = notFoundMessage(body);
+    if (notFound !== undefined) return new ApiError(notFound, status);
+
     return new ApiError(
       `${api.endpoint} has no such endpoint (404). Check that ${api.endpointVariable} is the ` +
         "deployment's root URL, without a path.",
@@ -547,6 +559,58 @@ function revokedCredentialMessage(body: string): string | undefined {
 
   const record = parsed as Record<string, unknown>;
   if (record["reason"] !== "revoked") return undefined;
+
+  const message = record["message"];
+  if (typeof message !== "string" || message.trim() === "") return undefined;
+
+  return message;
+}
+
+/**
+ * The 404 whose cause SpecGuard names itself, or nothing.
+ *
+ * `Api::BaseController` rescues `ActiveRecord::RecordNotFound` into
+ * `render_not_found`, which renders `{error: "not_found", message:}` at 404 —
+ * and the messages it carries are complete operator guidance ("No repository
+ * with that id is available to this key."). On the endpoints this bridge
+ * wraps, the most common of those is a stale or wrong key id on the
+ * rotation/orphan-recovery arc the revoke tool itself prescribes (mint
+ * replacement → deploy → revoke orphan), which reaches here through
+ * `repository.api_keys.find`. Answering the canned endpoint hint to that body
+ * sends the reader to debug `SPECGUARD_ENDPOINT` when the actual fix is
+ * re-checking WHICH key it named — a fault-assigning message recruiting the
+ * reader toward the wrong remedy, the same defect class the 401 branch's
+ * wrong-kind sentence was.
+ *
+ * SURFACING IT IS THE OPPOSITE OF RESHAPING IT, the revoked-credential
+ * doctrine verbatim: the platform's sentence is handed through with no
+ * prefix and no framing, because it is already complete. The 404 status still
+ * rides the `ApiError`.
+ *
+ * The discriminator is the `error` FIELD, never the presence of a `message` —
+ * the same field-keyed doctrine the 401 arm applies to `reason: "revoked"`:
+ * a 404 from anything that is not this contract (a proxy's HTML, an empty
+ * body, JSON with some other `error`) still names no cause at all, so the
+ * canned endpoint-hint sentence stays the contract for everything that is not
+ * this disclosure. Returns `undefined` rather than a fallback for the same
+ * reason its two siblings do, so the decision about what to say stays in one
+ * place: a body that does not parse, is not an object, carries any other
+ * `error`, or whose `message` is absent, blank or not a string falls back to
+ * the canned sentence rather than to a thrown parse error or an invented
+ * reading.
+ */
+function notFoundMessage(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body) as unknown;
+  } catch {
+    return undefined;
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+
+  const record = parsed as Record<string, unknown>;
+  if (record["error"] !== "not_found") return undefined;
 
   const message = record["message"];
   if (typeof message !== "string" || message.trim() === "") return undefined;
