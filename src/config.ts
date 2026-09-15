@@ -149,8 +149,11 @@ export interface ApiConfig {
    *
    * `requireHttpUrl` already names the variable the operator set when it refuses
    * a malformed value, but the HTTP client one level down has its own diagnostics
-   * — unreachable, 404, a body that is not JSON — and each of them tells the
-   * operator to go and check the endpoint. Without the name here, all three said
+   * — unreachable, a body that is not JSON, and any 404 whose body is not
+   * SpecGuard's own not-found shape — and each of them tells the operator to go
+   * and check the endpoint; a 404 carrying SpecGuard's `{error: "not_found"}`
+   * body surfaces SpecGuard's own sentence verbatim instead (SPGD-1146), naming
+   * the cause rather than the endpoint. Without the name here, all three said
    * `SPECGUARD_ENDPOINT` unconditionally, so someone who followed the brief and
    * set `SPECGUARD_URL` was sent to fix a variable they never set. Threading it
    * onto `ApiConfig` rather than re-deriving it means every HTTP-backed tool
