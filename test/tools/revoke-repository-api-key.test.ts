@@ -106,6 +106,29 @@ describe("revoke_repository_api_key", () => {
     );
   });
 
+  it("surfaces the platform's own 404 sentence when the stale-or-foreign key id carries a body", async () => {
+    // The stale-key story this tool itself prescribes (mint replacement →
+    // deploy → revoke the orphan): a key id the repository no longer knows
+    // raises `ActiveRecord::RecordNotFound` into `render_not_found`, whose
+    // body names the cause — the raise renders the exception's own sentence,
+    // since `Exception#as_json` is `to_s`. That sentence must reach the tool
+    // result; answering the canned endpoint-config hint here sends the reader
+    // to debug SPECGUARD_ENDPOINT instead of re-checking WHICH key it named.
+    await rejects(
+      revokeRepositoryApiKey.run(
+        { repository_id: "42", key_id: "999" },
+        toolContext({
+          env: USER_ENV,
+          fetch: stubFetch({
+            status: 404,
+            body: JSON.stringify({ error: "not_found", message: "Couldn't find ApiKey with 'id'=999" }),
+          }).fetch,
+        }),
+      ),
+      /Couldn't find ApiKey with 'id'=999/,
+    );
+  });
+
   it("authenticates with the agent key when that is the only key set", async () => {
     // The api-keys endpoints answer BOTH key kinds since SPGD-973 (`dee29bf`) — the
     // revoke is then bounded by the key's own set and its `keys.manage` — so an

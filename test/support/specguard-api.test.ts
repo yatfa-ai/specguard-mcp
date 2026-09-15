@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { loadConfig } from "../../src/config.js";
 import { ApiError, SpecGuardMcpError } from "../../src/errors.js";
 import {
+  deleteJson,
   getJson,
   getJsonObject,
   postJson,
@@ -663,6 +664,127 @@ describe("a 401 that carries SpecGuard's revoked-credential disclosure", () => {
       assert.equal((error as ApiError).status, 401);
     });
   }
+});
+
+/**
+ * THE 404 BRANCH — the platform's own not-found body, surfaced before the hint.
+ *
+ * `Api::BaseController` rescues `ActiveRecord::RecordNotFound` into
+ * `render_not_found`, which renders `{error: "not_found", message:}` at 404 —
+ * and those messages are complete operator guidance ("No repository with that
+ * id is available to this key." from `UserRepositoriesController#show`; the
+ * raised case renders the exception's own sentence, since `Exception#as_json`
+ * is `to_s`). On the endpoints this bridge wraps, the commonest such body is a
+ * stale or wrong key id on the rotation/orphan-recovery arc the revoke tool
+ * itself prescribes (mint replacement → deploy → revoke orphan), reaching here
+ * through `repository.api_keys.find`. Answering it with the canned
+ * endpoint-config hint recruits the reader toward the wrong remedy — debug
+ * `SPECGUARD_ENDPOINT` instead of re-check WHICH key was named — the same
+ * fault-assigning defect class the 401 branch's wrong-kind sentence was.
+ *
+ * Asserted in BOTH directions, for the same reason the 400, 403 and 401 blocks
+ * are: a branch that surfaced `message` whenever it found one would pass the
+ * first test alone. The discriminator is the `error` FIELD, never the presence
+ * of a `message` — a body without `error: "not_found"` still names no cause at
+ * all, so the canned endpoint hint stays the contract for it. For a 404 whose
+ * body is a proxy's HTML or nothing at all, endpoint misconfiguration remains
+ * the likeliest cause and the hint is the right diagnosis for it.
+ */
+describe("a 404 that carries SpecGuard's own not-found body", () => {
+  const config = api("2000");
+
+  /** Verbatim from `Api::V1::UserRepositoriesController#show`'s `render_not_found`. */
+  const NOT_AVAILABLE = "No repository with that id is available to this key.";
+
+  function notFound(body: string) {
+    return stubFetch({ status: 404, body }).fetch;
+  }
+
+  it("surfaces the platform's message verbatim, and never the endpoint-config hint", async () => {
+    const error = await rejects(
+      deleteJson(
+        config,
+        "/api/v1/repositories/42/api_keys/999",
+        notFound(JSON.stringify({ error: "not_found", message: NOT_AVAILABLE })),
+      ),
+      /No repository with that id is available to this key/,
+    );
+
+    // EXACTLY the platform's sentence — no prefix, no framing. The message IS
+    // the diagnosis; reshaping it is how "re-check which key it named" decays
+    // back into an endpoint-config lecture.
+    assert.equal(error.message, NOT_AVAILABLE);
+
+    // The inverse assertion: the fault-assigning string must not appear when
+    // the platform named the cause. Its presence is precisely the measured
+    // defect — an agent handed a stale key id sent to debug the endpoint.
+    assert.doesNotMatch(error.message, /no such endpoint/);
+    assert.doesNotMatch(error.message, /root URL/);
+    assert.equal((error as ApiError).status, 404);
+  });
+
+  it("reaches a GET through the same shared branch, because the contract is the API's and not one verb's", async () => {
+    // The 404 branch sits in `describeFailure`, which both transports route
+    // through — one DELETE test does not prove the read half of that claim.
+    const error = await rejects(
+      getJson(
+        config,
+        "/api/v1/repositories/999",
+        {},
+        notFound(JSON.stringify({ error: "not_found", message: NOT_AVAILABLE })),
+      ),
+      /No repository with that id is available to this key/,
+    );
+
+    assert.equal(error.message, NOT_AVAILABLE);
+    assert.equal((error as ApiError).status, 404);
+  });
+
+  for (const [shape, body] of [
+    ["not JSON at all", "<html><body>Not Found</body></html>"],
+    ["an empty body", ""],
+    ["a JSON array", '["not_found"]'],
+    ["JSON whose error is not not_found", '{"error":"gone","message":"come back later"}'],
+    ["JSON without an error field at all", '{"message":"No repository with that id is available to this key."}'],
+    ["JSON whose message is not a string", '{"error":"not_found","message":{"nested":"thing"}}'],
+    ["JSON whose message is blank", '{"error":"not_found","message":"   "}'],
+    ["JSON with no message at all", '{"error":"not_found"}'],
+  ] as const) {
+    it(`degrades to the canned endpoint hint for a 404 that is ${shape}`, async () => {
+      // The fallback stays byte-identical to the answer every existing 404 pin
+      // already locks: for a body that is not this contract — a proxy's HTML
+      // page, an empty body — endpoint misconfiguration remains the likeliest
+      // cause of a 404, and the hint names it. The error-absent-but-message-
+      // present shape above is the discriminator's own test: a branch keyed on
+      // message presence would fail exactly there, reading a stranger's body
+      // as the platform's contract.
+      const error = await rejects(
+        deleteJson(config, "/api/v1/repositories/42/api_keys/999", notFound(body)),
+        /no such endpoint \(404\)/,
+      );
+
+      assert.match(error.message, /Check that SPECGUARD_ENDPOINT is the deployment's root URL/);
+      assert.doesNotMatch(error.message, /No repository with that id/);
+      assert.equal((error as ApiError).status, 404);
+    });
+  }
+
+  it("leaves the other statuses' branches alone", async () => {
+    // A 500 whose body happens to carry `error: "not_found"` must NOT be
+    // re-described as a not-found: this branch is keyed on 404 because that is
+    // the status `render_not_found` renders at.
+    const error = await rejects(
+      getJson(
+        config,
+        "/api/v1/repositories/42",
+        {},
+        stubFetch({ status: 500, body: '{"error":"not_found","message":"boom"}' }).fetch,
+      ),
+      /SpecGuard answered 500/,
+    );
+
+    assert.doesNotMatch(error.message, /No repository with that id/);
+  });
 });
 
 /**
