@@ -150,7 +150,7 @@ describe("revoke_repository_agent_key", () => {
     );
   });
 
-  it("keeps the 404 branch — the live.find/covers? fork's own answer for a foreign or replayed id", async () => {
+  it("keeps the 404 branch — the live.find_by/covers? fork's own answer for a foreign or replayed id", async () => {
     // A key id that is already revoked, or whose stored set does not cover
     // THIS repository, is a 404 server-side — never a cross-repository cut.
     // The branch here is the deployment's; the bridge adds no check of its own.

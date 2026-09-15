@@ -95,8 +95,9 @@ describe("revoke_repository_api_key", () => {
 
   it("keeps the 404 branch — the scoping rule's own answer for a foreign key id", async () => {
     // A key id belonging to a DIFFERENT repository is a 404 server-side
-    // (`repository.api_keys.find`), never a cross-repository delete. The
-    // branch here is the deployment's; the bridge adds no check of its own.
+    // (`repository.api_keys.find_by` + its crafted raise), never a
+    // cross-repository delete. The branch here is the deployment's; the
+    // bridge adds no check of its own.
     await rejects(
       revokeRepositoryApiKey.run(
         { repository_id: "42", key_id: "999" },
@@ -110,8 +111,9 @@ describe("revoke_repository_api_key", () => {
     // The stale-key story this tool itself prescribes (mint replacement →
     // deploy → revoke the orphan): a key id the repository no longer knows
     // raises `ActiveRecord::RecordNotFound` into `render_not_found`, whose
-    // body names the cause — the raise renders the exception's own sentence,
-    // since `Exception#as_json` is `to_s`. That sentence must reach the tool
+    // body names the cause — the raise carries the controller's own crafted
+    // sentence, and `Exception#as_json` is `to_s`, so that sentence (never a
+    // class name) is what renders. That sentence must reach the tool
     // result; answering the canned endpoint-config hint here sends the reader
     // to debug SPECGUARD_ENDPOINT instead of re-checking WHICH key it named.
     await rejects(
@@ -121,11 +123,14 @@ describe("revoke_repository_api_key", () => {
           env: USER_ENV,
           fetch: stubFetch({
             status: 404,
-            body: JSON.stringify({ error: "not_found", message: "Couldn't find ApiKey with 'id'=999" }),
+            body: JSON.stringify({
+              error: "not_found",
+              message: "No API key with that id belongs to this repository.",
+            }),
           }).fetch,
         }),
       ),
-      /Couldn't find ApiKey with 'id'=999/,
+      /No API key with that id belongs to this repository\./,
     );
   });
 

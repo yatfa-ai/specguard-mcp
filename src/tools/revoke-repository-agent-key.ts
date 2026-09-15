@@ -32,11 +32,14 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  *
  * == The id is scoped, and both forks are 404
  *
- * `AgentApiKey.live.find` + `covers?` — a key id that is revoked already (a
- * retained revoked row is not a credential) or whose stored set does not cover
- * THIS repository is a 404, never a cross-repository cut. The bridge relies on
- * that server scoping entirely and adds no client-side check of its own, for
- * the reason every tool here states: the server is the gate.
+ * `AgentApiKey.live.find_by` + one merged `nil?/covers?` raise — a key id that
+ * is revoked already (a retained revoked row is not a credential) or whose
+ * stored set does not cover THIS repository is a 404, never a cross-repository
+ * cut; one raise site answers both forks with
+ * "No agent key with that id is available to this repository."
+ * The bridge relies on that server scoping entirely and adds no client-side
+ * check of its own, for the reason every tool here states: the server is the
+ * gate.
  *
  * == The id source
  *
