@@ -262,6 +262,37 @@ interface FetchedBody {
 const TIMED_OUT = Symbol("specguard-api deadline");
 
 /**
+ * This bridge's wire identity, resolved at REQUEST time.
+ *
+ * `server.ts` owns `SERVER_VERSION` (manifest-derived since SPGD-1190) and this
+ * transport needs it on every request — but a STATIC import would close the
+ * graph's existing cycle the one way it cannot survive: `server.ts` imports the
+ * tool registry, the tools import this transport, and the edge back would make
+ * `tools/index.js` evaluate while whichever tool module started the load is
+ * still mid-evaluation. `tools/index.js` builds its registry in its own module
+ * body, dereferencing those in-flight tool bindings before they are
+ * initialized — a TDZ ReferenceError at boot (`Cannot access 'addRepository'
+ * before initialization`), hit the moment this import went static, in every
+ * load order that enters through a tool module rather than through
+ * `server.ts`. A lazy READ of the constant is not enough; the LOAD itself has
+ * to wait until a request.
+ *
+ * Loading at request time is safe in every order: by the time any request can
+ * run, the whole module graph has finished evaluating, so `import()` is a
+ * module-cache hit that hands back the already-initialized export. The promise
+ * is memoized — and the `import()` call kept inside this function, never at
+ * module scope, where it would start the same evaluation re-entry at load
+ * time. The per-request cost is one awaited, already-resolved promise.
+ */
+let serverIdentity: Promise<typeof import("../server.js")> | undefined;
+
+async function requestUserAgent(): Promise<string> {
+  serverIdentity ??= import("../server.js");
+  const { SERVER_VERSION } = await serverIdentity;
+  return `specguard-mcp/${SERVER_VERSION}`;
+}
+
+/**
  * The verb and body of one call — what differs between a read and a write, and
  * the whole of what differs.
  *
@@ -314,6 +345,11 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  // Assembled BEFORE the deadline is armed: the deadline bounds the network
+  // call, not our own header assembly (which is a module-cache hit in every
+  // real order — see `requestUserAgent`).
+  const userAgent = await requestUserAgent();
+
   const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
@@ -331,7 +367,11 @@ async function fetchWithTimeout(
         headers: {
           Authorization: `Bearer ${api.apiKey}`,
           Accept: "application/json",
-          "User-Agent": "specguard-mcp",
+          // The version rides the identity the platform's rejection triage
+          // stores verbatim (`specguard-mcp/<version>`), the same shape the
+          // sibling clients already send. Resolved per request — see
+          // `requestUserAgent` for why the load, not just the read, is lazy.
+          "User-Agent": userAgent,
           // Sent only when there IS a body. A `Content-Type` on a GET announces
           // a payload that is not there, and some deployments and proxies treat
           // that as a malformed request rather than as a harmless header.
