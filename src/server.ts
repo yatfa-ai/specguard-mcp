@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -12,7 +15,7 @@ import { TOOLS } from "./tools/index.js";
 import type { ToolContext, ToolDefinition } from "./tools/types.js";
 
 export const SERVER_NAME = "specguard-mcp";
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = readPackageVersion();
 
 export interface CreateServerOptions {
   /** Overrides the tools served. Defaults to the registry. Tests pass their own. */
@@ -148,4 +151,63 @@ function indexByName(tools: readonly ToolDefinition[]): Map<string, ToolDefiniti
   }
 
   return byName;
+}
+
+/**
+ * This package's version, read from the package manifest rather than kept as a
+ * literal beside it.
+ *
+ * The literal this replaced was written at bootstrap and never revisited: the
+ * release bot bumps `package.json` alone, so every initialize handshake after
+ * the first release told every client the bridge was still the bootstrap
+ * version. Nothing caught the drift because the constant has exactly two
+ * reader cells — this file's `serverInfo` and the `src/index.ts` re-export —
+ * and no test named it. `SERVER_VERSION` stays a const export with the same
+ * readers; the ONLY change is that its value now tracks the release instead of
+ * the bootstrap.
+ *
+ * `SERVER_VERSION`'s module-scope initialization is the single read: the walk
+ * runs once at import, and every later reader cell sees the cached result.
+ *
+ * The read is a walk UP from this module to the package root, bounded and
+ * name-checked — the shape specguard-ts landed for the same disease (its
+ * fixed `../package.json` read resolved against the module's OWN directory and
+ * answered `"0.0.0"` in every built layout). The layouts this bridge ships
+ * put the compiled module at `dist/src/server.js`, `.test-build/src/server.js`
+ * (the test build), or `src/server.ts` (the dev loader), and an install at
+ * `node_modules/specguard-mcp/dist/src/` — in each, walking up finds the
+ * manifest that names this package, where a fixed relative read would name
+ * `dist/package.json` / `.test-build/package.json` (both absent; `files`
+ * ships dist only, so src/ is not even present in an installed tree). The
+ * name check keeps an ancestor manifest — a monorepo or a vendoring
+ * application's package.json — from being mistaken for this package's, and a
+ * tree with no matching manifest answers the `"0.0.0"` sentinel without
+ * throwing: `createServer` must never gain a failure mode, and a version
+ * that says "unknown" is honest where a crashed boot is not.
+ *
+ * `start` is the injection seam the tests drive the fallback and name-check
+ * arms through: a filesystem path whose directory the walk begins from,
+ * defaulting to this module's own file. Production always takes the default;
+ * tests pass temp-tree paths so the walk can be exercised in layouts the
+ * repo does not ship.
+ */
+export function readPackageVersion(start: string = fileURLToPath(import.meta.url)): string {
+  const require = createRequire(start);
+  let dir = dirname(start);
+  for (let depth = 0; depth < 6; depth += 1) {
+    try {
+      const pkg = require(join(dir, "package.json")) as
+        | { name?: unknown; version?: unknown }
+        | undefined;
+      if (pkg !== undefined && pkg.name === "specguard-mcp" && typeof pkg.version === "string") {
+        return pkg.version;
+      }
+    } catch {
+      // No manifest at this level — keep walking toward the root.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // the filesystem root
+    dir = parent;
+  }
+  return "0.0.0";
 }
