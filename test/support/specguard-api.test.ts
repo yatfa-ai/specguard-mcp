@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { loadConfig } from "../../src/config.js";
 import { ApiError, SpecGuardMcpError } from "../../src/errors.js";
+import { SERVER_VERSION } from "../../src/server.js";
 import {
   deleteJson,
   getJson,
@@ -284,6 +285,39 @@ describe("postJson — the write transport", () => {
       stubFetch({ status: 201, body: "[]" }).fetch,
     );
     assert.deepEqual(body, [], "postJson itself must stay un-narrowed, like getJson");
+  });
+});
+
+/**
+ * The User-Agent is the one header the PLATFORM reads: the ingest-rejection
+ * path stores it verbatim as the row's `user_agent`/`reported_client`, and both
+ * sibling clients already send `product/version` UAs to these same endpoints.
+ * A bare `specguard-mcp` leaves every bridge-originated rejection row triage-
+ * blind to which delivery produced it — which is why the header is pinned here
+ * at the transport, on both a read and a write, rather than only through a
+ * tool-level test or the serverInfo handshake.
+ *
+ * The expected value is BUILT from the `SERVER_VERSION` constant the transport
+ * itself imports — never a literal — so a manifest bump cannot rot the pin,
+ * and a hardcoded identity in either place fails this immediately.
+ */
+describe("User-Agent — the version the client claims", () => {
+  const config = api("2000");
+
+  it("sends specguard-mcp/<SERVER_VERSION> on a GET", async () => {
+    const http = stubFetch({ body: "{}" });
+
+    await getJson(config, "/api/v1/repository", {}, http.fetch);
+
+    assert.equal(http.requests[0]?.headers["user-agent"], `specguard-mcp/${SERVER_VERSION}`);
+  });
+
+  it("sends specguard-mcp/<SERVER_VERSION> on a write", async () => {
+    const http = stubFetch({ status: 201, body: "{}" });
+
+    await postJson(config, "/api/v1/repositories", { github_full_name: "acme/app" }, http.fetch);
+
+    assert.equal(http.requests[0]?.headers["user-agent"], `specguard-mcp/${SERVER_VERSION}`);
   });
 });
 
