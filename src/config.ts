@@ -141,7 +141,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   };
 }
 
-/** What a tool that talks to the SpecGuard API needs, once both halves are known. */
+/**
+ * What a tool that talks to the SpecGuard API needs, once both halves are known.
+ *
+ * `apiKey` and `credential` are OPTIONAL here, and that is the credential-free
+ * ask speaking (`requireEndpointApiConfig` below): an unauthenticated endpoint
+ * needs an endpoint and no key, so the type a transport function accepts cannot
+ * demand a credential the request will never present. `undefined` is a
+ * first-class value, never a gap — the transport reads it as "send no
+ * `Authorization` header", and `describeFailure` reads it as "this ask cannot
+ * have a key problem".
+ *
+ * Every credentialled `require*` helper returns the NARROWED shape,
+ * `CredentialledApiConfig` — the same object with both halves bound, which is
+ * what they have always built. Narrowing in the return type rather than keeping
+ * `ApiConfig` strict is what lets the optional fields exist without loosening
+ * the 18 existing tools: a caller holding a credentialled config still knows
+ * `apiKey` is a `string` and `credential` is a `Credential`, and TypeScript
+ * keeps enforcing that where it is true.
+ */
 export interface ApiConfig {
   readonly endpoint: string;
   /**
@@ -160,7 +178,15 @@ export interface ApiConfig {
    * added later inherits correct naming the same way it inherits the URL check.
    */
   readonly endpointVariable: EndpointVariable;
-  readonly apiKey: string;
+  /**
+   * The key this request presents, when it presents one.
+   *
+   * `undefined` means the request presents NO `Authorization` header — never
+   * "a key we forgot to fill in". Every credentialled helper binds a `string`
+   * here (see `CredentialledApiConfig`), so for the 18 existing tools nothing
+   * about the wire changes.
+   */
+  readonly apiKey: string | undefined;
   /**
    * WHICH credential `apiKey` is — the variable it was read from, the prefix
    * that variable is expected to hold, and how to say both in a sentence.
@@ -173,10 +199,28 @@ export interface ApiConfig {
    * sentences that are all false of it — naming a variable its operator may
    * never have set. Carrying the answer rather than re-deriving it per tool is
    * what makes the next credential-scoped tool inherit correct naming the same
-   * way it inherits the URL check.
+   * way it inherits the URL check. Optional here for exactly that reason and
+   * no other: a credential-free ask has no credential to describe, and
+   * inventing one would invent a requirement the deployment does not have.
    */
-  readonly credential: Credential;
+  readonly credential: Credential | undefined;
   readonly requestTimeoutMs: number;
+}
+
+/**
+ * `ApiConfig` with BOTH halves bound — the shape every credentialled `require*`
+ * helper has always returned, now said in the type.
+ *
+ * A NARROWING, not a parallel type: `CredentialledApiConfig` extends
+ * `ApiConfig`, so it flows into every transport function unchanged, while a
+ * caller holding one still knows `apiKey` is a `string` and `credential` is a
+ * `Credential` — the guarantee every credentialled call site and test relies
+ * on. Only `requireEndpointApiConfig` returns the wider shape, and only the
+ * transport reads the two optional fields there.
+ */
+export interface CredentialledApiConfig extends ApiConfig {
+  readonly apiKey: string;
+  readonly credential: Credential;
 }
 
 export type EndpointVariable = "SPECGUARD_ENDPOINT" | "SPECGUARD_URL";
@@ -286,7 +330,7 @@ const DEFAULT_ENDPOINT_VARIABLE: EndpointVariable = "SPECGUARD_ENDPOINT";
  * before this file grew a second credential calls exactly this, and gets exactly
  * what it got.
  */
-export function requireApiConfig(config: Config): ApiConfig {
+export function requireApiConfig(config: Config): CredentialledApiConfig {
   return requireCredentialledApiConfig(config, config.apiKey, REPOSITORY_CREDENTIAL);
 }
 
@@ -302,7 +346,7 @@ export function requireApiConfig(config: Config): ApiConfig {
  * diagnostics reaches both and they cannot drift into describing the same
  * situation differently.
  */
-export function requireUserApiConfig(config: Config): ApiConfig {
+export function requireUserApiConfig(config: Config): CredentialledApiConfig {
   return requireCredentialledApiConfig(config, config.userApiKey, USER_CREDENTIAL);
 }
 
@@ -317,7 +361,7 @@ export function requireUserApiConfig(config: Config): ApiConfig {
  * tool asked about a repository its `sgk_` slot does not name calls this, and
  * reads the plural endpoints the agent credential is served by.
  */
-export function requireAgentApiConfig(config: Config): ApiConfig {
+export function requireAgentApiConfig(config: Config): CredentialledApiConfig {
   return requireCredentialledApiConfig(config, config.agentApiKey, AGENT_CREDENTIAL);
 }
 
@@ -353,7 +397,7 @@ export function requireAgentApiConfig(config: Config): ApiConfig {
  * every caller because no caller describes the situation itself — holds for
  * this helper too. The endpoint joins the same sentence when it is missing too.
  */
-export function requireUserOrAgentApiConfig(config: Config): ApiConfig {
+export function requireUserOrAgentApiConfig(config: Config): CredentialledApiConfig {
   if (config.agentApiKey !== undefined) {
     return requireCredentialledApiConfig(config, config.agentApiKey, AGENT_CREDENTIAL);
   }
@@ -374,8 +418,53 @@ export function requireUserOrAgentApiConfig(config: Config): ApiConfig {
 }
 
 /**
- * Both halves or a legible failure — never one half and a surprise later.
+ * What a tool that needs NO credential requires — just the endpoint.
  *
+ * The fourth sibling, and the first whose answer carries no key and no
+ * `Credential`: the server's root-level `GET /version` (SPGD-1197, specguard
+ * d434c2a) answers unauthenticated BY DESIGN — the platform's own doctrine
+ * places it outside the credential seam, at the root where the no-account
+ * reads (`/up`, the schema mirror) already live. Demanding a key here would
+ * invent a requirement the deployment does not have, and the
+ * credential-free config this returns is what keeps the transport from
+ * sending an `Authorization` header at all.
+ *
+ * The endpoint is REQUIRED and PARSED through the shared `requireHttpUrl`,
+ * exactly as the credentialled body does — a malformed value is the same
+ * config typo with the same legible answer, and a helper that skipped the
+ * parse would defer it to a bare `TypeError` at request time, read by the
+ * server's error boundary as a defect in the bridge.
+ *
+ * The missing-endpoint message is its OWN sentence rather than the shared
+ * body's, and that is deliberate: the shared body's sentence exists to name
+ * the key variables an operator must choose between, and this ask has none —
+ * folding it through would produce a message demanding a key nobody needs to
+ * set. One sentence, naming only the endpoint variable the operator can fix.
+ */
+export function requireEndpointApiConfig(config: Config): ApiConfig {
+  const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
+
+  if (config.endpoint === undefined) {
+    throw new ConfigError(
+      `This tool talks to a SpecGuard deployment, and ${endpointVariable} ` +
+        "is not set in the MCP server's environment. Set it in your MCP client's server config " +
+        `(${endpointVariable} is your deployment's root URL). This tool needs no API key — the ` +
+        "endpoint it reads answers unauthenticated by design — so no key variable is required " +
+        "here. Tools that do not reach the deployment are unaffected.",
+    );
+  }
+
+  return {
+    endpoint: requireHttpUrl(config.endpoint, endpointVariable),
+    endpointVariable,
+    apiKey: undefined,
+    credential: undefined,
+    requestTimeoutMs: config.requestTimeoutMs,
+  };
+}
+
+/**
+ * Both halves or a legible failure — never one half and a surprise later.
  * Reported together rather than one at a time: an operator who set neither
  * should learn that in one round trip instead of fixing a variable, re-calling,
  * and being told about the next one. That property is why the two `require*`
@@ -416,7 +505,7 @@ function requireCredentialledApiConfig(
   apiKey: string | undefined,
   credential: Credential,
   alternatives: readonly Credential[] = [],
-): ApiConfig {
+): CredentialledApiConfig {
   const endpointVariable = config.endpointVariable ?? DEFAULT_ENDPOINT_VARIABLE;
 
   // Every credential that would answer the calling tool's question — the one

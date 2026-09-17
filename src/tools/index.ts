@@ -1,6 +1,7 @@
 import addRepository from "./add-repository.js";
 import addRepositoryMember from "./add-repository-member.js";
 import createRepositoryApiKey from "./create-repository-api-key.js";
+import getServerVersion from "./get-server-version.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
 import listRepositoryAgentKeys from "./list-repository-agent-keys.js";
@@ -199,10 +200,31 @@ import type { ToolDefinition } from "./types.js";
  * minting is deliberately web-only at /account, so unlike the `sgk_` pair
  * there is no create response to read an id from — the list and revoke
  * descriptions say so rather than leaving it implicit.
+ *
+ * == The first tool that needs NO credential
+ *
+ *   - `get_server_version` wraps the server's root-level `GET /version`
+ *     (shipped: SPGD-1197, specguard `d434c2a`).
+ *
+ * The platform's own doctrine placed this read OUTSIDE the credential seam
+ * rather than inside with an exception: every controller under `api/` must
+ * declare an accepted credential or answer 401 to everything, so the
+ * unauthenticated identity read lives at the root, beside `/up` and the
+ * schema mirror. The bridge meets it where it stands — a fourth `require*`
+ * helper (`requireEndpointApiConfig`) demands an endpoint and no key, the
+ * transport's `Authorization` header became conditional on a present key
+ * (mirroring the conditional `Content-Type` one key below it), and
+ * `describeFailure`'s canned 401 sentence — a diagnosis of a wrong-kind key —
+ * falls to the generic sentence when no credential is bound, because a
+ * credential-free ask cannot have a key problem. The standing rule is
+ * unchanged and still binding: the endpoint was verified-shipped on
+ * `origin/main` before this entry wrapped it. What moved was the platform,
+ * not the bar.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
   getRepositoryOverview,
+  getServerVersion,
   listRepositories,
   addRepository,
   registrableRepositories,

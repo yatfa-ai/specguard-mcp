@@ -43,8 +43,9 @@ describe("an MCP client against the server", () => {
 
     // Grown to three by SPGD-760, to four by SPGD-764, and to thirteen by
     // SPGD-885 (member management), to fourteen by SPGD-887 (rename), to
-    // seventeen by SPGD-1039 (the agent-key family), and to eighteen by
-    // SPGD-1130 (the sgk_ inventory read) —
+    // seventeen by SPGD-1039 (the agent-key family), to eighteen by
+    // SPGD-1130 (the sgk_ inventory read), and to nineteen by SPGD-1200 (the
+    // server's own version read — the first credential-free tool) —
     // grown rather than
     // loosened to a subset check on purpose: this `deepEqual` is the pin that
     // makes what the server promises an agent change only by a conscious
@@ -62,6 +63,7 @@ describe("an MCP client against the server", () => {
       "add_repository_member",
       "create_repository_api_key",
       "get_repository_overview",
+      "get_server_version",
       "lint_intent_annotations",
       "list_repositories",
       "list_repository_agent_keys",

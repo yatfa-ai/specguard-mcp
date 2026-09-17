@@ -110,6 +110,13 @@ function sectionFor(toolName: string): string[] | null {
  */
 const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set([
   "registrable_repositories",
+  // SPGD-1200: `get_server_version` wraps the root-level `GET /version`, which
+  // takes no parameters and answers no ask an argument could narrow — the
+  // deployment's build is the whole of the answer, and the credential is
+  // already absent. Added here deliberately, with the guards above keeping
+  // the set honest in both directions, exactly as `registrable_repositories`
+  // was.
+  "get_server_version",
 ]);
 
 /** Matches the argument table's row for one parameter: `| \`name\` | … |`. */

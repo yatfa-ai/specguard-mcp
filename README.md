@@ -32,7 +32,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 
 | Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
-| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it |
+| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `get_server_version`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it. `get_server_version` needs only this variable — it sends no API key, because the version route is unauthenticated by design |
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
 | `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
@@ -349,6 +349,33 @@ a finding and not a disclosure someone forgot.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
 because a zero would read as a measurement that was taken.
+
+### `get_server_version`
+
+Reports **which build of the SpecGuard deployment is answering**, read from the deployment's own
+unauthenticated root-level `GET /version` — the figure the release bot's `VERSION` file carries,
+served as `{"version": "0.1.46"}`-shaped JSON and passed through verbatim as `{version}`.
+
+**This is the server's build, not this bridge's.** The version in the initialize handshake's
+`serverInfo` and the `specguard-mcp/<version>` User-Agent describe *this bridge* — a different
+component, released on its own cadence — so never read one as the other. Pinning which build's
+crafted 404/400 message sentence a contract suite asserts, verifying that a deployment upgrade took
+effect, or naming the build that produced a behavior is *this* tool's question; the handshake cannot
+answer it.
+
+**`version: null` is an honest answer, not an error.** The deployment is up but cannot say its own
+build — its `VERSION` file was missing or unreadable at boot — and the platform serves that
+deliberately, because an unverifiable identity beats a 500 from the one endpoint whose whole job is
+to be askable. The null is passed through exactly as served, never replaced with a guessed value.
+
+**A 404 means the deployment predates the route: the endpoint is right and the build is old.** The
+error text names the endpoint as possibly misconfigured, because a non-contract 404 body names no
+cause — when the other tools work against the same endpoint, read that error as *"the deployment
+needs upgrading"*, not as a wrong URL.
+
+**Needs no API key of any kind** — the route is unauthenticated by design — so it works with
+`SPECGUARD_ENDPOINT` alone, and it is the one tool here that sends no `Authorization` header. Takes
+no arguments.
 
 ### `list_repositories`
 

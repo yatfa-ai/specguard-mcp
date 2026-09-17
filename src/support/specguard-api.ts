@@ -1,10 +1,12 @@
 import {
   requireAgentApiConfig,
   requireApiConfig,
+  requireEndpointApiConfig,
   requireUserApiConfig,
   requireUserOrAgentApiConfig,
   type ApiConfig,
   type Config,
+  type CredentialledApiConfig,
 } from "../config.js";
 import { ApiError } from "../errors.js";
 
@@ -15,6 +17,11 @@ import { ApiError } from "../errors.js";
  * here: this carries the operator's key and reports what came back. The bridge
  * adds no credentials of its own and makes no access decisions, so there is no
  * second place for the permission model to be got wrong.
+ *
+ * The key is PRESENT-CONDITIONAL since SPGD-1200: every credentialled helper
+ * binds one and it rides every request as before, while a credential-free ask
+ * (`requireEndpointApiConfig`, the unauthenticated `/version`) presents NO
+ * `Authorization` header at all rather than `Bearer ` with nothing after it.
  */
 export async function getJson(
   api: ApiConfig,
@@ -365,13 +372,20 @@ async function fetchWithTimeout(
       fetchImpl(url, {
         method: request.method,
         headers: {
-          Authorization: `Bearer ${api.apiKey}`,
           Accept: "application/json",
           // The version rides the identity the platform's rejection triage
           // stores verbatim (`specguard-mcp/<version>`), the same shape the
           // sibling clients already send. Resolved per request — see
           // `requestUserAgent` for why the load, not just the read, is lazy.
           "User-Agent": userAgent,
+          // Sent only when there IS a key. The credential-free ask (SPGD-1200,
+          // `requireEndpointApiConfig`) presents nothing rather than `Bearer `
+          // with nothing after it — precisely the present-but-empty value
+          // `presence()` refuses on the way in, because a header announcing a
+          // key that is not there is a malformed request waiting for a proxy
+          // to notice. This is `Content-Type`'s conditional-header pattern,
+          // one key below, for the mirrored reason.
+          ...(api.apiKey === undefined ? {} : { Authorization: `Bearer ${api.apiKey}` }),
           // Sent only when there IS a body. A `Content-Type` on a GET announces
           // a payload that is not there, and some deployments and proxies treat
           // that as a malformed request rather than as a harmless header.
@@ -454,6 +468,16 @@ function timedOut(api: ApiConfig): ApiError {
  * `endpointVariable` fixes one branch down, and it gets the same remedy rather
  * than a second hardcoded string: a tool added later inherits correct naming
  * from the `require*` helper it already calls.
+ *
+ * The canned sentence is CREDENTIAL-CONDITIONAL since SPGD-1200: a
+ * credential-free ask cannot have a KEY problem — it presented no key, and the
+ * endpoint it reads (`/version`) never authenticates — so sentencing it to a
+ * `must be an … key` lecture would name a variable its operator never needed
+ * to set. With no credential bound the branch falls through to the generic
+ * sentence below, which shows what actually came back. The revoked-key arm
+ * above stays unconditional on purpose: it is keyed on the BODY the platform
+ * served, not on what this side sent, and surfacing the platform's own
+ * sentence is never the wrong answer.
  */
 function describeFailure(status: number, body: string, api: ApiConfig): ApiError {
   if (status === 401) {
@@ -463,13 +487,18 @@ function describeFailure(status: number, body: string, api: ApiConfig): ApiError
     const revoked = revokedCredentialMessage(body);
     if (revoked !== undefined) return new ApiError(revoked, status);
 
-    const { variable, prefix, rejection } = api.credential;
+    // A credential-free ask falls through to the generic sentence — see the
+    // header above. This branch only speaks when there is a credential whose
+    // variable and prefix a sentence about a key can truthfully name.
+    if (api.credential !== undefined) {
+      const { variable, prefix, rejection } = api.credential;
 
-    return new ApiError(
-      `SpecGuard rejected the API key (401). ${variable} must be an ${prefix}… key issued by ` +
-        `${api.endpoint} ${rejection}.`,
-      status,
-    );
+      return new ApiError(
+        `SpecGuard rejected the API key (401). ${variable} must be an ${prefix}… key issued by ` +
+          `${api.endpoint} ${rejection}.`,
+        status,
+      );
+    }
   }
 
   if (status === 404) {
@@ -690,7 +719,7 @@ function notFoundMessage(body: string): string | undefined {
 export function repositoryTarget(
   config: Config,
   repository: string | undefined,
-): { api: ApiConfig; path: string } {
+): { api: CredentialledApiConfig; path: string } {
   const api =
     repository === undefined
       ? requireApiConfig(config)
@@ -702,4 +731,10 @@ export function repositoryTarget(
   return { api, path };
 }
 
-export { requireApiConfig, requireUserApiConfig, requireAgentApiConfig, requireUserOrAgentApiConfig };
+export {
+  requireApiConfig,
+  requireUserApiConfig,
+  requireAgentApiConfig,
+  requireUserOrAgentApiConfig,
+  requireEndpointApiConfig,
+};
