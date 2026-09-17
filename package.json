@@ -1,6 +1,6 @@
 {
   "name": "specguard-mcp",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "MCP server exposing SpecGuard suite intelligence to AI coding agents",
   "license": "ISC",
   "type": "module",
