@@ -6,6 +6,7 @@ import {
   loadConfig,
   requireAgentApiConfig,
   requireApiConfig,
+  requireEndpointApiConfig,
   requireUserApiConfig,
   requireUserOrAgentApiConfig,
   tokenise,
@@ -571,6 +572,89 @@ describe("requireUserOrAgentApiConfig", () => {
           1,
           "one sentence, not one per missing half",
         );
+        return true;
+      },
+    );
+  });
+});
+
+describe("requireEndpointApiConfig", () => {
+  it("returns the endpoint and NO credential — the ask an unauthenticated endpoint licenses", () => {
+    // The whole point of the fourth sibling: `/version` authenticates nothing,
+    // so demanding a key would invent a requirement the deployment does not
+    // have. `apiKey`/`credential` are bound as `undefined` — a first-class
+    // value the transport reads as "send no Authorization header", never a
+    // gap.
+    const api = requireEndpointApiConfig(loadConfig({ SPECGUARD_ENDPOINT: "https://sg.example.com" }));
+
+    assert.equal(api.endpoint, "https://sg.example.com");
+    assert.equal(api.endpointVariable, "SPECGUARD_ENDPOINT");
+    assert.equal(api.apiKey, undefined);
+    assert.equal(api.credential, undefined);
+  });
+
+  it("keeps keys out of the answer even when they are set — the tool that needs none never borrows one", () => {
+    // Every credentialled helper reads ITS OWN variable; this one reads none,
+    // even with all three present. Binding a key the request will not present
+    // would be a second permission model with no enforcement behind it.
+    const api = requireEndpointApiConfig(
+      loadConfig({
+        SPECGUARD_ENDPOINT: "https://sg.example.com",
+        SPECGUARD_API_KEY: "sgk_abc",
+        SPECGUARD_USER_API_KEY: "sgu_abc",
+        SPECGUARD_AGENT_API_KEY: "sga_abc",
+      }),
+    );
+
+    assert.equal(api.apiKey, undefined);
+    assert.equal(api.credential, undefined);
+  });
+
+  it("names ONLY the endpoint variable when nothing is set — no key variable is anyone's to require", () => {
+    // The credentialled helpers' refusal names the endpoint AND the key
+    // variables, because a key is their missing half. Here a key is nobody's
+    // missing half, so a sentence demanding one would send an operator to set
+    // a variable this tool never reads.
+    assert.throws(
+      () => requireEndpointApiConfig(loadConfig({})),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT is not set/);
+        assert.match(error.message, /needs no API key/);
+        assert.doesNotMatch(error.message, /SPECGUARD_API_KEY/);
+        assert.doesNotMatch(error.message, /SPECGUARD_USER_API_KEY/);
+        assert.doesNotMatch(error.message, /SPECGUARD_AGENT_API_KEY/);
+        return true;
+      },
+    );
+  });
+
+  it("speaks the operator's spelling — SPECGUARD_URL — when THAT is the variable set", () => {
+    // The endpointVariable doctrine every credentialled helper carries: a
+    // message names the variable the operator actually set, never the
+    // canonical spelling they did not use. The alias, set but malformed, is
+    // refused under ITS own name.
+    assert.throws(
+      () => requireEndpointApiConfig(loadConfig({ SPECGUARD_URL: "sg.example.com" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_URL is not a usable URL/);
+        assert.doesNotMatch(error.message, /SPECGUARD_ENDPOINT/);
+        return true;
+      },
+    );
+  });
+
+  it("inherits the endpoint parse rather than re-deriving a weaker one", () => {
+    // The scheme-less host is the shape `new URL` silently accepts, so the
+    // shared `requireHttpUrl` is what must refuse it — here under the fourth
+    // helper, exactly as the credentialled body refuses it.
+    assert.throws(
+      () => requireEndpointApiConfig(loadConfig({ SPECGUARD_ENDPOINT: "sg.example.com" })),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.message, /SPECGUARD_ENDPOINT is not a usable URL/);
+        assert.match(error.message, /must be your SpecGuard/);
         return true;
       },
     );

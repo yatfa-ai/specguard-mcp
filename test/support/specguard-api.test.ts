@@ -11,6 +11,7 @@ import {
   postJsonObject,
   repositoryTarget,
   requireApiConfig,
+  requireEndpointApiConfig,
 } from "../../src/support/specguard-api.js";
 import { rejects, stubFetch, stubSlowFetch } from "./stubs.js";
 
@@ -318,6 +319,92 @@ describe("User-Agent — the version the client claims", () => {
     await postJson(config, "/api/v1/repositories", { github_full_name: "acme/app" }, http.fetch);
 
     assert.equal(http.requests[0]?.headers["user-agent"], `specguard-mcp/${SERVER_VERSION}`);
+  });
+});
+
+/**
+ * THE CREDENTIAL-FREE ASK, at the transport (SPGD-1200).
+ *
+ * `ApiConfig`'s key and credential are optional now, and this block pins what
+ * that optionality MEANS on the wire — in both directions. A credential-free
+ * ask (`requireEndpointApiConfig`, wrapping the unauthenticated `/version`)
+ * must present NO `Authorization` header rather than a `Bearer ` with nothing
+ * after it, and its 401 — unreachable from `/version` itself, but the
+ * transport is shared — must fall to the generic sentence rather than a key
+ * lecture naming a variable nobody set. The credentialled path must be
+ * byte-unchanged, because "the header became conditional" is a regression if
+ * the condition ever stopped being met.
+ */
+describe("a credential-free ApiConfig — the unauthenticated /version ask", () => {
+  const config = requireEndpointApiConfig(loadConfig({ SPECGUARD_ENDPOINT: "https://sg.example.com" }));
+
+  /** Verbatim from `Api::BaseController::REVOKED_CREDENTIAL_MESSAGE`. */
+  const REVOKED =
+    "This API key has been revoked. Mint a replacement key and update whatever presents this one.";
+
+  /** The body `render_unauthorized` renders with its defaults — a message, but no `reason`. */
+  const GENERIC = JSON.stringify({
+    error: "unauthorized",
+    message: "A valid Bearer API key is required.",
+  });
+
+  it("sends no Authorization header — never `Bearer ` with nothing after it", async () => {
+    const http = stubFetch({ body: "{}" });
+
+    await getJson(config, "/version", {}, http.fetch);
+
+    const headers = http.requests[0]?.headers ?? {};
+    assert.ok(!("authorization" in headers), `got ${JSON.stringify(headers)}`);
+  });
+
+  it("keeps sending the key on the credentialled path — the conditional is not a removal", async () => {
+    // Guarding the other direction: widening `ApiConfig` must not have
+    // unbound the key every credentialled helper returns. One read through a
+    // credentialled config proves the header survives on the path the other
+    // eighteen tools ride.
+    const credentialled = requireApiConfig(
+      loadConfig({ SPECGUARD_ENDPOINT: "https://sg.example.com", SPECGUARD_API_KEY: "sgk_test" }),
+    );
+    const http = stubFetch({ body: "{}" });
+
+    await getJson(credentialled, "/api/v1/repository", {}, http.fetch);
+
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
+  });
+
+  it("falls to the generic 401 sentence, never a key lecture, when no credential is bound", async () => {
+    // A credential-free ask cannot have a KEY problem — it presented none —
+    // so the canned sentence, which diagnoses a wrong-kind key by naming its
+    // variable, would name a variable this ask never needed. The generic
+    // sentence shows what actually came back instead.
+    const error = await rejects(
+      getJson(config, "/version", {}, stubFetch({ status: 401, body: GENERIC }).fetch),
+      /SpecGuard answered 401/,
+    );
+
+    assert.doesNotMatch(error.message, /must be an sgk_… key/);
+    assert.doesNotMatch(error.message, /SPECGUARD_API_KEY/);
+    assert.equal((error as ApiError).status, 401);
+  });
+
+  it("still surfaces the platform's revoked-credential sentence when the BODY carries it", async () => {
+    // The revoked arm is keyed on the BODY the platform served, not on what
+    // this side sent, so it stays unconditional: surfacing the platform's own
+    // sentence is never the wrong answer, whoever the ask was from.
+    const error = await rejects(
+      getJson(
+        config,
+        "/version",
+        {},
+        stubFetch({
+          status: 401,
+          body: JSON.stringify({ error: "unauthorized", reason: "revoked", message: REVOKED }),
+        }).fetch,
+      ),
+      /Mint a replacement key/,
+    );
+
+    assert.equal(error.message, REVOKED);
   });
 });
 
