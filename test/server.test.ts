@@ -1,9 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "../src/config.js";
-import { createServer } from "../src/server.js";
+import { createServer, readPackageVersion, SERVER_NAME } from "../src/server.js";
 import type { ToolDefinition } from "../src/tools/types.js";
 import { stubCommand, stubFetch } from "./support/stubs.js";
 
@@ -332,5 +337,119 @@ describe("adding a tool", () => {
 
     // Both would appear in tools/list while only one could ever be called.
     assert.throws(() => createServer({ tools: [duplicate, { ...duplicate }] }), /Two tools are registered/);
+  });
+});
+
+/**
+ * The expected version, read INDEPENDENTLY of the code under test.
+ *
+ * Deliberately a second implementation of the walk rather than a call into
+ * `readPackageVersion`: a pin that resolves its expectation through the code
+ * it pins cannot fail when that code resolves the WRONG manifest — the two
+ * would agree with each other all the way to a wrong version. It walks up
+ * from the TEST file's own module rather than reading a fixed
+ * `../package.json`, because from the compiled layout (`.test-build/test/`)
+ * that fixed read names `.test-build/package.json` — absent, the exact
+ * disease this suite pins against — and the expectation would silently
+ * become the throw below on every `npm test` run. Failing loudly is right
+ * for an expectation read: unlike the resolver, a test whose manifest
+ * cannot be found has nothing honest to assert.
+ */
+function packageVersionFromManifest(): string {
+  const require = createRequire(import.meta.url);
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let depth = 0; depth < 6; depth += 1) {
+    try {
+      const pkg = require(join(dir, "package.json")) as
+        | { name?: unknown; version?: unknown }
+        | undefined;
+      if (pkg !== undefined && pkg.name === "specguard-mcp" && typeof pkg.version === "string") {
+        return pkg.version;
+      }
+    } catch {
+      // No manifest at this level — keep walking toward the repo root.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // the filesystem root
+    dir = parent;
+  }
+  throw new Error("test could not find the specguard-mcp package manifest");
+}
+
+describe("the version the server advertises", () => {
+  it("tells a connecting client its real package version in serverInfo", async () => {
+    // The pin that would have caught the bootstrap constant: the initialize
+    // handshake's serverInfo.version must equal the manifest the release bot
+    // bumps, read here independently of the resolver under test. The old
+    // bootstrap literal served every release after the first, because
+    // nothing read this cell at all.
+    const client = await connect();
+
+    const serverInfo = client.getServerVersion();
+    assert.equal(serverInfo?.name, SERVER_NAME);
+    assert.equal(serverInfo?.version, packageVersionFromManifest());
+
+    await client.close();
+  });
+
+  it("walks up from the injected start to a manifest that names this package", () => {
+    // The seam the resolver exposes for exactly this arm: the walk begins at
+    // `dirname(start)` and climbs, so a layout-shaped start (the module two
+    // directories below the manifest, as dist/src/server.js and
+    // .test-build/src/server.js both sit) finds it. The start file itself
+    // need not exist — resolution runs off its directory.
+    const root = mkdtempSync(join(tmpdir(), "sgmcp-version-"));
+    try {
+      writeFileSync(
+        join(root, "package.json"),
+        JSON.stringify({ name: "specguard-mcp", version: "7.7.7" }),
+      );
+      assert.equal(readPackageVersion(join(root, "dist", "src", "server.js")), "7.7.7");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a manifest that names some other package", () => {
+    // The ancestor trap: a vendoring application's or monorepo's
+    // package.json must never be mistaken for this package's, even when it
+    // sits exactly where the walk looks first — so the answer is the
+    // fallback, not the foreign version.
+    const root = mkdtempSync(join(tmpdir(), "sgmcp-version-"));
+    try {
+      writeFileSync(
+        join(root, "package.json"),
+        JSON.stringify({ name: "some-vendoring-app", version: "9.9.9" }),
+      );
+      assert.equal(readPackageVersion(join(root, "dist", "src", "server.js")), "0.0.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("answers 0.0.0 without throwing when no discoverable manifest names this package", () => {
+    // The no-throw contract, driven at unit level through the injected start
+    // rather than by booting a manifest-less process: the temp tree is deep
+    // enough that the walk's own six-level bound ends it inside the tree,
+    // so nothing above can answer either — the honest "unknown" sentinel and
+    // no exception, which is what lets `createServer` keep its documented
+    // no-I/O, no-validation construction contract.
+    const root = mkdtempSync(join(tmpdir(), "sgmcp-version-"));
+    try {
+      const deep = join(root, "a", "b", "c", "d", "e", "f", "server.js");
+      assert.equal(readPackageVersion(deep), "0.0.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("still constructs the server — the resolver never gains a failure mode", () => {
+    // The construction half of the fallback contract, asserted directly: the
+    // bin's design is a server that constructs with no I/O and no
+    // validation, so a resolution that threw would take every entrypoint
+    // down at import. Every other test in this file constructs a server
+    // through the same import; this one exists so the contract has a named
+    // home beside the resolver arms it guards.
+    assert.doesNotThrow(() => createServer({ tools: [] }));
   });
 });
