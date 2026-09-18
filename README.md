@@ -1024,8 +1024,11 @@ whatever the registry holds, so a tool added later is checked by tests written t
 
 **Only wrap capabilities that exist.** A tool in `tools/list` is a promise an agent acts on; one that
 discovers cleanly and fails on use is worse than one that is absent, because the agent has already
-committed to a plan by the time it finds out. `/check-intent` and duplicate clustering are therefore
-not here, and should arrive when their backing data and engine do.
+committed to a plan by the time it finds out. Anything whose backing endpoint has not shipped stays
+out — `/check-intent` is in that state today: the platform's `config/routes.rb` carries it as a
+comment and nothing more, so there is nothing for a tool to wrap. Duplicate clustering once sat under
+this same rule; the endpoint it needed shipped, and `near_duplicate_clusters` moved inside. What
+moved was the platform, not the bar.
 
 Transport is chosen in `bin/specguard-mcp.ts` and nowhere else — stdio today, so an HTTP/SSE
 entrypoint is a sibling of that file rather than a change to the server.
