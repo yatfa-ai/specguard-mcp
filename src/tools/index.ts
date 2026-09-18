@@ -204,7 +204,7 @@ import type { ToolDefinition } from "./types.js";
  * == The first tool that needs NO credential
  *
  *   - `get_server_version` wraps the server's root-level `GET /version`
- *     (shipped: SPGD-1197, specguard `d434c2a`).
+ *     (shipped: SPGD-1197, specguard `08ab408`).
  *
  * The platform's own doctrine placed this read OUTSIDE the credential seam
  * rather than inside with an exception: every controller under `api/` must
