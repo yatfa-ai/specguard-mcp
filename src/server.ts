@@ -160,11 +160,16 @@ function indexByName(tools: readonly ToolDefinition[]): Map<string, ToolDefiniti
  * The literal this replaced was written at bootstrap and never revisited: the
  * release bot bumps `package.json` alone, so every initialize handshake after
  * the first release told every client the bridge was still the bootstrap
- * version. Nothing caught the drift because the constant has exactly two
- * reader cells — this file's `serverInfo` and the `src/index.ts` re-export —
- * and no test named it. `SERVER_VERSION` stays a const export with the same
- * readers; the ONLY change is that its value now tracks the release instead of
- * the bootstrap.
+ * version. Nothing caught the drift in that bootstrap era: then, every reader
+ * cell of the constant relayed the stale literal unchecked, and no test named
+ * it. That era is over. Whatever a reader cell does with `SERVER_VERSION`, it
+ * now sees the tracked value — and the suite now names the constant too. The
+ * per-request User-Agent (`requestUserAgent()` in
+ * `src/support/specguard-api.ts`) stamps `specguard-mcp/<version>` onto every
+ * outbound call, and the transport tests assert that header against this very
+ * constant. The manifest-walk change kept `SERVER_VERSION` a const export and
+ * left every reader cell's access to it untouched; the ONLY change is that
+ * its value now tracks the release instead of the bootstrap.
  *
  * `SERVER_VERSION`'s module-scope initialization is the single read: the walk
  * runs once at import, and every later reader cell sees the cached result.
