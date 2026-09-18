@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `PATCH /api/v1/repositories/:id` as a tool — shipped in the platform
- * (`specguard/config/routes.rb:186`, `Api::V1::UserRepositoriesController#update`,
+ * (`specguard/config/routes.rb`, `Api::V1::UserRepositoriesController#update`,
  * SPGD-878, PR #266).
  *
  * == Why this tool exists at all

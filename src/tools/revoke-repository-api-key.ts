@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `DELETE /api/v1/repositories/:repository_id/api_keys/:id` as a tool —
- * shipped in the platform (`specguard/config/routes.rb:159`,
+ * shipped in the platform (`specguard/config/routes.rb`,
  * `user_repository_api_keys_controller#destroy`, SPGD-754).
  *
  * == Replacement-mint-then-revoke is the rotation model
