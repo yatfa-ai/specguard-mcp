@@ -328,7 +328,15 @@ newest refusal is newer than the newest *accepted* run, and true when nothing ha
 accepted, so a repository refused once and quiet since still answers `true`. Read it with
 `last_rejection_at` and judge recency yourself. Each retained rejection carries the endpoint's own
 reasons and, where the client reported one, the client
-version that sent it. A `latest_run` from days ago beside a live rejection stream is a suite
+version that sent it, plus `served_by` — the build of the SpecGuard deployment that refused it,
+stamped on the row at write time. That stamp answers a question the deployment's live version read
+cannot: `get_server_version` reports which build is answering *now*, while retained refusals
+outlive deploys, so for a past row the two routinely disagree — read `served_by` for which build
+refused *that row*, never the live route. The row's two nulls mean *different* things and must not
+be read as each other: a null `reported_client` means the client sent no `User-Agent` (the row
+knows, and the client said nothing); a null `served_by` means the row predates the stamp —
+refusals are retained across deploys, so the platform genuinely does not know which build answered
+it. A `latest_run` from days ago beside a live rejection stream is a suite
 SpecGuard *stopped accepting*, not a suite nobody ran. `credential_health` covers the break that one
 structurally **cannot** see: a rejected key resolves no repository and writes no rejection row, so an
 authentication-broken pipeline is invisible to every rejection figure — it names any key that was
