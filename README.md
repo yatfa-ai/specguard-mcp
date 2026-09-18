@@ -334,9 +334,11 @@ cannot: `get_server_version` reports which build is answering *now*, while retai
 outlive deploys, so for a past row the two routinely disagree — read `served_by` for which build
 refused *that row*, never the live route. The row's two nulls mean *different* things and must not
 be read as each other: a null `reported_client` means the client sent no `User-Agent` (the row
-knows, and the client said nothing); a null `served_by` means the row predates the stamp —
-refusals are retained across deploys, so the platform genuinely does not know which build answered
-it. A `latest_run` from days ago beside a live rejection stream is a suite
+knows, and the client said nothing); a null `served_by` means the row carries no build identity, so
+the platform cannot name which build answered it — the write path can land on that null in more
+than one way (for example a row retained from before the stamp existed, a build whose VERSION file
+is missing or unreadable, a column stored blank), so the null says only that no build is named,
+never which way it got there. A `latest_run` from days ago beside a live rejection stream is a suite
 SpecGuard *stopped accepting*, not a suite nobody ran. `credential_health` covers the break that one
 structurally **cannot** see: a rejected key resolves no repository and writes no rejection row, so an
 authentication-broken pipeline is invisible to every rejection figure — it names any key that was
