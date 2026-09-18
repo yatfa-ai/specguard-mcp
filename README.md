@@ -1013,8 +1013,10 @@ and every argument earns a row in that section's table, since this README ships 
 published documentation, and `test/readme.test.ts` derives that obligation from the registry so a
 missing section or an undocumented parameter fails the suite — as does a response key the tool's
 description names that the section never mentions. A tool that genuinely takes no
-arguments (`list_repositories` is the first) still earns the section, and is named in that file's
-`ARGUMENT_LESS_TOOLS` — a deliberate line to add, rather than a floor relaxed for everyone.
+arguments still earns the section, and is named in that file's `ARGUMENT_LESS_TOOLS` — a
+deliberate line to add, rather than a floor relaxed for everyone. The set tracks the property,
+not arrival order: an `inputSchema` that declares no `properties`, the shape
+`registrable_repositories` has.
 `src/server.ts` iterates that array and contains no per-tool code — no `switch`, no hard-coded name — and everything a tool
 touches the world with (config, subprocesses, `fetch`) is injected, so a new tool is testable
 without a live deployment for free. The property tests in `test/tools/registry.test.ts` run over
