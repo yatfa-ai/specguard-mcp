@@ -356,7 +356,25 @@ ranking for the whole set. Where **no** bound sits beside a list, it is everythi
 a finding and not a disclosure someone forgot.
 
 Figures are `null` where CI did not report them. A `null` means *not measured*; it is never a zero,
-because a zero would read as a measurement that was taken.
+because a zero would read as a measurement that was taken. That rule is about nulls and does not
+run backwards: a non-null figure is not thereby a measurement — a run that reported zero tests
+serves a real `total_specs: 0` beside `suite_size_measured: false`, so it is that boolean, never
+the nullness, that says whether the row measured a suite.
+
+Three more keys ride **every** response, with no parameter to pass, and together they decide whether
+two history rows may be *differenced at all* — which is what the history is for. `suite_size_measured`
+is served on `latest_run` and on every `history[]` row, from the same predicate at both sites so one
+run cannot disagree with itself: `false` means that run reported **no** tests, so its `total_specs`
+is a *report*, not a measurement — never difference across a row where it is false. `shard_count`
+and `timed_shard_count` ride every `history[]` row and are the two denominators: difference
+`total_specs` only across rows of *equal* `shard_count`, because that count is a sum over the shards
+**recorded**; difference `duration_seconds` only across rows of *equal* `timed_shard_count`, because
+that figure is a max over the shards that **reported**. Ignore the second and a run whose four
+shards all reported, differenced against a run whose two slowest were cancelled — identical
+`shard_count`, identical `suite_size_measured`, only `timed_shard_count` differing — reads as a 70%
+speedup produced entirely by telemetry loss. A half-reported run is the **ordinary** state, not an
+exotic one: every sharded run passes through it while its shards are still arriving, and a job
+cancelled after two of four shards leaves a half-sized row in the history permanently.
 
 ### `get_server_version`
 
@@ -675,8 +693,9 @@ nor `credential_health` (findings only — a never-presented replacement is neit
 presented-revoked) can answer this.
 
 **This is the id source for every row this session did not mint.** The mint response carries the
-id of the key IT minted (SPGD-993); a key minted in the web panel, or in an earlier session, has
-no other bridge-learnable id — list here to name a `key_id` for `revoke_repository_api_key`.
+id of the key IT minted, in its `api_key` block (SPGD-993); a key minted in the web panel, or in
+an earlier session, has no other bridge-learnable id — list here to name a `key_id` for
+`revoke_repository_api_key`.
 
 `token_hint` is a hint, never the token — the plaintext existed for exactly one response at mint
 time and nothing persisted it. There is no regenerate: rotation is mint-and-replace
@@ -992,7 +1011,8 @@ The toolset fills in as more of SpecGuard lands. Adding one is two mechanical ed
 There is no third — no third *wiring* edit, at least: every tool also earns a `### ` section above,
 and every argument earns a row in that section's table, since this README ships as the package's
 published documentation, and `test/readme.test.ts` derives that obligation from the registry so a
-missing section or an undocumented parameter fails the suite. A tool that genuinely takes no
+missing section or an undocumented parameter fails the suite — as does a response key the tool's
+description names that the section never mentions. A tool that genuinely takes no
 arguments (`list_repositories` is the first) still earns the section, and is named in that file's
 `ARGUMENT_LESS_TOOLS` — a deliberate line to add, rather than a floor relaxed for everyone.
 `src/server.ts` iterates that array and contains no per-tool code — no `switch`, no hard-coded name — and everything a tool

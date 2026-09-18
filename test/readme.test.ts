@@ -244,3 +244,229 @@ describe("the published README", () => {
     });
   }
 });
+
+/**
+ * == The response keys a description names
+ *
+ * The argument guard above covers one of the README's two obligations. The
+ * other is the RESPONSE side: every tool's top-level `description` — the text
+ * an agent actually reasons over — names response keys in backticks, and a
+ * consumer cannot act on a key the published README never names. That column
+ * was guarded by nothing, and it is the one that has actually been dropped:
+ * SPGD-690 (`42680f5`) grew `get_repository_overview`'s description with three
+ * keys — `suite_size_measured`, `shard_count`, `timed_shard_count` — and zero
+ * README, and the suite stayed green for a month because no test in this repo
+ * read the README for response keys.
+ *
+ * So this too is derived from `TOOLS`, and the derivation is measured, not
+ * assumed. Across the registry it extracts 157 unique backticked identifiers
+ * (`` `[a-z_][a-z0-9_]{3,}` ``, tool names dropped) from the top-level
+ * descriptions; 17 tools carry at least one; and before this guard landed
+ * exactly four of the 157 were absent from their tool's section — the three
+ * SPGD-690 keys, plus `api_key` on `list_repository_api_keys` — and all four
+ * were documented in the same commit as this guard, because a guard that goes
+ * red on adoption must not be merged beside docs that leave it red.
+ *
+ * == Why presence is matched at word boundaries, never as a substring
+ *
+ * The trap the argument guard solves with table ROWS applies here twice over,
+ * and a plain substring check walks into both. `api_key` on
+ * `list_repository_api_keys` reads as "documented" on the strength of the tool
+ * names `create_repository_api_key` and `revoke_repository_api_key` appearing
+ * in the section's rotation prose — the page's own chrome already contains the
+ * string being asserted on, which is this file's own definition of a
+ * vacuous positive. And once `timed_shard_count` is documented, a substring
+ * check would keep `shard_count` green even if every plain mention of it were
+ * deleted. `\b` boundaries reject both — an underscore is a word character, so
+ * `shard_count` is not found inside `timed_shard_count`, and `api_key` is not
+ * found inside a tool name — while a dotted path such as `run_anchor.resolved`
+ * still documents `run_anchor`, and a code span wrapped across a README line
+ * break still reads, because the section is joined before matching.
+ *
+ * == Why the description is read from the registry, never from the file
+ *
+ * `rejections_window` appears in `repository-overview.ts` — in a source
+ * comment, not in the description literal — and is correctly not an
+ * obligation, so a grep of the file would manufacture a finding. Importing
+ * `TOOLS` also makes the `"..." + "..."` concatenation seams moot: the strings
+ * are joined before this test ever sees them, so an identifier cannot be
+ * missed for straddling a seam.
+ *
+ * == The floors
+ *
+ * Two tools' top-level descriptions contain no identifier-shaped backticked
+ * token at all, so their census would be empty and the checks below them
+ * vacuous; they are exempted by name in `IDENTIFIER_LESS_DESCRIPTIONS`, with
+ * the same three guards the argument-less set has. The registry-wide census
+ * floor catches the slower decay a per-tool floor cannot: an extraction
+ * regression that still yields a token or two per tool but no longer the
+ * measured 157. And the derivation itself is tested against synthetic
+ * fixtures, so gutting the detector to a constant cannot pass silently —
+ * the executable form of "the guard must flag an identifier a section omits".
+ */
+const RESPONSE_IDENTIFIER = /`([a-z_][a-z0-9_]{3,})`/g;
+
+const REGISTERED_TOOL_NAMES: ReadonlySet<string> = new Set(TOOLS.map((tool) => tool.name));
+
+/**
+ * The unique identifiers one tool's top-level description names in backticks,
+ * minus identifiers that are themselves tool names: a description may reference
+ * a sibling tool (`list_repositories`) without obligating its own section to
+ * document it as a response key.
+ */
+function mentionedIdentifiers(description: string): string[] {
+  const found: string[] = [];
+  for (const match of description.matchAll(RESPONSE_IDENTIFIER)) {
+    const identifier = match[1];
+    if (identifier !== undefined && !REGISTERED_TOOL_NAMES.has(identifier)) {
+      found.push(identifier);
+    }
+  }
+  return [...new Set(found)];
+}
+
+/**
+ * Whether a section NAMES an identifier — at word boundaries, never as a
+ * substring; see the docblock above for the two vacuous positives a substring
+ * check would serve.
+ */
+function documentsIdentifier(section: string[], identifier: string): boolean {
+  return new RegExp(`\\b${identifier}\\b`).test(section.join("\n"));
+}
+
+/**
+ * The tools whose top-level description names no identifier-shaped backticked
+ * token — enumerated by hand, on purpose, for the same reason
+ * `ARGUMENT_LESS_TOOLS` is. An empty census makes every check over it a
+ * permanent, meaningless green, so the exemption must be a decision encoded
+ * here, guarded in both directions below, never a floor relaxed for everyone.
+ */
+const IDENTIFIER_LESS_DESCRIPTIONS: ReadonlySet<string> = new Set([
+  // Its description's only backticked tokens are `@intent:` and
+  // `specguard-lint` — one starts with `@`, one carries a hyphen — so the
+  // extraction genuinely yields nothing, today and by shape.
+  "lint_intent_annotations",
+  // `GET /version`, `serverInfo`, `{"version": "0.1.46"}`, `{version}`,
+  // `version: null`, `SPECGUARD_ENDPOINT`, `Authorization` — uppercase,
+  // path-, JSON- and colon-shaped, none identifier-shaped. Its one response
+  // key (`version`) is never a bare backticked token in the description.
+  "get_server_version",
+]);
+
+describe("the response keys a description names", () => {
+  /** Unique identifiers across every non-exempt description: 157 when measured. */
+  const censusTotal = TOOLS.filter((tool) => !IDENTIFIER_LESS_DESCRIPTIONS.has(tool.name)).reduce(
+    (total, tool) => total + mentionedIdentifiers(tool.description).length,
+    0,
+  );
+
+  it("has a census worth checking — an extractor that stopped matching would green everything below", () => {
+    // Measured at 157 when this guard landed (17 identifier-bearing tools; the
+    // same figure the ticket's instrument reported). Deliberately far below the
+    // measurement: the floor exists to catch a broken extraction (a retuned
+    // regex, a renamed description field), not to freeze description content.
+    assert.ok(
+      censusTotal >= 100,
+      `the response-key census across all tool descriptions is ${censusTotal}, below the floor of 100 — the extraction has probably stopped matching, and every per-identifier check below would be green having verified nothing`,
+    );
+  });
+
+  describe("the derivation itself", () => {
+    it("flags a description identifier its section omits, and clears one it names", () => {
+      // The guard compares two independently-sourced texts — the served
+      // description and the README — so it is derived, not a restatement.
+      // Asserting that on synthetic fixtures is what stops a later edit from
+      // gutting the detector into a constant and staying green.
+      const description =
+        "Returns `alpha_result` on every call, and `beta_result` when narrowed.";
+      assert.deepEqual(mentionedIdentifiers(description), ["alpha_result", "beta_result"]);
+      const section = ["Every call carries `alpha_result`; nothing here names the other one."];
+      assert.deepEqual(
+        mentionedIdentifiers(description).filter((id) => !documentsIdentifier(section, id)),
+        ["beta_result"],
+      );
+    });
+
+    it("does not let a longer identifier or a tool name document a shorter one", () => {
+      // Both of these read as documented under a substring check — the
+      // chrome trap this column exists to refuse.
+      const section = [
+        "Ride every row: `timed_shard_count`, minted by `create_repository_api_key`.",
+      ];
+      assert.ok(!documentsIdentifier(section, "shard_count"));
+      assert.ok(!documentsIdentifier(section, "api_key"));
+      assert.ok(documentsIdentifier(section, "timed_shard_count"));
+      assert.ok(documentsIdentifier(section, "create_repository_api_key"));
+    });
+  });
+
+  describe("the identifier-less descriptions", () => {
+    it("names only tools that are actually registered", () => {
+      const registered = new Set(TOOLS.map((tool) => tool.name));
+
+      for (const name of IDENTIFIER_LESS_DESCRIPTIONS) {
+        assert.ok(
+          registered.has(name),
+          `IDENTIFIER_LESS_DESCRIPTIONS names ${name}, which is not in the registry — remove it rather than leaving an exemption for a tool that does not exist`,
+        );
+      }
+    });
+
+    it("does not cover a description that has since grown identifiers", () => {
+      // The direction that costs coverage: an exempted description stops having
+      // its identifiers checked, so the day one gains a backticked identifier
+      // the response-key obligation silently lapses for it. That must fail
+      // HERE rather than never.
+      for (const tool of TOOLS.filter((candidate) =>
+        IDENTIFIER_LESS_DESCRIPTIONS.has(candidate.name),
+      )) {
+        assert.equal(
+          mentionedIdentifiers(tool.description).length,
+          0,
+          `${tool.name} is exempted as identifier-less but its description now names backticked identifiers — drop it from IDENTIFIER_LESS_DESCRIPTIONS so its response keys are checked again`,
+        );
+      }
+    });
+
+    it("leaves at least one tool whose identifiers ARE checked", () => {
+      assert.ok(
+        censusTotal > 0,
+        "every description is identifier-less, so no response key is being verified at all",
+      );
+    });
+  });
+
+  for (const tool of TOOLS) {
+    const census = mentionedIdentifiers(tool.description);
+
+    describe(`the \`${tool.name}\` description's identifiers`, () => {
+      it("yields identifiers to check", (t) => {
+        // Skip, not silent return: "nothing to check" must never read as a
+        // pass, exactly as the argument guard's own skip says.
+        if (IDENTIFIER_LESS_DESCRIPTIONS.has(tool.name)) {
+          return t.skip("exempted by IDENTIFIER_LESS_DESCRIPTIONS — see the guards above");
+        }
+
+        assert.ok(
+          census.length > 0,
+          `${tool.name}'s top-level description names no backticked identifier, so nothing here is verified. If that is genuine, add it to IDENTIFIER_LESS_DESCRIPTIONS — deliberately, with the reason`,
+        );
+      });
+
+      for (const identifier of census) {
+        it(`documents \`${identifier}\` in its README section`, () => {
+          const section = sectionFor(tool.name);
+          assert.ok(section !== null, `no "### \`${tool.name}\`" section to look in`);
+          assert.ok(
+            section.length > 0,
+            `the "### \`${tool.name}\`" section is empty, so it names none of the identifiers its description serves`,
+          );
+          assert.ok(
+            documentsIdentifier(section, identifier),
+            `${tool.name}'s description names \`${identifier}\` but README.md's "### \`${tool.name}\`" section never does (word-boundary match). README.md is published with the package (package.json files), so a response key the docs never name is one a consumer cannot discover — name it in the section`,
+          );
+        });
+      }
+    });
+  }
+});
