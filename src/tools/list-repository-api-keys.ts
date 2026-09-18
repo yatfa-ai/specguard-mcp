@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `GET /api/v1/repositories/:repository_id/api_keys` as a tool — shipped in
- * the platform (`specguard/config/routes.rb:233`,
+ * the platform (`specguard/config/routes.rb`,
  * `Api::V1::UserRepositoryApiKeysController#index`, SPGD-993).
  *
  * == The verify step of the rotation this bridge otherwise cannot see

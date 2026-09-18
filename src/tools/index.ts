@@ -56,12 +56,12 @@ import type { ToolDefinition } from "./types.js";
  * == What is deliberately absent
  *
  * `/check-intent` is NOT here and must not be added until its backing endpoint
- * exists — `specguard/config/routes.rb:113` carries it as a comment only, which
- * is the evidence this forbid rests on. A tool advertised in `tools/list` is a
- * promise an agent will act on: wrapping an endpoint that does not exist would
- * produce a server that discovers cleanly and fails on use, which is worse than
- * not offering the tool, because the agent has already committed to a plan by
- * the time it finds out.
+ * exists — `specguard/config/routes.rb` carries `/check-intent` as a comment
+ * only, which is the evidence this forbid rests on. A tool advertised in
+ * `tools/list` is a promise an agent will act on: wrapping an endpoint that
+ * does not exist would produce a server that discovers cleanly and fails on
+ * use, which is worse than not offering the tool, because the agent has
+ * already committed to a plan by the time it finds out.
  *
  * == The first tool that WRITES
  *
@@ -87,7 +87,7 @@ import type { ToolDefinition } from "./types.js";
  * == The read half of the registration gate
  *
  *   - `registrable_repositories` wraps `GET /api/v1/repositories/registrable`
- *     (shipped: `specguard/config/routes.rb:117`,
+ *     (shipped: `specguard/config/routes.rb`,
  *     `Api::V1::UserRepositoriesController#registrable`).
  *
  * `list_repositories` says what IS registered; this says what COULD be — the
@@ -127,9 +127,9 @@ import type { ToolDefinition } from "./types.js";
  *     did not mint.
  *
  * The standing rule itself is unchanged and still binding — which still keeps
- * out `/check-intent`: it has no backing endpoint (`routes.rb:113` mounts it
- * as a comment only). A tool advertised in `tools/list` remains a promise an
- * agent will act on.
+ * out `/check-intent`: it has no backing endpoint (`specguard/config/routes.rb`
+ * mounts `/check-intent` as a comment only). A tool advertised in `tools/list`
+ * remains a promise an agent will act on.
  *
  * == Near-duplicate clusters: the forbid that retired
  *

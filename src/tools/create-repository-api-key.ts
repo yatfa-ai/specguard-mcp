@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `POST /api/v1/repositories/:repository_id/api_keys` as a tool — shipped in
- * the platform (`specguard/config/routes.rb:158`,
+ * the platform (`specguard/config/routes.rb`,
  * `user_repository_api_keys_controller#create`, SPGD-754).
  *
  * == Reveal-once, again

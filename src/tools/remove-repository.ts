@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `DELETE /api/v1/repositories/:id` as a tool — shipped in the platform
- * (`specguard/config/routes.rb:152`, `Api::V1::UserRepositoriesController#destroy`,
+ * (`specguard/config/routes.rb`, `Api::V1::UserRepositoriesController#destroy`,
  * SPGD-754).
  *
  * == The destructive gesture in the whole surface

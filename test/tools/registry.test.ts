@@ -70,7 +70,7 @@ describe("the tool registry", () => {
     // agent will act on, and one that discovers cleanly then fails on use is
     // worse than one that is absent — so nothing may wrap an endpoint that has
     // not shipped. `/check-intent` is still in that state:
-    // `specguard/config/routes.rb:113` carries it as a comment only.
+    // `specguard/config/routes.rb` carries `/check-intent` as a comment only.
     //
     // Duplicate clustering was once under this same forbid and no longer is:
     // SPGD-703 (`specguard` `c43dc19`) shipped

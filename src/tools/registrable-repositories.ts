@@ -3,7 +3,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `GET /api/v1/repositories/registrable` as a tool — shipped today in the
- * platform (`specguard/config/routes.rb:117`, served by
+ * platform (`specguard/config/routes.rb`, served by
  * `Api::V1::UserRepositoriesController#registrable`).
  *
  * == What it answers, and why `list_repositories` does not
