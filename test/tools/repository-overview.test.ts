@@ -1513,9 +1513,11 @@ describe("get_repository_overview — failures an agent can act on", () => {
     // The leg that makes this bite. Without it the example passes against the
     // code this ticket exists to change, and pins the defect instead of the fix:
     // `ApiError` is read elsewhere in this codebase as "the deployment
-    // misbehaved" (`specguard-api.ts:127` branches on it), so any consumer that
-    // grows a retry or a "SpecGuard may be down" message off that class would
-    // apply it to the agent's own malformed argument, which no retry can fix.
+    // misbehaved" (the `instanceof ApiError` rethrow in `fetchWithTimeout`'s
+    // catch in `src/support/specguard-api.ts` branches on it), so any consumer
+    // that grows a retry or a "SpecGuard may be down" message off that class
+    // would apply it to the agent's own malformed argument, which no retry
+    // can fix.
     assert.ok(
       !(error instanceof ApiError),
       "a wrong-typed argument is not the deployment refusing — nothing was contacted",
