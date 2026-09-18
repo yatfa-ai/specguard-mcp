@@ -422,7 +422,7 @@ export function requireUserOrAgentApiConfig(config: Config): CredentialledApiCon
  *
  * The fourth sibling, and the first whose answer carries no key and no
  * `Credential`: the server's root-level `GET /version` (SPGD-1197, specguard
- * d434c2a) answers unauthenticated BY DESIGN — the platform's own doctrine
+ * 08ab408) answers unauthenticated BY DESIGN — the platform's own doctrine
  * places it outside the credential seam, at the root where the no-account
  * reads (`/up`, the schema mirror) already live. Demanding a key here would
  * invent a requirement the deployment does not have, and the

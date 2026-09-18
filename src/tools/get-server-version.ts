@@ -3,10 +3,11 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
  * `GET /version` as a tool — the server's OWN identity, askable at last
- * (shipped: SPGD-1197, specguard `d434c2a`, root-level and unauthenticated by
- * design — `config/routes.rb` mounts it beside `/up` and the schema mirror,
- * exactly because the credential seam under `api/` fails closed and this read
- * is the platform's deliberate no-account exception at the root).
+ * (shipped: SPGD-1197, specguard `08ab408`; first served by release 0.1.46,
+ * `d434c2a` — root-level and unauthenticated by design — `config/routes.rb`
+ * mounts it beside `/up` and the schema mirror, exactly because the credential
+ * seam under `api/` fails closed and this read is the platform's deliberate
+ * no-account exception at the root).
  *
  * == What it answers, and the one distinction the whole tool exists to carry
  *
