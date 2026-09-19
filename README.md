@@ -338,7 +338,16 @@ knows, and the client said nothing); a null `served_by` means the row carries no
 the platform cannot name which build answered it — the write path can land on that null in more
 than one way (for example a row retained from before the stamp existed, a build whose VERSION file
 is missing or unreadable, a column stored blank), so the null says only that no build is named,
-never which way it got there. A `latest_run` from days ago beside a live rejection stream is a suite
+never which way it got there. The window those rows sit in carries its own **population and client
+composition** beside them: `retained_total` counts every rejection the retention window still holds
+(up to `retention_rows` rows) and `retained_clients` splits that total by client, largest bucket
+first with alphabetical ties. `retained_total` is the **window's** population, never the length of
+the `rejections` array beside it — that list is capped at `limit`, and the whole point of serving
+both is that they differ: a client whose refusals all sit beyond the page is named in
+`retained_clients` and in no `rejections` row, which is how an upgrade-fleet question ("is it the
+new gem or the old gem being refused?") gets answered off this body instead of from the page's
+newest ten. A null `reported_client` inside `retained_clients` carries the row-level meaning — the
+client sent no `User-Agent` — and is not the `served_by` null. A `latest_run` from days ago beside a live rejection stream is a suite
 SpecGuard *stopped accepting*, not a suite nobody ran. `credential_health` covers the break that one
 structurally **cannot** see: a rejected key resolves no repository and writes no rejection row, so an
 authentication-broken pipeline is invisible to every rejection figure — it names any key that was
