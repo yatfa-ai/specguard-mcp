@@ -410,7 +410,9 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * contract, which is NOT the uniform family it looks like from the
  * key names: only eight lists have a `*_window` sibling at all, MOST lists under `latest_run`
  * carry an inline `limit` beside `rows` instead, four of those windows serve no bound of their
- * own, `rejections_window` serves a bound and no order, and the lists this census found carrying
+ * own, `rejections_window` serves a bound, an order and a population (largest-bucket-first
+ * `retained_clients` beside `retained_total` — both facts about the WINDOW its list is cut from,
+ * never a restatement of the page), and the lists this census found carrying
  * no bound anywhere are `credential_health.keys` and BOTH `latest_run.shards` lists (`rows`,
  * ranked slowest-first off `TestRun#shard_durations`, and `per_shard`, in delivery order off
  * `#shard_reports`), each complete by construction. So the rule is stated in the direction that
@@ -532,6 +534,16 @@ const getRepositoryOverview: ToolDefinition = {
     "path can land on that null in more than one way (for example a row retained from before the " +
     "stamp existed, a build whose VERSION file is missing or unreadable, a column stored blank), " +
     "so the null says only that no build is named, never which way it got there. " +
+    "The window those rows sit in carries its own POPULATION and CLIENT COMPOSITION beside them: " +
+    "`retained_total` counts every rejection the retention window still holds (up to " +
+    "`retention_rows` rows) and `retained_clients` splits that total by client, largest bucket " +
+    "first with alphabetical ties. `retained_total` is the WINDOW'S population, never the length " +
+    "of the `rejections` array beside it — that list is capped at `limit`, and the whole point of " +
+    "serving both is that they differ: a client whose refusals all sit beyond the page is named in " +
+    "`retained_clients` and in no `rejections` row, which is how an upgrade-fleet question ('is it " +
+    "the NEW gem or the OLD gem being refused?') gets answered off this body instead of from the " +
+    "page's newest ten. A null `reported_client` inside `retained_clients` carries the row-level " +
+    "meaning — the client sent no `User-Agent` — and is not the `served_by` null. " +
     "A `latest_run` from days ago beside a live rejection stream is a " +
     "suite SpecGuard STOPPED ACCEPTING, not a suite nobody ran. " +
     "`credential_health` covers the break that one structurally CANNOT see — a rejected key " +
