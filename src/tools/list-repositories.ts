@@ -6,7 +6,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * `GET /api/v1/repositories` as a tool — shipped today in the platform
  * (`specguard/config/routes.rb`, `Api::V1::UserRepositoriesController#index`).
  *
- * == Why this is the first user-scoped tool, and for now the only one
+ * == Why this tool exists: it answers which repositories there ARE
  *
  * Every other tool here answers about ONE repository the caller has already
  * named — and a bridge that can only answer about a repository you can already
@@ -23,8 +23,10 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * tool and designed against a real request body and a real 4xx surface, exactly
  * as the reservation recorded here asked. The registry's standing rule
  * (`tools/index.ts`) is unchanged and still binding: a tool in `tools/list` is a
- * promise an agent acts on, so the REST of the user-scoped surface — removing a
- * repository, minting or revoking keys — stays out until those endpoints ship.
+ * promise an agent acts on. This file once carried a reservation on that
+ * rule — the rest of the user-scoped surface would stay out until its
+ * endpoints shipped — and the reservation retired when the endpoints did.
+ * What moved was the platform, not the bar.
  *
  * What this tool still uniquely answers is the question above: which
  * repositories there ARE. `add_repository` extends that surface rather than
