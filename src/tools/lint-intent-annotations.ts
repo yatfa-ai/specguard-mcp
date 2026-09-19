@@ -83,7 +83,10 @@ const lintIntentAnnotations: ToolDefinition = {
         description:
           "Check the spec files the branch changed since the merge base with the default branch — " +
           "the mode CI uses. Untracked spec files count as changed too, so a brand-new spec needs " +
-          "no `git add`; `.gitignore`d paths never enter the selection. When `changed` is set and " +
+          "no `git add`; `--exclude-standard` keeps `.gitignore`d paths out of the untracked leg " +
+          "alone, and a tracked file is never subject to `.gitignore`, so the dependency/build " +
+          "directory fence is what holds ignored tracked paths out of the selection. When " +
+          "`changed` is set and " +
           "files were selected, the selection provenance line — the base actually diffed against " +
           "and how many selected files arrived untracked — rides `linter_stderr`, so verifying the " +
           "selection means reading that field, not doing arithmetic on `summary.files`. Cannot be " +
@@ -282,7 +285,9 @@ function parseReport(result: CommandResult): LintReport {
           "this bridge truncated it and the JSON document is incomplete — no findings could be " +
           "read from it. Narrow the run with `paths`, or with `changed` to check what the " +
           "branch changed — the diff since the merge base plus untracked spec files; " +
-          "`.gitignore`d paths never enter the selection.",
+          "`--exclude-standard` keeps `.gitignore`d paths out of the untracked leg alone, and a " +
+          "tracked file is never subject to `.gitignore`, so the dependency/build directory " +
+          "fence holds ignored tracked paths out.",
       );
     }
 
