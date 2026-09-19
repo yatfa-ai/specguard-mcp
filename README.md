@@ -78,7 +78,7 @@ Validates the `@intent:` annotations in a Ruby project's spec files against the
 | --- | --- |
 | `project_dir` | the project to lint; defaults to the server's working directory. A path that does not exist, or is not a directory, is refused by name — never reported as a missing linter |
 | `paths` | specific spec files, relative to `project_dir`; omit to check all of them. An empty list is an error rather than a synonym for "everything", because a run that selected nothing must not come back clean |
-| `changed` | check what the branch changed since the merge base with the default branch — CI's mode; untracked spec files count too (no `git add` needed), `.gitignore`d paths never enter the selection |
+| `changed` | check what the branch changed since the merge base with the default branch — CI's mode; untracked spec files count too (no `git add` needed); `--exclude-standard` keeps `.gitignore`d paths out of the untracked leg alone, and a tracked file is never subject to `.gitignore`, so the dependency/build directory fence holds ignored tracked paths out |
 | `base` | diff `changed` against this ref instead |
 
 Needs no SpecGuard deployment and no API key. A **missing** annotation is never a failure: adoption
