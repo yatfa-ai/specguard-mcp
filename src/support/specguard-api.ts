@@ -53,28 +53,19 @@ export async function getJson(
  * is for differs per caller, while the status check and the "reached and
  * refused" hand-off to `describeFailure` do not.
  *
- * So this shares `fetchWithTimeout` and `describeFailure` VERBATIM — the one
- * total deadline, the abort, the reached-and-stopped vs could-not-reach split,
- * and every crafted status sentence — and differs from `getJson` in exactly
- * one thing: it returns what came back instead of what it parsed. A caller
- * that wants a parsed value parses it, and owns the diagnosis for its own
- * body, which is the only place that diagnosis can be correct.
+ * So this shares through `requestText` — the one total deadline, the abort,
+ * the reached-and-stopped vs could-not-reach split, and every crafted status
+ * sentence — and differs from `getJson` in exactly one thing: it returns what
+ * came back instead of what it parsed. A caller that wants a parsed value
+ * parses it, and owns the diagnosis for its own body, which is the only place
+ * that diagnosis can be correct.
  */
 export async function getText(
   api: ApiConfig,
   path: string,
   fetchImpl: typeof globalThis.fetch,
 ): Promise<string> {
-  const { response, body } = await fetchWithTimeout(
-    new URL(`${api.endpoint}${path}`),
-    api,
-    fetchImpl,
-    { method: "GET" },
-  );
-
-  if (!response.ok) throw describeFailure(response.status, body, api);
-
-  return body;
+  return requestText(new URL(`${api.endpoint}${path}`), api, fetchImpl, { method: "GET" });
 }
 
 /**
@@ -141,24 +132,15 @@ export async function patchJson(
  * "answered 204 but the body was not JSON" — the trap this verb specifically
  * introduces, and the reason the DELETE path has its own success handling
  * instead of sharing `requestJson`'s. The status check and the
- * "reached and refused" hand-off to `describeFailure` are still shared
- * verbatim: only what happens to a SUCCESS body differs.
+ * "reached and refused" hand-off to `describeFailure` are still shared through
+ * `requestText`: only what happens to a SUCCESS body differs.
  */
 export async function deleteJson(
   api: ApiConfig,
   path: string,
   fetchImpl: typeof globalThis.fetch,
 ): Promise<string> {
-  const { response, body } = await fetchWithTimeout(
-    new URL(`${api.endpoint}${path}`),
-    api,
-    fetchImpl,
-    { method: "DELETE" },
-  );
-
-  if (!response.ok) throw describeFailure(response.status, body, api);
-
-  return body;
+  return requestText(new URL(`${api.endpoint}${path}`), api, fetchImpl, { method: "DELETE" });
 }
 
 /**
@@ -255,6 +237,33 @@ async function requestJson(
       response.status,
     );
   }
+}
+
+/**
+ * The raw-body verbs' half of the response handling `requestJson` owns, in one
+ * place.
+ *
+ * Extracted when `getText` needed a home beside the JSON verbs rather than
+ * copied into it: the status check and the "reached and refused" hand-off to
+ * `describeFailure` are identical for both raw-body verbs, and what a SUCCESS
+ * body is for — the thing that differs per caller — stays out of here. There
+ * is deliberately NO not-JSON branch: for a bytes-are-the-answer contract,
+ * `requestJson`'s "was not JSON" diagnosis is wrong even when a parse would
+ * fail, because it names a cause (misconfigured endpoint) the correct response
+ * in hand refutes. A caller that wants a parsed value parses its own body and
+ * owns that judgment.
+ */
+async function requestText(
+  url: URL,
+  api: ApiConfig,
+  fetchImpl: typeof globalThis.fetch,
+  request: RequestSpec,
+): Promise<string> {
+  const { response, body } = await fetchWithTimeout(url, api, fetchImpl, request);
+
+  if (!response.ok) throw describeFailure(response.status, body, api);
+
+  return body;
 }
 
 /** The three-clause guard both `*JsonObject` narrowings share. */
