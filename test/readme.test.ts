@@ -117,6 +117,14 @@ const ARGUMENT_LESS_TOOLS: ReadonlySet<string> = new Set([
   // the set honest in both directions, exactly as `registrable_repositories`
   // was.
   "get_server_version",
+  // SPGD-1331: `get_intent_schema` wraps the root-level schema mirror, which
+  // takes no parameters because a DOCUMENT has no ask to narrow — the whole
+  // contract is the whole answer, and serving a subset of it would put this
+  // bridge in the business of deciding which half of a contract an agent may
+  // read. Added here deliberately, under the same both-directions guards: the
+  // day this tool grows a parameter, the "since grown arguments" check above
+  // fails and its argument table is checked again.
+  "get_intent_schema",
 ]);
 
 /** Matches the argument table's row for one parameter: `| \`name\` | … |`. */
