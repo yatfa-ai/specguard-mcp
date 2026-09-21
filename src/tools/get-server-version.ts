@@ -68,8 +68,8 @@ const getServerVersion: ToolDefinition = {
     "names the endpoint as possibly misconfigured because a non-contract 404 body names no cause — " +
     "when the other tools work against the same endpoint, read that error as 'the deployment needs " +
     "upgrading', not as a wrong URL. Needs NO API key of any kind — the route is unauthenticated by " +
-    "design — so it works with `SPECGUARD_ENDPOINT` alone, and it is the one tool here that sends " +
-    "no `Authorization` header. Takes no arguments.",
+    "design — so it works with `SPECGUARD_ENDPOINT` alone, and it sends no `Authorization` header " +
+    "(as does get_intent_schema, the other credential-free read here). Takes no arguments.",
   inputSchema: {
     type: "object",
     // No properties, deliberately — see this file's header. Still CLOSED rather

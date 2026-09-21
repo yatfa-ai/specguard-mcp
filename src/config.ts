@@ -424,7 +424,9 @@ export function requireUserOrAgentApiConfig(config: Config): CredentialledApiCon
  * `Credential`: the server's root-level `GET /version` (SPGD-1197, specguard
  * 08ab408) answers unauthenticated BY DESIGN — the platform's own doctrine
  * places it outside the credential seam, at the root where the no-account
- * reads (`/up`, the schema mirror) already live. Demanding a key here would
+ * reads (`/up`, the schema mirror) already live. SPGD-1331 made it serve a
+ * second such ask: the schema mirror named there is now wrapped too
+ * (`get_intent_schema`), through this same helper. Demanding a key here would
  * invent a requirement the deployment does not have, and the
  * credential-free config this returns is what keeps the transport from
  * sending an `Authorization` header at all.

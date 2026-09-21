@@ -20,7 +20,8 @@ import { ApiError } from "../errors.js";
  *
  * The key is PRESENT-CONDITIONAL since SPGD-1200: every credentialled helper
  * binds one and it rides every request as before, while a credential-free ask
- * (`requireEndpointApiConfig`, the unauthenticated `/version`) presents NO
+ * (`requireEndpointApiConfig` — the unauthenticated `/version`, and since
+ * SPGD-1331 the schema mirror beside it) presents NO
  * `Authorization` header at all rather than `Bearer ` with nothing after it.
  */
 export async function getJson(
@@ -35,6 +36,45 @@ export async function getJson(
   }
 
   return requestJson(url, api, fetchImpl, { method: "GET" });
+}
+
+/**
+ * `GET` that hands back the RAW BODY TEXT — the read half of `deleteJson`'s
+ * argument, for a route whose bytes are the answer.
+ *
+ * `requestJson` JSON-parses every 2xx it sees and, when that parse fails,
+ * throws a sentence telling the operator to check that the endpoint points at
+ * a SpecGuard deployment "and not, say, a proxy or login page". That is the
+ * right diagnosis for a body that should have been JSON and was not; it is the
+ * WRONG one for a caller whose contract is the bytes themselves, because it
+ * names a cause (misconfigured endpoint) that the correct response in hand
+ * refutes. `deleteJson` already carries this shape for its own reason — its
+ * `204` has no body at all — and the argument generalises: what a SUCCESS body
+ * is for differs per caller, while the status check and the "reached and
+ * refused" hand-off to `describeFailure` do not.
+ *
+ * So this shares `fetchWithTimeout` and `describeFailure` VERBATIM — the one
+ * total deadline, the abort, the reached-and-stopped vs could-not-reach split,
+ * and every crafted status sentence — and differs from `getJson` in exactly
+ * one thing: it returns what came back instead of what it parsed. A caller
+ * that wants a parsed value parses it, and owns the diagnosis for its own
+ * body, which is the only place that diagnosis can be correct.
+ */
+export async function getText(
+  api: ApiConfig,
+  path: string,
+  fetchImpl: typeof globalThis.fetch,
+): Promise<string> {
+  const { response, body } = await fetchWithTimeout(
+    new URL(`${api.endpoint}${path}`),
+    api,
+    fetchImpl,
+    { method: "GET" },
+  );
+
+  if (!response.ok) throw describeFailure(response.status, body, api);
+
+  return body;
 }
 
 /**
@@ -372,7 +412,19 @@ async function fetchWithTimeout(
       fetchImpl(url, {
         method: request.method,
         headers: {
-          Accept: "application/json",
+          // What this bridge will accept, and every media type the deployment
+          // actually serves it — the header is a CLAIM, so it must not exclude
+          // a route this client calls. SpecGuard's own doctrine puts one read
+          // outside the JSON surface: the schema mirror answers
+          // `application/schema+json`, the media type draft-07 registers for a
+          // schema document, and it is served by a `render plain:` with an
+          // explicit content type, which does not negotiate. So the narrower
+          // header happened to work — the request succeeded while announcing
+          // it would not accept what came back. Widened rather than made
+          // per-call: the `Accept` of this transport is a property of the
+          // client, not of an individual call, which is the same argument
+          // `RequestSpec` makes for staying narrow.
+          Accept: "application/json, application/schema+json",
           // The version rides the identity the platform's rejection triage
           // stores verbatim (`specguard-mcp/<version>`), the same shape the
           // sibling clients already send. Resolved per request — see

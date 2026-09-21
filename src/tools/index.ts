@@ -1,6 +1,7 @@
 import addRepository from "./add-repository.js";
 import addRepositoryMember from "./add-repository-member.js";
 import createRepositoryApiKey from "./create-repository-api-key.js";
+import getIntentSchema from "./get-intent-schema.js";
 import getServerVersion from "./get-server-version.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
 import listRepositories from "./list-repositories.js";
@@ -220,9 +221,41 @@ import type { ToolDefinition } from "./types.js";
  * unchanged and still binding: the endpoint was verified-shipped on
  * `origin/main` before this entry wrapped it. What moved was the platform,
  * not the bar.
+ *
+ * == The contract itself, readable at last
+ *
+ *   - `get_intent_schema` wraps the root-level `GET
+ *     /schemas/open-test-intent.v1.json` (shipped: `specguard/config/routes.rb`,
+ *     `SchemasController`, spec-covered by
+ *     `spec/requests/open_test_intent_schema_spec.rb`).
+ *
+ * The second credential-free entry, and the one that gives this registry a
+ * REFERENCE beside the JUDGE it opened with. `lint_intent_annotations` can
+ * only say that an annotation already written is wrong, and its refusals are
+ * an incomplete teacher — a wrong enumerated value names the legal set, an
+ * omitted field does not, and the schema's OPTIONAL property is underivable
+ * in principle from a closed-object refusal, which only ever reports a key
+ * that WAS sent. Serving the document closes that hole without touching the
+ * judge.
+ *
+ * It mirrors rather than vendors, deliberately: the schema's design is one
+ * canonical source plus byte-identical mirrors, so a copy inside this bridge
+ * would be a third one, drifting silently and answering about itself instead
+ * of about the deployment the agent is judged by. That is also why it forced
+ * the transport's raw-body READ (`getText`): `requestJson`'s not-JSON
+ * sentence blames the endpoint for pointing at a proxy or a login page, which
+ * is the wrong remedy for a response that arrived correctly — the same
+ * argument `deleteJson`'s empty `204` made, generalised. The shared `Accept`
+ * header was widened in the same slice to admit `application/schema+json`, the
+ * media type this route actually serves: the header is a claim this client
+ * makes, and it must not exclude a route this client calls. The standing rule
+ * is unchanged and still binding — the route was verified-shipped, spec-covered
+ * and root-level before this entry wrapped it, and `/check-intent` (a comment
+ * in `routes.rb`) stays out.
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
+  getIntentSchema,
   getRepositoryOverview,
   getServerVersion,
   listRepositories,

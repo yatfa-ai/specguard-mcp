@@ -32,7 +32,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 
 | Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
-| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `get_server_version`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it. `get_server_version` needs only this variable — it sends no API key, because the version route is unauthenticated by design |
+| `SPECGUARD_ENDPOINT` | `get_repository_overview`, `get_intent_schema`, `get_server_version`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it. `get_server_version` and `get_intent_schema` need only this variable — they send no API key, because the routes they read are unauthenticated by design |
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
 | `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
@@ -89,6 +89,45 @@ malformed annotation, and `2` when it could not do its job. Exit `1` comes back 
 tool call carrying findings — an agent told "the tool failed" retries the tool, where an agent handed
 a finding fixes the annotation. Only exit `2` is a tool error, and it carries the linter's stderr,
 because the gem deliberately emits no document on that path.
+
+### `get_intent_schema`
+
+Serves the **OpenTestIntent schema document itself** — the contract an `@intent:` annotation is
+validated against — read live from the deployment's own unauthenticated root-level schema mirror,
+which hands back the canonical document's bytes verbatim.
+
+Call it **before** writing or editing an annotation. This is the *reference*; `lint_intent_annotations`
+is the *judge*, and a judge can only tell you that something you already wrote is wrong.
+
+**Reading the contract is the only way to learn parts of it.** A refusal names the legal values of a
+field you got *wrong*, and says nothing at all about a field you *omitted* — so the fastest way to
+learn the rules from refusals alone is to submit values you believe are invalid. And an **optional**
+property can never appear in any refusal: `required` does not name it, and a closed-object check
+only ever reports the key you did send, so nothing you submit at any value causes the linter to
+mention it. That part of the contract is reachable here and nowhere else in this toolset.
+
+The answer carries the whole document in **both shapes, derived from one fetched body** so they
+cannot disagree:
+
+| field | |
+| --- | --- |
+| `structured` | the document **parsed** — the shape to read the field rules and any enumerated values off |
+| `text` | the served bytes **unchanged** — no re-encoding, no reformatting, so a digest taken over this text matches the canonical document's, which is the mirror's whole promise |
+
+Nothing in this bridge restates the schema's contents — not here, not in a tool description, not in
+a test. The answer *is* the contract; any prose copy of it would be one release behind the document
+this tool serves, and this repo deliberately vendors no copy of its own.
+
+**A 404 means the deployment predates the mirror route: the endpoint is right and the build is old.**
+The error text names the endpoint as possibly misconfigured, because a non-contract 404 body names
+no cause — when the other tools work against the same endpoint, read it as *"the deployment needs
+upgrading"*, not as a wrong URL. A **2xx** whose body will not parse is reported as a malformed
+mirror instead, naming the route rather than your configuration: the response arrived, so the
+endpoint is not the thing to go and fix.
+
+**Needs no API key of any kind** — the route is unauthenticated by design, because a contract is not
+a secret — so it works with `SPECGUARD_ENDPOINT` alone and sends no `Authorization` header. Takes no
+arguments.
 
 ### `get_repository_overview`
 
@@ -411,8 +450,8 @@ cause — when the other tools work against the same endpoint, read that error a
 needs upgrading"*, not as a wrong URL.
 
 **Needs no API key of any kind** — the route is unauthenticated by design — so it works with
-`SPECGUARD_ENDPOINT` alone, and it is the one tool here that sends no `Authorization` header. Takes
-no arguments.
+`SPECGUARD_ENDPOINT` alone, and it sends no `Authorization` header (as does `get_intent_schema`, the
+other credential-free read here). Takes no arguments.
 
 ### `list_repositories`
 
