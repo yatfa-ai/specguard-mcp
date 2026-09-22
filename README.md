@@ -106,13 +106,27 @@ property can never appear in any refusal: `required` does not name it, and a clo
 only ever reports the key you did send, so nothing you submit at any value causes the linter to
 mention it. That part of the contract is reachable here and nowhere else in this toolset.
 
-The answer carries the whole document in **both shapes, derived from one fetched body** so they
-cannot disagree:
+The answer is an **envelope** that carries the whole document in both shapes, derived from one
+fetched body so they cannot disagree — plus the enforcement identity beside it:
 
 | field | |
 | --- | --- |
-| `structured` | the document **parsed** — the shape to read the field rules and any enumerated values off |
+| `structured.schema` | the document **parsed** — the shape to read the field rules and any enumerated values off |
+| `structured.enforced` | the identity the deployment itself serves from its `GET /version`: `schema_sha256`, the digest of the contract it actually enforces, and `schema_origin`, where those bytes come from on the server — or `null` when the deployment could not say |
 | `text` | the served bytes **unchanged** — no re-encoding, no reformatting, so a digest taken over this text matches the canonical document's, which is the mirror's whole promise |
+
+**The end-to-end check is derivable from this one tool.** Take a SHA-256 digest over `text` and
+compare it with `enforced.schema_sha256`: a **match** means the reference you read is the contract
+that will judge you; a **mismatch** means the bytes you received are *not* what the deployment
+enforces — do not author annotations against them, and read `enforced.schema_origin` to see which
+half of the disagreement is the server's. The tool serves both facts side by side and never
+judges: a mismatch is never refused or warned here, because the judgment is yours.
+
+**`enforced: null` means "this deployment could not say"** — its `/version` omits the identity
+keys (a build predating the identity channel), answers non-2xx, or the identity fetch fails
+entirely — and the document answer still stands in full. It is not the same null as a served
+`schema_sha256: null` *inside* a present `enforced`: that is the deployment's own honest "I
+enforce from this origin and cannot currently read it", passed through exactly as served.
 
 Nothing in this bridge restates the schema's contents — not here, not in a tool description, not in
 a test. The answer *is* the contract; any prose copy of it would be one release behind the document
@@ -125,9 +139,9 @@ upgrading"*, not as a wrong URL. A **2xx** whose body will not parse is reported
 mirror instead, naming the route rather than your configuration: the response arrived, so the
 endpoint is not the thing to go and fix.
 
-**Needs no API key of any kind** — the route is unauthenticated by design, because a contract is not
-a secret — so it works with `SPECGUARD_ENDPOINT` alone and sends no `Authorization` header. Takes no
-arguments.
+**Needs no API key of any kind** — both routes it reads (the schema mirror and `GET /version`) are
+unauthenticated by design, because a contract is not a secret — so it works with
+`SPECGUARD_ENDPOINT` alone and sends no `Authorization` header. Takes no arguments.
 
 ### `get_repository_overview`
 
@@ -430,7 +444,10 @@ cancelled after two of four shards leaves a half-sized row in the history perman
 
 Reports **which build of the SpecGuard deployment is answering**, read from the deployment's own
 unauthenticated root-level `GET /version` — the figure the release bot's `VERSION` file carries,
-served as `{"version": "0.1.46"}`-shaped JSON and passed through verbatim as `{version}`.
+served as a JSON object and passed through verbatim. Since SPGD-1316 the body also carries the
+enforced contract's identity beside the build (`schema_sha256` + `schema_origin`); this tool
+passes the whole answer through without interpreting it — `get_intent_schema` is where the served
+contract is read beside that identity and the two are compared.
 
 **This is the server's build, not this bridge's.** The version in the initialize handshake's
 `serverInfo` and the `specguard-mcp/<version>` User-Agent describe *this bridge* — a different

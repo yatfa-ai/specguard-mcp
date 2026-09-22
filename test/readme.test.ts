@@ -354,11 +354,17 @@ const IDENTIFIER_LESS_DESCRIPTIONS: ReadonlySet<string> = new Set([
   // `specguard-lint` — one starts with `@`, one carries a hyphen — so the
   // extraction genuinely yields nothing, today and by shape.
   "lint_intent_annotations",
-  // `GET /version`, `serverInfo`, `{"version": "0.1.46"}`, `{version}`,
-  // `version: null`, `SPECGUARD_ENDPOINT`, `Authorization` — uppercase,
-  // path-, JSON- and colon-shaped, none identifier-shaped. Its one response
-  // key (`version`) is never a bare backticked token in the description.
-  "get_server_version",
+  // `get_server_version` sat here while its description's backticked tokens
+  // were all path-, JSON- and uppercase-shaped (`GET /version`, `serverInfo`,
+  // `{"version": "0.1.46"}`, `{version}`, `version: null`,
+  // `SPECGUARD_ENDPOINT`, `Authorization`) — none identifier-shaped, so its
+  // one response key (`version`) was never a bare backticked token in the
+  // description. SPGD-1366 corrected the stale `{"version"}`-shape sentence
+  // and named the body's contract-identity keys in backticks, so the
+  // exemption lapsed by this file's own guard above: the description now
+  // names `schema_sha256` and `schema_origin`, and the per-identifier checks
+  // below cover them. Retired rather than accommodated — the same direction
+  // `ARGUMENT_LESS_TOOLS` forces.
 ]);
 
 describe("the response keys a description names", () => {
