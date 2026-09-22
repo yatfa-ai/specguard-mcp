@@ -75,8 +75,8 @@ const lintIntentAnnotations: ToolDefinition = {
         items: { type: "string" },
         description:
           "Specific spec files to check, relative to project_dir. Omit to check every *_spec.rb " +
-          "under it. An empty list is an error, not a way to say 'everything'. " +
-          "Cannot be combined with `changed`.",
+          "under it outside dependency/build directories. An empty list is an error, not a way " +
+          "to say 'everything'. Cannot be combined with `changed`.",
       },
       changed: {
         type: "boolean",
@@ -371,10 +371,11 @@ function truncate(value: string, limit = 2000): string {
  *
  * `paths: []` is REFUSED rather than normalised. Both readings of it are bad and
  * neither is what an agent meant: passed through, an empty list leaves the
- * linter with no positional arguments and it audits EVERY spec file in the
- * project, so "check nothing" comes back as a clean bill of health for the whole
- * suite; silently treated as "not given", the same thing happens by a different
- * route. A tool whose entire purpose is to stop a check that examined nothing
+ * linter with no positional arguments and it audits every spec file the default
+ * walk selects — every one outside the dependency/build directories — so "check
+ * nothing" comes back as a clean bill of health for the whole suite; silently
+ * treated as "not given", the same thing happens by a different route. A tool
+ * whose entire purpose is to stop a check that examined nothing
  * from looking like a check that found nothing cannot itself answer an empty
  * selection with "all clean". So it is an error, and the message says which of
  * the two the caller probably wanted.
@@ -395,8 +396,9 @@ function optionalStringArray(value: unknown, field: string): string[] | undefine
   if (nonEmpty.length === 0) {
     throw new CommandError(
       `\`${field}\` was given but names no file${entries.length === 0 ? "" : " (every entry was blank)"}, ` +
-        "which selects nothing to check. Omit `paths` to check every spec file in the project, " +
-        "or list the files you want checked — an empty selection is not treated as “everything”, " +
+        "which selects nothing to check. Omit `paths` to check every spec file in the project " +
+        "outside dependency/build directories, or list the files you want checked — an empty " +
+        "selection is not treated as “everything”, " +
         "because a run that checked nothing must never come back clean.",
     );
   }
