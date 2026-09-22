@@ -390,9 +390,9 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
 
   it("refuses an empty paths array rather than auditing the whole suite", async () => {
     // Passed through, `paths: []` gives the linter no positional arguments and it
-    // checks EVERY spec file — so "check nothing" would come back as a clean bill
-    // of health for the entire suite. Normalising it to "not given" produces the
-    // identical argv, so only an error actually prevents it.
+    // checks every spec file the default walk selects — so "check nothing" would
+    // come back as a clean bill of health for the entire suite. Normalising it to
+    // "not given" produces the identical argv, so only an error actually prevents it.
     const command = stubCommand({ stdout: report() });
 
     await rejects(
