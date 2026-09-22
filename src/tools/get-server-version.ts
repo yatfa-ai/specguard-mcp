@@ -46,8 +46,11 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * the tool advertises no argument and requires no key: it is the first tool
  * here served by `requireEndpointApiConfig`, and the transport sends no
  * `Authorization` header for it. The body is passed through verbatim —
- * reshaping `{version}` would be a second copy of the platform's own
- * identity answer, one release behind it.
+ * reshaping it would be a second copy of the platform's own identity answer,
+ * one release behind it. Since SPGD-1316 that body also carries the enforced
+ * contract's identity (`schema_sha256` + `schema_origin`) beside the build;
+ * this tool does not interpret it — `get_intent_schema` serves the contract
+ * beside that identity, which is where the pair is compared.
  */
 const getServerVersion: ToolDefinition = {
   name: "get_server_version",
@@ -55,7 +58,12 @@ const getServerVersion: ToolDefinition = {
   description:
     "Reports WHICH BUILD of the SpecGuard DEPLOYMENT is answering, read from the deployment's own " +
     "unauthenticated root-level `GET /version` — the figure the release bot's VERSION file carries, " +
-    'served as `{"version": "0.1.46"}`-shaped JSON and passed through verbatim as `{version}`. ' +
+    "served as a JSON object and passed through verbatim. Since SPGD-1316 that body also carries " +
+    "the enforced contract's identity beside the build — `schema_sha256`, the digest of the " +
+    "OpenTestIntent document this deployment validates annotations against, and `schema_origin`, " +
+    "where those bytes come from on the server — and the whole object is passed through without " +
+    "interpreting it; get_intent_schema is where the served contract is read beside that identity " +
+    "and the two are compared. " +
     "This is the SERVER's build, NOT this bridge's: the version in the initialize handshake's " +
     "`serverInfo` and the `specguard-mcp/<version>` User-Agent describe this bridge, a different " +
     "component released on its own cadence, so never read one as the other. Pinning which build's " +
