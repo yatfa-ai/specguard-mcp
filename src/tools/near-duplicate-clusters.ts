@@ -7,7 +7,9 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * platform by SPGD-703 (`specguard` `c43dc19`, 2026-08-28), which added the
  * `near_duplicates` block to `RepositoryOverview` behind an opt-in ask.
  *
- * == What the block is, and why it is behind an ask at all
+ * == What the block is, and why it is behind an ask at all (this section is
+ * the pre-SPGD-1474 story — the cost was live on the request; the next section
+ * is what changed)
  *
  * It is the suite-wide near-duplicate census: which tests READ alike — same
  * body text, not same file — clustered by the engine SPGD-369 shipped
@@ -23,6 +25,27 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * the census by accident, and an agent calling this tool has asked for nothing
  * else. Splitting the tools splits the cost along exactly the line the server
  * drew.
+ *
+ * == SPGD-1474: the census is computed at ingest, and this read is stored
+ *
+ * The minutes-scale compute no longer sits behind the request (and could never
+ * fit this bridge's 30-second default deadline). The server computes the census
+ * once per write that moves its inputs — at each ingest, after identity
+ * resolution settles the run's identities, and again when a run is deleted from
+ * the repository (which can move the run the weight figures are weighed on) —
+ * persists it, and serves the stored artifact, so a call here costs one stored
+ * read and returns in milliseconds. The opt-in ask is unchanged wire contract
+ * (`?near_duplicates=` still opens the block; the plain overview still answers
+ * `null` without it), and the tool split still stands: one call, one census,
+ * no accidental cost. What changed is the latency story and the honesty
+ * machinery around it: the block carries `computed_at` (when the stored
+ * artifact was taken) and `weighed_run_id` (which run its weight figures are
+ * from), so a consumer can always tell how fresh the census it is reading is.
+ * A request arriving between a completed write and the finished recompute
+ * serves the PREVIOUS stored census with its own stamp — never a live
+ * computation, never an unstamped answer. Between those writes (an ingest, or a
+ * run deletion) the stored census is exactly what a live computation would
+ * return: the inputs change only there.
  *
  * == The ask is always sent, and always spelled `"true"`
  *
@@ -83,10 +106,20 @@ const nearDuplicateClusters: ToolDefinition = {
     "(same body text, whatever file they sit in), clustered by similarity. Answers the refactoring " +
     "question the overview's per-run rankings cannot: where is the same test written twice, before " +
     "you delete or merge anything. " +
-    "THIS IS THE EXPENSIVE READ ON THIS BRIDGE: the census is linear but measured in seconds — seven " +
-    "queries at every size, tens of seconds extrapolated at the 20,000-test design point — which is " +
-    "exactly why the server serves it only to a client that asks (`?near_duplicates=`) and answers " +
-    "`near_duplicates: null` on the plain overview. Calling this tool IS the ask; nothing about the " +
+    "This call is SERVED STORED: the server computes the census at each ingest and on each run " +
+    "deletion and keeps it, so the " +
+    "answer returns in milliseconds instead of running the minutes-scale computation that used to " +
+    "sit behind the ask (and never fit this bridge's 30-second deadline). READ THE STAMP: " +
+    "`computed_at` is when the stored artifact was taken and `weighed_run_id` is the run its weight " +
+    "figures are from — a census read shortly after an ingest or a run deletion may be the PREVIOUS " +
+    "artifact, stamped, " +
+    "while the recompute runs; between such writes the stored census is exactly what a live computation " +
+    "would return. The opt-in ask is unchanged wire contract: the server answers `near_duplicates: " +
+    "null` on the plain overview (no ask, not one query), and `null` ON THIS TOOL means no census has " +
+    "been computed for the repository yet — a repository that has never ingested, read in the window " +
+    "before its first computation lands. It is never a live computation and never zeros: a repository " +
+    "whose every test reads differently serves a stored block with `clusters: []` and real counts. " +
+    "Calling this tool IS the ask; nothing about the " +
     "census is choosable — the clusters are the repository's, computed over every run, and one call " +
     "returns them all. WHICH repository is censused is the one choice there is: pass `repository` " +
     "(a numeric id from `list_repositories`) to census that named repository under either member " +
