@@ -17,15 +17,12 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * measured in seconds (seven queries at every size; seconds at a few thousand
  * identities, extrapolating to tens of seconds at the 20,000-identity design
  * point). `?near_duplicates=` confines that cost to the client that named it —
- * (`specguard` `f7d5352`). It is the first block on that endpoint whose grain
- * is the REPOSITORY rather than a run or a window of runs, and it was the
- * first one gated on COST rather than rows: `NearDuplicateClusters` is linear
- * but measured in seconds (seven queries at every size; seconds at a few
- * thousand identities, extrapolating to tens of seconds at the 20,000-identity
- * design point), which is what made it a SEPARATE tool rather than a forwarded
- * parameter on `get_repository_overview` — an agent calling the overview
- * should never pay the census by accident, and an agent calling this tool has
- * asked for nothing else.
+ * no ask, key present and `null`, not one query — which is why this block is a
+ * SEPARATE tool rather than a forwarded parameter on
+ * `get_repository_overview`: an agent calling the overview should never pay
+ * the census by accident, and an agent calling this tool has asked for nothing
+ * else. Splitting the tools splits the cost along exactly the line the server
+ * drew.
  *
  * == SPGD-1474: the census is computed at ingest, and this read is stored
  *
