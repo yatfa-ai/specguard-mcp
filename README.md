@@ -676,6 +676,21 @@ Read the response with its own rules in mind:
   run's examples.
 - `similarity_range` is `[strongest, weakest]`: membership is transitive, similarity is not.
 - `total_seconds` is `null` where nothing was timed — never a zero that would read as free.
+- `layer_source` at the head of the block states where the layer dimension comes from: **declared
+  via the intent protocol** when at least one clustered member's examples declared a layer, `null`
+  on a suite that declared nothing — absence stated, never an empty fiction. The layers are
+  DECLARED, never inferred: no path or directory convention is consulted anywhere in the cut (a
+  `request`-declared test under `spec/models/` reports `request`).
+- `layer_redundancy` classifies each cluster: `cross_layer` when its members declared two or more
+  DISTINCT layers (the same behaviour covered on several levels — the test-pyramid question),
+  `same_layer` when confined to one (a plain duplicate), `null` when its members declared nothing
+  — neither state, never folded into `same_layer`.
+- `layer_groups` holds the members grouped by declared layer (alphabetically, the undeclared LAST
+  as the `layer: null` group), each group's members in the same five-field shape the flat list
+  serves. A member whose own examples declared two layers appears in EACH group it declared, so
+  the groups' sizes can exceed `member_count` by exactly those members — that is the finding, not
+  an arithmetic bug — and a member that declared nothing stays in its cluster's null group, never
+  dropped.
 - `clusters: []` with a real `identity_count` is the **success** state (nothing reads alike); the
   three silences — nothing ingested, nothing embedded, nothing alike — are kept distinguishable by
   `recorded_count` / `identity_count` / the list itself.
