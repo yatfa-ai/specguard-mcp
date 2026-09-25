@@ -140,6 +140,21 @@ const nearDuplicateClusters: ToolDefinition = {
     "[strongest, weakest]: membership is transitive, similarity is not, and the gap between the edges " +
     "is the merge risk. `total_seconds` is raw and `null` where nothing was timed — never a zero " +
     "that would read as free. " +
+    "READ THE LAYER CUT AS DECLARATIONS, NEVER AS A GUESS: `layer_source` at the head of the block " +
+    "states where the layer dimension comes from — it is 'declared via the intent protocol' when at " +
+    "least one clustered member's examples declared a layer, and `null` on a suite that declared " +
+    "nothing, which is absence STATED, not an empty grouping to read as a finding. Each cluster " +
+    "carries `layer_redundancy` — `cross_layer` when its members declared two or more DISTINCT " +
+    "layers (the same behaviour covered on several levels: the test-pyramid question), `same_layer` " +
+    "when confined to one (a plain duplicate), `null` when its members declared nothing, which is " +
+    "neither and must not be folded into `same_layer` — and `layer_groups`, the members grouped by " +
+    "the layer their examples declared, alphabetically, with the undeclared LAST as the " +
+    "`layer: null` group. No path or directory convention is consulted anywhere in the cut: a " +
+    "`request`-declared test living under spec/models is reported `request`, because declarations " +
+    "do not lie and paths do. A member whose own examples declared two layers appears in EACH group " +
+    "it declared — so the groups' sizes can exceed `member_count` by exactly those members, which " +
+    "is the finding, not an arithmetic bug — and a member that declared nothing stays in its " +
+    "cluster's null group, never dropped. " +
     "A quiet answer is a FINDING, not a gap: `clusters: []` with a real `identity_count` is the " +
     "success state (nothing reads alike), and the three silences — nothing ingested " +
     "(`recorded_count: 0`), nothing embedded (`identity_count: 0`), nothing alike — are kept " +
