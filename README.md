@@ -628,8 +628,10 @@ body text, whatever file they sit in), clustered by similarity. Answers the refa
 the overview's per-run rankings cannot: where the same test is written twice, before you delete or
 merge anything.
 
-**This call is served stored** (SPGD-1474): the platform computes the census once per ingest,
-after identity resolution settles the run's identities, and keeps it — so the answer returns in
+**This call is served stored** (SPGD-1474): the platform computes the census once per write that
+moves its inputs — at each ingest, after identity resolution settles the run's identities, and
+again when a run is deleted from the repository (which can move the run the weight figures are
+weighed on) — and keeps it — so the answer returns in
 milliseconds instead of running the minutes-scale computation that used to sit behind the ask and
 never fit this bridge's 30-second deadline. The opt-in ask is unchanged wire contract
 (`?near_duplicates=`, shipped by SPGD-703, still opens the block; the plain overview still answers
@@ -660,8 +662,9 @@ Read the response with its own rules in mind:
   below them — a cluster count without what "similar" meant is a count you cannot act on.
 - `computed_at` is when the stored census was taken and `weighed_run_id` is the run its weight
   figures are from — read the stamp before acting on the figures. A census read shortly after an
-  ingest may be the **previous** artifact, carrying its own stamp, while the recompute for the new
-  ingest is still running; a `near_duplicates` block of `null` on this tool means no census has
+  ingest **or a run deletion** may be the **previous** artifact, carrying its own stamp, while the
+  recompute for the new state is still running; a `near_duplicates` block of `null` on this tool
+  means no census has
   been computed for the repository yet (never a live computation, never zeros).
 - `member_count` (texts in the repository, across every run) and `example_count` (examples in the
   one run `weighed_run_id` names) are **different grains**: a three-example table-driven loop is
