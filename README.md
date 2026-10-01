@@ -36,7 +36,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
 | `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
 | `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
-| `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter. Most Ruby projects need `bundle exec specguard-lint` |
+| `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter — the one switch between the Ruby and the JS/TS client. Most Ruby projects need `bundle exec specguard-lint`; a JS/TS project sets `npx -p @yatfa/specguard specguard lint` (and needs the validator backend: `SPECGUARD_VALIDATE_INTENT`, or the prebuilt package) |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
 `SPECGUARD_ENDPOINT` and `SPECGUARD_API_KEY` are the same variables
@@ -69,22 +69,31 @@ Register it with your MCP client — for Claude Code:
 
 ### `lint_intent_annotations`
 
-Validates the `@intent:` annotations in a Ruby project's spec files against the
+Validates the `@intent:` annotations in a project's test files against the
 [OpenTestIntent](https://github.com/yatfa-ai/open-test-intent) schema, by running that project's own
-`specguard-lint --json`. Findings come back as data — file, line, failure kind, every violated rule
+linter with `--json` — `specguard-lint` (Ruby/RSpec, `*_spec.rb`) or `specguard lint` (JS/TS,
+`@yatfa/specguard`; `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`). `SPECGUARD_LINT_COMMAND` selects which;
+the server does not auto-detect it. A JS/TS run needs the validator backend
+(`SPECGUARD_VALIDATE_INTENT`, or the prebuilt package) — without one the linter exits `2` and says why
+(see the specguard-ts README, "The validate-intent binary"). Findings come back as data — file, line, failure kind, every violated rule
 — rather than as a prose report to regex.
 
 | argument | |
 | --- | --- |
 | `project_dir` | the project to lint; defaults to the server's working directory. A path that does not exist, or is not a directory, is refused by name — never reported as a missing linter |
-| `paths` | specific spec files, relative to `project_dir`; omit to check every spec file outside dependency/build directories. An empty list is an error rather than a synonym for "everything", because a run that selected nothing must not come back clean |
-| `changed` | check what the branch changed since the merge base with the default branch — CI's mode; untracked spec files count too (no `git add` needed); `--exclude-standard` keeps `.gitignore`d paths out of the untracked leg alone, and a tracked file is never subject to `.gitignore`, so the dependency/build directory fence holds ignored tracked paths out |
+| `paths` | specific test files, relative to `project_dir`; omit to check every spec file outside dependency/build directories. An empty list is an error rather than a synonym for "everything", because a run that selected nothing must not come back clean |
+| `changed` | check what the branch changed since the merge base with the default branch — CI's mode; **needs a linter version that ships `--changed`**: the Ruby gem and `@yatfa/specguard` main do, `@yatfa/specguard` 0.1.1 on npm does not (exit `2`, `invalid option: --changed`); untracked spec files count too (no `git add` needed); `--exclude-standard` keeps `.gitignore`d paths out of the untracked leg alone, and a tracked file is never subject to `.gitignore`, so the dependency/build directory fence holds ignored tracked paths out |
 | `base` | diff `changed` against this ref instead |
+
+The report is the linter's own document, echoed untouched, so its `summary` keys and finding kinds
+differ per client — Ruby reports `files`/`annotations`/`failed`; JS/TS reports
+`files`/`annotations`/`malformed`/`unreadable` and can also emit an `unreachable` finding kind — read the
+report rather than assuming one shape.
 
 Needs no SpecGuard deployment and no API key. A **missing** annotation is never a failure: adoption
 is gradual by design, so a suite with no annotations lints clean.
 
-**The exit code is a verdict, and the mapping matters.** `specguard-lint` exits `0` clean, `1` on a
+**The exit code is a verdict, and the mapping matters.** Either linter exits `0` clean, `1` on a
 malformed annotation, and `2` when it could not do its job. Exit `1` comes back as a **successful**
 tool call carrying findings — an agent told "the tool failed" retries the tool, where an agent handed
 a finding fixes the annotation. Only exit `2` is a tool error, and it carries the linter's stderr,

@@ -95,7 +95,8 @@ export interface Config {
   /**
    * The command that runs the `@intent` linter, already tokenised.
    *
-   * Defaults to `["specguard-lint"]`. Most Ruby projects need the gem resolved
+   * Defaults to `["specguard-lint"]` (the Ruby client; a JS/TS project sets
+   * `npx -p @yatfa/specguard specguard lint`). Most Ruby projects need the gem resolved
    * through their bundle, which is a deployment fact this server cannot guess —
    * set `SPECGUARD_LINT_COMMAND="bundle exec specguard-lint"` for those. It is
    * tokenised here rather than handed to a shell, so nothing an agent passes as
