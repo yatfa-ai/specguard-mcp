@@ -517,6 +517,101 @@ describe("lint_intent_annotations — a bad project_dir blames project_dir", () 
   });
 });
 
+/** A document in the shape `specguard lint --json` (JS/TS, @yatfa/specguard) emits. */
+const TS_FAILING = {
+  schema: "open-test-intent.v1.json",
+  mode: "source",
+  ok: false,
+  summary: { files: 3, annotations: 4, malformed: 1, unreadable: 1 },
+  findings: [
+    { file: "src/order.test.ts", line: 12, ok: false, kind: "schema", errors: ["<root>: bad"] },
+    { file: "src/gone.test.ts", line: 1, ok: false, kind: "unreachable", errors: ["could not read"] },
+  ],
+};
+
+describe("lint_intent_annotations — client-neutral (Ruby and JS/TS)", () => {
+  it("passes a TS-shaped document through untouched, exit code and ok unchanged", async () => {
+    const command = stubCommand({ code: 1, stdout: JSON.stringify(TS_FAILING) });
+
+    const result = await lintIntentAnnotations.run(
+      {},
+      toolContext({
+        runCommand: command.runCommand,
+        env: { SPECGUARD_LINT_COMMAND: "npx -p @yatfa/specguard specguard lint" },
+      }),
+    );
+
+    assert.deepEqual(command.calls[0]?.argv, ["npx", "-p", "@yatfa/specguard", "specguard", "lint", "--json"]);
+    assert.equal(result.structured?.["exit_code"], 1);
+    assert.equal(result.structured?.["ok"], false);
+    assert.deepEqual(result.structured?.["report"], TS_FAILING);
+    assert.match(result.text, /unreachable/);
+  });
+
+  it("names both linters in the description and the argument cells", () => {
+    const properties = (lintIntentAnnotations.inputSchema as { properties: Record<string, { description: string }> })
+      .properties;
+    const cells = {
+      description: lintIntentAnnotations.description,
+      project_dir: properties["project_dir"]?.description ?? "",
+      paths: properties["paths"]?.description ?? "",
+    };
+
+    for (const [name, text] of Object.entries(cells)) {
+      assert.match(text, /specguard-lint|Gemfile/, `${name} must name the Ruby client`);
+      assert.match(text, /specguard lint|package\.json/, `${name} must name the JS\/TS client`);
+    }
+    assert.match(cells.description, /`specguard-lint`/);
+    assert.match(cells.description, /`specguard lint`/);
+    assert.match(cells.description, /@yatfa\/specguard/);
+    assert.match(cells.description, /SPECGUARD_VALIDATE_INTENT/);
+    assert.match(cells.paths, /\.tsx?/);
+    assert.match(cells.paths, /_spec\.rb/);
+  });
+
+  it("states the --changed client-version dependency in the changed cell", () => {
+    const properties = (lintIntentAnnotations.inputSchema as { properties: Record<string, { description: string }> })
+      .properties;
+    const cell = properties["changed"]?.description ?? "";
+
+    assert.match(cell, /linter version that ships --changed/);
+    assert.match(cell, /0\.1\.1/);
+    assert.match(cell, /invalid option: --changed/);
+  });
+
+  it("says the report shape differs per client", () => {
+    assert.match(lintIntentAnnotations.description, /summary keys and finding kinds differ per client/);
+  });
+
+  it("offers both a Ruby and a JS/TS remedy when the linter is not on PATH", async () => {
+    const command = stubCommand({ stdout: report() });
+
+    await lintIntentAnnotations.run({}, toolContext({ runCommand: command.runCommand }));
+
+    const hint = String(command.calls[0]?.options?.notFoundHint);
+    assert.ok(hint.includes("bundle exec specguard-lint"), hint);
+    assert.ok(hint.includes("npx -p @yatfa/specguard specguard lint"), hint);
+  });
+
+  it("names both project roots in the project_dir refusals", async () => {
+    const missing = await rejects(
+      lintIntentAnnotations.run({ project_dir: "/definitely/not/here" }, toolContext()),
+      /does not exist/,
+    );
+    assert.match(missing.message, /Gemfile/);
+    assert.match(missing.message, /package\.json/);
+
+    const file = join(REAL_DIR, "package.json");
+    writeFileSync(file, "{}\n");
+    const notDir = await rejects(
+      lintIntentAnnotations.run({ project_dir: file }, toolContext()),
+      /is not a directory/,
+    );
+    assert.match(notDir.message, /Gemfile/);
+    assert.match(notDir.message, /package\.json/);
+  });
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

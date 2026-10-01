@@ -6,8 +6,10 @@ import { optionalBoolean, optionalString } from "./args.js";
 import type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
 
 /**
- * `specguard-lint --json` as a tool — the `@intent` linter, which is shipped
- * today in `specguard-rspec` (`bin/specguard-lint`, SPGD-12 §1).
+ * `specguard-lint --json` (Ruby) or `specguard lint --json` (JS/TS) as a tool —
+ * the `@intent` linter, shipped in `specguard-ruby` (`bin/specguard-lint`,
+ * SPGD-12 §1) and in `@yatfa/specguard` (`specguard lint`). Which one runs is
+ * decided by `SPECGUARD_LINT_COMMAND` alone; this file does not detect it.
  *
  * == Why this wraps the JSON renderer and not the human one
  *
@@ -53,13 +55,19 @@ const lintIntentAnnotations: ToolDefinition = {
   title: "Lint @intent annotations",
 
   description:
-    "Validate the `@intent:` annotations in a Ruby project's RSpec files against the " +
-    "OpenTestIntent schema, using that project's own `specguard-lint`. Returns each finding as " +
+    "Validate the `@intent:` annotations in a project's test files against the " +
+    "OpenTestIntent schema, using that project's own SpecGuard linter: `specguard-lint` for Ruby " +
+    "(RSpec, *_spec.rb) or `specguard lint` for JS/TS (@yatfa/specguard; .ts/.tsx/.js/.jsx/.mjs/.cjs). " +
+    "SPECGUARD_LINT_COMMAND picks which one runs; a JS/TS run also needs the validator backend " +
+    "(SPECGUARD_VALIDATE_INTENT, or the prebuilt package), otherwise the linter exits 2 and says why. " +
+    "Returns each finding as " +
     "structured data — file, line, failure kind (schema / extraction / parse / read), and every " +
     "violated rule — so a malformed annotation can be fixed without reading a CI log. " +
     "Use it after writing or editing `@intent:` annotations, or to audit a suite. " +
     "A MISSING annotation is never a failure: adoption is gradual by design, so a suite with no " +
-    "annotations at all lints clean. Runs locally and needs no SpecGuard deployment or API key.",
+    "annotations at all lints clean. The report is the linter's own document, echoed untouched, so " +
+    "its summary keys and finding kinds differ per client — read the report rather than assuming " +
+    "one shape. Runs locally and needs no SpecGuard deployment or API key.",
 
   inputSchema: {
     type: "object",
@@ -67,22 +75,26 @@ const lintIntentAnnotations: ToolDefinition = {
       project_dir: {
         type: "string",
         description:
-          "Absolute path to the Ruby project to lint — the directory holding its Gemfile and " +
-          "spec/. Defaults to the directory this server was started in.",
+          "Absolute path to the project to lint — the Ruby project root (Gemfile, spec/) or the " +
+          "JS/TS project root (package.json, test sources). Defaults to the directory this server " +
+          "was started in.",
       },
       paths: {
         type: "array",
         items: { type: "string" },
         description:
-          "Specific spec files to check, relative to project_dir. Omit to check every *_spec.rb " +
-          "under it outside dependency/build directories. An empty list is an error, not a way " +
+          "Specific test files to check, relative to project_dir. Omit to check every spec file " +
+          "under it outside dependency/build directories (*_spec.rb for specguard-lint; " +
+          ".ts/.tsx/.js/.jsx/.mjs/.cjs for specguard lint). An empty list is an error, not a way " +
           "to say 'everything'. Cannot be combined with `changed`.",
       },
       changed: {
         type: "boolean",
         description:
           "Check the spec files the branch changed since the merge base with the default branch — " +
-          "the mode CI uses. Untracked spec files count as changed too, so a brand-new spec needs " +
+          "the mode CI uses. Needs a linter version that ships --changed: the Ruby gem and " +
+          "@yatfa/specguard main do, but @yatfa/specguard 0.1.1 on npm does not and exits 2 with " +
+          "`invalid option: --changed`. Untracked spec files count as changed too, so a brand-new spec needs " +
           "no `git add`; `--exclude-standard` keeps `.gitignore`d paths out of the untracked leg " +
           "alone, and a tracked file is never subject to `.gitignore`, so the dependency/build " +
           "directory fence is what holds ignored tracked paths out of the selection. When " +
@@ -160,8 +172,9 @@ export default lintIntentAnnotations;
  * something else.
  */
 const LINT_COMMAND_HINT =
-  "Set SPECGUARD_LINT_COMMAND to the command that runs it here " +
-  '(for a bundled Ruby project that is usually "bundle exec specguard-lint").';
+  "Set SPECGUARD_LINT_COMMAND to the command that runs the linter here — " +
+  'for a bundled Ruby project that is usually "bundle exec specguard-lint", ' +
+  'for a JS/TS project "npx -p @yatfa/specguard specguard lint".';
 
 /**
  * `project_dir` names a directory that exists, or the failure says exactly that.
@@ -188,8 +201,8 @@ async function requireProjectDir(projectDir: string): Promise<void> {
   } catch {
     throw new CommandError(
       `\`project_dir\` ${JSON.stringify(projectDir)} does not exist${resolvedNote(projectDir)}. ` +
-        "Pass the absolute path of the project root — the directory holding its Gemfile and " +
-        "spec/ — or omit `project_dir` to lint the directory this server was started in. " +
+        "Pass the absolute path of the project root — the directory holding its Gemfile " +
+        "(Ruby) or package.json (JS/TS) — or omit `project_dir` to lint the directory this server was started in. " +
         "(specguard-lint itself was not the problem.)",
     );
   }
@@ -197,8 +210,8 @@ async function requireProjectDir(projectDir: string): Promise<void> {
   if (!isDirectory) {
     throw new CommandError(
       `\`project_dir\` ${JSON.stringify(projectDir)} is not a directory${resolvedNote(projectDir)}. ` +
-        "Pass the project root — the directory holding its Gemfile and spec/ — not a file inside " +
-        "it. To lint one file, pass it in `paths` instead.",
+        "Pass the project root — the directory holding its Gemfile (Ruby) or package.json " +
+        "(JS/TS) — not a file inside it. To lint one file, pass it in `paths` instead.",
     );
   }
 }
