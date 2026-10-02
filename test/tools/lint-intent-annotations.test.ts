@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -567,6 +567,19 @@ describe("lint_intent_annotations — client-neutral (Ruby and JS/TS)", () => {
     assert.match(cells.description, /SPECGUARD_VALIDATE_INTENT/);
     assert.match(cells.paths, /\.tsx?/);
     assert.match(cells.paths, /_spec\.rb/);
+  });
+
+  it("does not advertise a prebuilt-package backend alternative that does not exist (SPGD-1571)", () => {
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+
+    for (const [name, text] of [
+      ["description", lintIntentAnnotations.description],
+      ["README", readme],
+    ] as const) {
+      assert.doesNotMatch(text, /prebuilt package/i, `${name} must not offer a prebuilt-package backend`);
+      assert.match(text, /SPECGUARD_VALIDATE_INTENT/, `${name} must name the only supported backend switch`);
+      assert.match(text, /exits `?2`?/, `${name} must say the linter exits 2 without a backend`);
+    }
   });
 
   it("states the --changed client-version dependency in the changed cell", () => {
