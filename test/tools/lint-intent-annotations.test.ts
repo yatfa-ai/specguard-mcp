@@ -583,6 +583,10 @@ describe("lint_intent_annotations — client-neutral (Ruby and JS/TS)", () => {
     assert.match(lintIntentAnnotations.description, /summary keys and finding kinds differ per client/);
   });
 
+  it("lists the unreachable failure kind, which both clients can emit", () => {
+    assert.match(lintIntentAnnotations.description, /unreachable/);
+  });
+
   it("offers both a Ruby and a JS/TS remedy when the linter is not on PATH", async () => {
     const command = stubCommand({ stdout: report() });
 

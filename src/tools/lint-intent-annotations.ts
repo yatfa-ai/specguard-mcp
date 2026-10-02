@@ -61,7 +61,9 @@ const lintIntentAnnotations: ToolDefinition = {
     "SPECGUARD_LINT_COMMAND picks which one runs; a JS/TS run also needs the validator backend " +
     "(SPECGUARD_VALIDATE_INTENT, or the prebuilt package), otherwise the linter exits 2 and says why. " +
     "Returns each finding as " +
-    "structured data — file, line, failure kind (schema / extraction / parse / read), and every " +
+    "structured data — file, line, failure kind (schema / extraction / parse / read / unreachable, " +
+    "the last being an annotation extraction can never claim — stacked, separated, shadowed, or " +
+    "trailing on a group line — which both clients can report; JS/TS also reports no-match), and every " +
     "violated rule — so a malformed annotation can be fixed without reading a CI log. " +
     "Use it after writing or editing `@intent:` annotations, or to audit a suite. " +
     "A MISSING annotation is never a failure: adoption is gradual by design, so a suite with no " +
