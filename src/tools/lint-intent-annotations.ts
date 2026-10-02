@@ -58,8 +58,9 @@ const lintIntentAnnotations: ToolDefinition = {
     "Validate the `@intent:` annotations in a project's test files against the " +
     "OpenTestIntent schema, using that project's own SpecGuard linter: `specguard-lint` for Ruby " +
     "(RSpec, *_spec.rb) or `specguard lint` for JS/TS (@yatfa/specguard; .ts/.tsx/.js/.jsx/.mjs/.cjs). " +
-    "SPECGUARD_LINT_COMMAND picks which one runs; a JS/TS run also needs the validator backend " +
-    "(SPECGUARD_VALIDATE_INTENT, or the prebuilt package), otherwise the linter exits 2 and says why. " +
+    "SPECGUARD_LINT_COMMAND picks which one runs; a JS/TS run also needs the validator backend, " +
+    "a validate-intent binary whose path SPECGUARD_VALIDATE_INTENT names (today the only way to supply it; " +
+    "there is no prebuilt auto-resolution yet), otherwise the linter exits 2 and says why. " +
     "Returns each finding as " +
     "structured data — file, line, failure kind (schema / extraction / parse / read), and every " +
     "violated rule — so a malformed annotation can be fixed without reading a CI log. " +
