@@ -88,8 +88,9 @@ binary the linter exits `2` and says why (see the specguard-ts README, "The vali
 
 The report is the linter's own document, echoed untouched, so its `summary` keys and finding kinds
 differ per client — Ruby reports `files`/`annotations`/`failed`; JS/TS reports
-`files`/`annotations`/`malformed`/`unreadable` and can also emit an `unreachable` finding kind — read the
-report rather than assuming one shape.
+`files`/`annotations`/`malformed`/`unreadable`. Both clients can emit an `unreachable` finding kind (an
+annotation extraction can never claim: stacked, separated, shadowed, or trailing on a group line); JS/TS
+additionally emits `no-match`, which Ruby folds into `read` — read the report rather than assuming one shape.
 
 Needs no SpecGuard deployment and no API key. A **missing** annotation is never a failure: adoption
 is gradual by design, so a suite with no annotations lints clean.

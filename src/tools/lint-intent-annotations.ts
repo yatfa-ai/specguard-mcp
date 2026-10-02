@@ -62,7 +62,9 @@ const lintIntentAnnotations: ToolDefinition = {
     "a validate-intent binary whose path SPECGUARD_VALIDATE_INTENT names (today the only way to supply it; " +
     "there is no prebuilt auto-resolution yet), otherwise the linter exits 2 and says why. " +
     "Returns each finding as " +
-    "structured data — file, line, failure kind (schema / extraction / parse / read), and every " +
+    "structured data — file, line, failure kind (schema / extraction / parse / read / unreachable, " +
+    "the last being an annotation extraction can never claim — stacked, separated, shadowed, or " +
+    "trailing on a group line — which both clients can report; JS/TS also reports no-match), and every " +
     "violated rule — so a malformed annotation can be fixed without reading a CI log. " +
     "Use it after writing or editing `@intent:` annotations, or to audit a suite. " +
     "A MISSING annotation is never a failure: adoption is gradual by design, so a suite with no " +
