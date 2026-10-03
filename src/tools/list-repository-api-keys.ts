@@ -78,6 +78,10 @@ const listRepositoryApiKeys: ToolDefinition = {
     "`get_repository_overview`'s `credential_health` reports, at row grain. " +
     "`token_hint` is a hint, never the token — the plaintext existed for exactly one response " +
     "at mint time and nothing persisted it. " +
+    "The post-cut verify: a REVOKED row also serves `last_refused_at`. `null` means offboarding " +
+    "took — nothing has presented the dead token since the cut; a timestamp means the dead " +
+    "token is still arriving, and that row's `token_hint` is what to hunt in the secret stores " +
+    "that may still hold it. Live rows carry no `last_refused_at` key. " +
     "Takes `repository_id` (the numeric id `list_repositories` reports, not the `org/repo` handle). " +
     "It authenticates with EITHER of this server's two key-administration credentials, whichever " +
     "is set: SPECGUARD_AGENT_API_KEY (an sga_… key — the call then reaches only the repositories " +

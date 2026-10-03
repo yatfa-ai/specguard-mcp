@@ -780,7 +780,11 @@ serves live rows only). One row per key: `id`, `name`, `token_hint`, `created_at
 omitted — `rotated_at`, and `rotated_and_unused` (live-scoped: the stranded shape
 `get_repository_overview`'s `credential_health` reports, at row grain). `status` is
 `live`/`revoked`, with `revoked_at` present only on revoked rows — a revoked `sgk_` row is not a
-credential either, but the rotation's story lives in the population.
+credential either, but the rotation's story lives in the population. A **revoked** row also
+serves `last_refused_at`: `null` means offboarding took (nothing has presented the dead token
+since the cut), a timestamp means the dead token is still arriving and that row's `token_hint`
+is what to hunt in the secret stores that may still hold it. Live rows carry no
+`last_refused_at` key.
 
 | argument | |
 | --- | --- |
