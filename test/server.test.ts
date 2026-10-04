@@ -64,6 +64,7 @@ describe("an MCP client against the server", () => {
       "add_repository",
       "add_repository_member",
       "create_repository_api_key",
+      "find_tests_near_behavior",
       "get_intent_schema",
       "get_repository_overview",
       "get_server_version",

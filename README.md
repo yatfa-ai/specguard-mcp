@@ -33,9 +33,9 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | Variable | Needed by | Default | What it is |
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `get_intent_schema`, `get_server_version`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it. `get_server_version` and `get_intent_schema` need only this variable — they send no API key, because the routes they read are unauthenticated by design |
-| `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
-| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
-| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
+| `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters`, `find_tests_near_behavior` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter — the one switch between the Ruby and the JS/TS client. Most Ruby projects need `bundle exec specguard-lint`; a JS/TS project sets `npx -p @yatfa/specguard specguard lint` (and needs the validator backend: a `validate-intent` binary whose path `SPECGUARD_VALIDATE_INTENT` names — today the only way to supply it) |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -713,6 +713,50 @@ answers either member credential, exactly as on `get_repository_overview` — an
 path's one deliberate omission: `api_key` is **absent** from the plural body rather than nulled,
 because the block describes the credential that made the request and no member credential is a
 repository key (an absent key there is the surface's shape, never a dropped block).
+
+### `find_tests_near_behavior`
+
+Asks a repository's stored test suite map which tests are **nearest a behavior phrase** you give
+it. The server embeds the phrase and ranks the repository's stored test identities by similarity,
+returning the top hits in the `near` block (`GET /api/v1/repository?near=<phrase>`, or the plural
+`GET /api/v1/repositories/:id?near=<phrase>`) — each hit with its similarity, its `signal_source`,
+its last-known path and the weight the latest run measured.
+
+| argument | |
+| --- | --- |
+| `behavior` | **required** — the behavior phrase, in plain words (e.g. "rejects an expired password reset token"). Trimmed and sent as `near`. Blank or whitespace-only is refused before any request, and so is a phrase containing a NUL (`\u0000`) character: the server would read either as no ask and answer the whole overview with `near: null`, which would look like an answered ask |
+| `repository` | ask THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed ask |
+
+**What the answer is not.** It ranks *stored* tests nearest the phrase and **never answers "is this
+already tested?"** — it never gates a write and never issues a verdict. A hit near the phrase is not
+coverage, and an empty answer is not proof of absence. `similarity_floor` is the near-duplicate
+census's redundancy bar, **not** the 0.95 matching threshold that decides whether two tests are the
+same test. Read `similarity_basis` and `similarity_floor` before any figure.
+
+**The three silences differ** — never collapse them, and `null` is never `[]`:
+
+- `status` of `provider_unconfigured` or `embedding_failed` with `ranked: null` — no ranking was
+  attempted, or the provider refused (`error` carries its reason). This says nothing about the suite.
+- `identity_count: 0` with `ranked: []` — the repository holds no identities; nothing has been
+  ingested.
+- `ranked: []` with `identity_count` above zero and `best_below_floor_similarity` — identities exist,
+  the search ran, and none is near the phrase; the nearest one's similarity is served so "nothing
+  near" is a finding you can check.
+
+`signal_sources` (the composition of the served page) and each hit's `signal_source` (matched on
+declared intent, or on name) are different evidence — read the source before leaning on a hit.
+
+**Cost.** Each *novel* phrase costs **one billed embedding call** at the provider; a repeated phrase
+is served from the cache and costs nothing (`cache_served` says which happened). The ask is live —
+computed on the request — unlike the stored census `near_duplicate_clusters` returns, and it is a
+tool of its own so that a `get_repository_overview` call never pays an embed by accident.
+
+Same endpoints and credentials as `get_repository_overview`: without `repository`, an `sgk_…`
+repository key on `GET /api/v1/repository`; with `repository`, either member credential on the
+plural endpoint — the agent key preferred, the user key when no agent key is set. A repository
+outside the presented credential's grant answers 404 at the server. The response is that body with
+the `near` block opened, passed through unmodified; on the plural path `api_key` is **absent** from
+the body rather than nulled (the surface's shape, never a dropped block).
 
 ### `remove_repository`
 

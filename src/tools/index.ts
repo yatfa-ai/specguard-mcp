@@ -1,6 +1,7 @@
 import addRepository from "./add-repository.js";
 import addRepositoryMember from "./add-repository-member.js";
 import createRepositoryApiKey from "./create-repository-api-key.js";
+import findTestsNearBehavior from "./find-tests-near-behavior.js";
 import getIntentSchema from "./get-intent-schema.js";
 import getServerVersion from "./get-server-version.js";
 import lintIntentAnnotations from "./lint-intent-annotations.js";
@@ -252,6 +253,24 @@ import type { ToolDefinition } from "./types.js";
  * is unchanged and still binding — the route was verified-shipped, spec-covered
  * and root-level before this entry wrapped it, and `/check-intent` (a comment
  * in `routes.rb`) stays out.
+ *
+ * == Ask the suite map
+ *
+ *   - `find_tests_near_behavior` wraps `GET /api/v1/repository?near=<phrase>`
+ *     (and the plural `GET /api/v1/repositories/:id?near=`), serving the
+ *     `near` block `RepositoryOverview#serialized_near` builds through
+ *     `NearProbe` (shipped: roadmap SPGD-1102 slices 1–2, specguard
+ *     `2e18377` and `59b0d19`).
+ *
+ * The first tool here whose ask is LIVE and BILLED — each novel phrase costs
+ * one embedding call — which is why it is a tool of its own rather than a
+ * parameter on `get_repository_overview`: an overview call must never pay an
+ * embed by accident. It ranks stored tests nearest a phrase and never answers
+ * "is this already tested?"; the tool description carries that and the three
+ * silences the block keeps apart. The standing rule is unchanged and still
+ * binding — `/check-intent` stays out: it has no backing endpoint, and this
+ * tool is deliberately not a stand-in for one (the platform's floor discloses
+ * and filters a ranked read; it never gates a write and issues no verdict).
  */
 export const TOOLS: readonly ToolDefinition[] = [
   lintIntentAnnotations,
@@ -274,6 +293,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   listRepositoryAgentKeys,
   listRepositoryAgentKeysPresentedRevoked,
   revokeRepositoryAgentKey,
+  findTestsNearBehavior,
 ];
 
 export type { ToolContext, ToolDefinition, ToolResult } from "./types.js";
