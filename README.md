@@ -726,6 +726,13 @@ its last-known path and the weight the latest run measured.
 | --- | --- |
 | `behavior` | **required** — the behavior phrase, in plain words (e.g. "rejects an expired password reset token"). Trimmed and sent as `near`. Blank or whitespace-only is refused before any request, and so is a phrase containing a NUL (`\u0000`) character: the server would read either as no ask and answer the whole overview with `near: null`, which would look like an answered ask |
 | `repository` | ask THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed ask |
+| `limit` | optional integer page size, **1–50** — omit it for the default page of 10. Sent as `&limit=<n>` only when supplied, so an ask without it is the same request as before. The server clamps the ask to 50 and reports the value it applied as `limit` in the `near` block; a non-integer, zero or negative value is refused before any request |
+
+**The answer is a page, not the set.** Read `truncated` and `limit` in the returned `near` block:
+`limit` is the page size the server applied, and `truncated: true` means **more matches exist than
+were returned** — a full page of 10 may be "10 of 37". When `truncated` is true, re-ask the **same
+phrase** with a larger `limit` (max 50) before paraphrasing it: a repeated phrase is cache-served and
+free, while each paraphrase is a novel phrase and one billed embed.
 
 **What the answer is not.** It ranks *stored* tests nearest the phrase and **never answers "is this
 already tested?"** — it never gates a write and never issues a verdict. A hit near the phrase is not
