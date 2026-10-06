@@ -40,7 +40,7 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
 `SPECGUARD_ENDPOINT` and `SPECGUARD_API_KEY` are the same variables
-[`specguard-rspec`](https://github.com/yatfa-ai/specguard-rspec) uses to ship a run, so a repository
+[`specguard-ruby`](https://github.com/yatfa-ai/specguard-ruby) uses to ship a run, so a repository
 that already posts telemetry to SpecGuard already has them. `SPECGUARD_USER_API_KEY` is **not** one
 of them — the gem has no notion of a user key — so that one is minted and set here for the first
 time.
@@ -1201,7 +1201,7 @@ npm run typecheck  # types only
 ## Related repositories
 
 - [`specguard`](https://github.com/yatfa-ai/specguard) — the platform: ingest API + Hotwire dashboard
-- [`specguard-rspec`](https://github.com/yatfa-ai/specguard-rspec) — Ruby client (RSpec formatter + `@intent` linter)
+- [`specguard-ruby`](https://github.com/yatfa-ai/specguard-ruby) — Ruby client (RSpec formatter, Minitest reporter + `@intent` linter)
 - [`open-test-intent`](https://github.com/yatfa-ai/open-test-intent) — the annotation protocol SpecGuard consumes
 
 ## License

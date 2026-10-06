@@ -34,7 +34,7 @@ import type { ToolDefinition } from "./types.js";
  * == What is in the bootstrap, and why only these two
  *
  *   - `lint_intent_annotations` wraps `specguard-lint` (shipped:
- *     `specguard-rspec/bin/specguard-lint`, SPGD-12 §1).
+ *     `specguard-ruby/bin/specguard-lint`, SPGD-12 §1).
  *   - `get_repository_overview` wraps `GET /api/v1/repository` (shipped:
  *     `specguard/config/routes.rb`).
  *
