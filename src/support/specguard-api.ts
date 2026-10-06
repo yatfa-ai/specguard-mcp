@@ -376,7 +376,7 @@ interface RequestSpec {
  * ONE TOTAL BUDGET, not one per phase. `requestTimeoutMs` bounds the whole call:
  * headers and body share it, so a response whose headers took 29s of a 30s
  * budget has 1s left in which to deliver its body. The sibling transport in
- * `specguard-rspec` (`lib/specguard/rspec/transport.rb`) gives each phase its own
+ * `specguard-ruby` (`lib/specguard/client/transport.rb`) gives each phase its own
  * full `@timeout` because `Net::HTTP` exposes exactly that knob and no other;
  * here the deadline is ours to place, and a single total is both stricter and
  * the thing an operator who set one number actually meant.
