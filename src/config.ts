@@ -21,7 +21,7 @@ import { ConfigError } from "./errors.js";
  *
  * == SPECGUARD_ENDPOINT, with SPECGUARD_URL as an accepted alias
  *
- * `SPECGUARD_ENDPOINT` is the name the shipped `specguard-rspec` gem already
+ * `SPECGUARD_ENDPOINT` is the name the shipped `specguard-ruby` gem already
  * reads, so a repository whose CI posts runs to SpecGuard has it set — that is
  * the whole reason this server borrows the name rather than coining one. The
  * SPGD-310 brief writes it as `SPECGUARD_URL`, so that spelling is accepted
@@ -272,7 +272,7 @@ export const REPOSITORY_CREDENTIAL: Credential = {
 /**
  * The `sgu_` key: a person, and a variable nothing else in the toolchain reads.
  *
- * `specguard-rspec` ships runs with an `sgk_` key and has no notion of this one,
+ * `specguard-ruby` ships runs with an `sgk_` key and has no notion of this one,
  * so an operator who already has CI reporting to SpecGuard does NOT already
  * have this variable — which is why the message says where to mint one rather
  * than assuming it is lying around.
