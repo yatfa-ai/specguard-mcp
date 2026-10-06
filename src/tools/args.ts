@@ -95,6 +95,25 @@ export function optionalBoolean(value: unknown, field: string): boolean | undefi
 }
 
 /**
+ * A positive integer, or nothing.
+ *
+ * Accepts only a finite JSON number with no fractional part that is >= 1. A
+ * numeric string ("10"), a float (2.5), zero, a negative, NaN and Infinity all
+ * throw `ArgumentError` — the same class every other shape check here throws.
+ * No upper bound is applied: a ceiling is the callee's to own (the server
+ * clamps and reports the value it applied), and the one a tool's schema
+ * advertises is the schema's to declare, not this helper's to duplicate.
+ */
+export function optionalPositiveInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new ArgumentError(`\`${field}\` must be an integer.`);
+  }
+  if (value < 1) throw new ArgumentError(`\`${field}\` must be at least 1.`);
+  return value;
+}
+
+/**
  * An optional array of non-blank strings, or nothing.
  *
  * The SHAPE-ONLY sibling of the linter's `optionalStringArray` (which stays in

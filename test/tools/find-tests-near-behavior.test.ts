@@ -127,6 +127,49 @@ describe("find_tests_near_behavior — the request it makes", () => {
     assert.equal(http.requests[0]?.headers["authorization"], "Bearer sgk_test");
   });
 
+  it("sends `limit` as a query param after `near` when supplied, and ONLY then", async () => {
+    const withLimit = stubFetch({ body: RANKED_BODY });
+    await findTestsNearBehavior.run(
+      { behavior: "rejects an expired token", limit: 25 },
+      toolContext({ env: ENV, fetch: withLimit.fetch }),
+    );
+    assert.equal(
+      withLimit.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?near=rejects+an+expired+token&limit=25",
+    );
+
+    const without = stubFetch({ body: RANKED_BODY });
+    await findTestsNearBehavior.run(
+      { behavior: "rejects an expired token" },
+      toolContext({ env: ENV, fetch: without.fetch }),
+    );
+    assert.equal(
+      without.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?near=rejects+an+expired+token",
+    );
+  });
+
+  it("sends `limit` on the plural endpoint too, and does not clamp client-side", async () => {
+    const http = stubFetch({ body: RANKED_BODY });
+    await findTestsNearBehavior.run(
+      { behavior: "rejects an expired token", repository: "42", limit: 500 },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repositories/42?near=rejects+an+expired+token&limit=500",
+    );
+  });
+
+  it("treats `limit: null` as absent", async () => {
+    const http = stubFetch({ body: RANKED_BODY });
+    await findTestsNearBehavior.run(
+      { behavior: "x behavior", limit: null },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?near=x+behavior");
+  });
+
   it("asks the PLURAL endpoint under the agent key when `repository` is named", async () => {
     const http = stubFetch({ body: RANKED_BODY });
 
@@ -239,6 +282,26 @@ describe("find_tests_near_behavior — argument refusals happen before config an
     );
   });
 
+  for (const [label, limit, pattern] of [
+    ["zero", 0, /`limit` must be at least 1/],
+    ["negative", -1, /`limit` must be at least 1/],
+    ["fractional", 2.5, /`limit` must be an integer/],
+    ["string", "10", /`limit` must be an integer/],
+    ["NaN", Number.NaN, /`limit` must be an integer/],
+    ["Infinity", Number.POSITIVE_INFINITY, /`limit` must be an integer/],
+  ] as const) {
+    it(`rejects a ${label} limit with an ArgumentError and makes no request`, async () => {
+      const error = await rejects(
+        findTestsNearBehavior.run(
+          { behavior: "x behavior", limit },
+          toolContext({ env: {}, fetch: failingFetch }),
+        ),
+        pattern,
+      );
+      assert.equal(error.name, "ArgumentError");
+    });
+  }
+
   it("rejects a repository of the wrong type", async () => {
     await rejects(
       findTestsNearBehavior.run(
@@ -321,6 +384,24 @@ describe("find_tests_near_behavior — the description carries the honesty contr
     assert.match(d, /ONE BILLED EMBEDDING CALL/);
     assert.match(d, /THREE SILENCES ARE DIFFERENT/);
     assert.match(d, /0\.95/);
+  });
+
+  it("tells the agent to read `truncated` and `limit` and to re-ask with a larger limit before paraphrasing", () => {
+    const d = findTestsNearBehavior.description;
+    assert.match(d, /`truncated`/);
+    assert.match(d, /`limit`/);
+    assert.match(d, /MORE matches exist than were returned/);
+    assert.match(d, /larger optional `limit` \(max 50\)/);
+    assert.match(d, /BEFORE paraphrasing/);
+  });
+
+  it("exposes `limit` as an optional integer, 1..50, and keeps the schema closed", () => {
+    const limit = findTestsNearBehavior.inputSchema.properties?.["limit"] as Record<string, unknown>;
+    assert.equal(limit["type"], "integer");
+    assert.equal(limit["minimum"], 1);
+    assert.equal(limit["maximum"], 50);
+    assert.deepEqual(findTestsNearBehavior.inputSchema.required, ["behavior"]);
+    assert.equal(findTestsNearBehavior.inputSchema.additionalProperties, false);
   });
 
   it("requires `behavior` and closes the schema", () => {

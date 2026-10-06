@@ -1,6 +1,6 @@
 import { ArgumentError } from "../errors.js";
 import { getJsonObject, repositoryTarget } from "../support/specguard-api.js";
-import { optionalString, requireString } from "./args.js";
+import { optionalPositiveInteger, optionalString, requireString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -50,6 +50,12 @@ const findTestsNearBehavior: ToolDefinition = {
     "The server embeds your phrase and ranks the repository's stored test identities by similarity, " +
     "returning the top hits in the `near` block — each with its similarity, `signal_source`, last-known " +
     "path and the weight the latest run measured. " +
+    "THE ANSWER IS A PAGE, NOT THE SET: the default page is 10 hits. READ `truncated` AND `limit` in the " +
+    "returned `near` block — `limit` is the page size the server APPLIED (it clamps your ask to 50) and " +
+    "`truncated: true` means MORE matches exist than were returned, so a full page of 10 may be \"10 of " +
+    "37\". When `truncated` is true, re-ask the SAME phrase with a larger optional `limit` (max 50) " +
+    "BEFORE paraphrasing it: a repeated phrase is cache-served and free, while each paraphrase is a " +
+    "novel phrase and one billed embed. " +
     "WHAT THE ANSWER IS NOT: it ranks STORED tests nearest the phrase and NEVER answers \"is this " +
     "already tested?\". It never gates a write and never issues a verdict — a hit near the phrase is not " +
     "coverage, and an empty answer is not proof of absence. `similarity_floor` is the near-duplicate " +
@@ -116,6 +122,19 @@ const findTestsNearBehavior: ToolDefinition = {
           "indistinguishable from one that does not exist. " +
           "Omit it — or pass a blank — and the call is the singular one under SPECGUARD_API_KEY.",
       },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: 50,
+        description:
+          "OPTIONAL page size: how many hits to return in the `near` block. Omit it for the " +
+          "default page of 10. The server clamps the ask to 50 and reports the value it applied " +
+          "as `limit` in the `near` block, beside `truncated` — read both: `truncated: true` " +
+          "means more matches exist than were returned, and asking again with a larger `limit` " +
+          "(same phrase, so cache-served and free) is cheaper than paraphrasing it (a novel " +
+          "phrase, one billed embed). Must be an integer >= 1; anything else is refused before " +
+          "any request.",
+      },
     },
     required: ["behavior"],
     additionalProperties: false,
@@ -134,9 +153,16 @@ const findTestsNearBehavior: ToolDefinition = {
       );
     }
     const repository = optionalString(args["repository"], "repository");
+    const limit = optionalPositiveInteger(args["limit"], "limit");
     const { api, path } = repositoryTarget(context.config, repository);
 
-    const overview = await getJsonObject(api, path, { near: behavior }, context.fetch);
+    // `limit` rides the wire only when supplied, so an ask without it is
+    // byte-identical to the request this tool made before `limit` existed. The
+    // server owns the clamp (50) and reports the applied value in `near.limit`.
+    const query: Record<string, string | undefined> = { near: behavior };
+    if (limit !== undefined) query["limit"] = String(limit);
+
+    const overview = await getJsonObject(api, path, query, context.fetch);
 
     return {
       text: JSON.stringify(overview, null, 2),
