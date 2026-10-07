@@ -64,7 +64,9 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * and `?role=shared` (the exact partition of the accessible set into owned and
  * shared halves), and `?sort=stale` (never-ingested repositories first, then
  * least-recently-ingested, `github_full_name` breaking ties so the order is
- * deterministic). The concern's own comment says the endpoint reads them "for
+ * deterministic) or `?sort=annotated` (least-annotated share first; a
+ * repository with no run or an unmeasured suite last, never ranked as 0%; a
+ * suite measured at 0-of-N first; `github_full_name` breaking ties). The concern's own comment says the endpoint reads them "for
  * a machine" — and this bridge IS that machine, so they are forwarded here
  * rather than re-invented.
  *
@@ -162,8 +164,8 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * The order is `full_name` ascending, which the controller picks as the only
  * column a client can page or diff against without SpecGuard promising an id
  * ordering it has not designed — and `?sort=stale` re-sequences exactly that
- * loaded set rather than issuing a different query, so the entries never
- * change, only their order does. It is stated here for the same reason the
+ * loaded set rather than issuing a different query (as does `?sort=annotated`),
+ * so the entries never change, only their order does. It is stated here for the same reason the
  * other tool states its orders: a list whose order is a coincidence and a list
  * whose order is a contract look identical in a response body.
  */
@@ -201,9 +203,11 @@ const listRepositories: ToolDefinition = {
     "`role: \"owned\"` or `\"shared\"` (one half of the owned/shared mix — note the ask is " +
     "spelled `owned`, not the response field's `owner`; under the AGENT key this ask settles " +
     "to the no-ask, because ownership is a person fact and the key speaks for nobody), and " +
-    "`sort: \"stale\"` (repositories " +
+    "`sort` (`\"stale\"`: repositories " +
     "CI has never ingested a run for first, then least-recently-ingested, `full_name` " +
-    "breaking ties). Omit them all and the request is the plain full list. " +
+    "breaking ties; `\"annotated\"`: least-annotated share first, repositories with no run " +
+    "or an unmeasured suite last — never ranked as 0% — a suite measured at 0-of-N first, " +
+    "`full_name` breaking ties). Omit them all and the request is the plain full list. " +
     "Ordered by `full_name` ascending unless `sort` asks otherwise, and stable across calls " +
     "either way. " +
     "The set is exactly what the key behind it may see — a repository outside the credential's " +
@@ -257,17 +261,21 @@ const listRepositories: ToolDefinition = {
       },
       sort: {
         type: "string",
-        enum: ["stale"],
+        enum: ["stale", "annotated"],
         description:
-          "Re-order the list stalest-first. The default order is `full_name` ascending, which " +
+          "Re-order the list. The default order is `full_name` ascending, which " +
           "is stable across calls but says nothing about what needs attention; `stale` puts " +
           "the repositories CI has NEVER ingested a run for FIRST (never-ingested is the " +
           "stalest state on this list, not a zero), then least-recently-ingested, newest last, " +
           "with `github_full_name` breaking ties so two calls with the same data agree element " +
           "for element. " +
+          "`annotated` puts the LEAST-annotated suites first (annotated share of the latest " +
+          "run, ascending): a suite measured at 0-of-N leads, and repositories CI has never " +
+          "reported a run for, or whose suite was not measured, come LAST — an unmeasured suite " +
+          "is never ranked as 0% — with `github_full_name` breaking ties. " +
           "It re-sequences the loaded set rather than issuing a different query: the same " +
-          "entries, a different order. `stale` is the only ordering the endpoint names — there " +
-          "is deliberately no word for the default, because omitting the argument already " +
+          "entries, a different order. `stale` and `annotated` are the sole sort words the endpoint " +
+          "names — there is deliberately no word for the default, because omitting the argument already " +
           "means it. " +
           "Any other value a schema-bypassing client sends settles to the server's no-ask clamp " +
           "(default order, no error); blank (or null) is no ask, byte-identical to omitting the " +

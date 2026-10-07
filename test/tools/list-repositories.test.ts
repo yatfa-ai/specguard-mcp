@@ -400,7 +400,7 @@ describe("list_repositories — the narrowing asks", () => {
     // endpoint would clamp to no-ask is not offered to a schema-honouring
     // client at all.
     assert.deepEqual(properties["role"]?.enum, ["owned", "shared"]);
-    assert.deepEqual(properties["sort"]?.enum, ["stale"]);
+    assert.deepEqual(properties["sort"]?.enum, ["stale", "annotated"]);
   });
 
   it("passes ?q= through when a search is asked for", async () => {
@@ -432,6 +432,14 @@ describe("list_repositories — the narrowing asks", () => {
     await listRepositories.run({ sort: "stale" }, toolContext({ env: USER_ENV, fetch: http.fetch }));
 
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories?sort=stale");
+  });
+
+  it("passes ?sort=annotated through when the least-annotated-first ordering is asked for", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run({ sort: "annotated" }, toolContext({ env: USER_ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories?sort=annotated");
   });
 
   it("composes several asks onto ONE request, in the server's own composition", async () => {
