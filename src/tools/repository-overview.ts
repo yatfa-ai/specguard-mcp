@@ -523,7 +523,14 @@ const getRepositoryOverview: ToolDefinition = {
     "read as a measured none. The layers are DECLARED only — an `@intent` annotation said so — and " +
     "NEVER inferred from the directory path, so a test under `spec/models` that declared nothing " +
     "is `undeclared`; and `undeclared` is NOT `unreadable` (a test can be perfectly readable and " +
-    "declare no layer). The operands carry no pyramid verdict; reading the mix is yours. The same " +
+    "declare no layer). The operands carry no pyramid verdict; reading the mix is yours. " +
+    "WHERE THE MACHINE TIME WENT BY LAYER is `latest_run.layer_durations`, a sibling of `layer_counts` " +
+    "with the same five keys, each `{total_seconds, timed_count}`. `total_seconds` is `null`, NOT 0, for " +
+    "a layer with no timed example, so an untimed layer is not a free one; `timed_count` (at most that " +
+    "layer's `layer_counts` entry) is the real denominator for any average. The whole key is `null` when " +
+    "the run stored no per-example rows. It is a SUM of example durations — machine time and NOT wall " +
+    "clock — so it can exceed `duration_seconds` on a parallel or sharded run. The layer is DECLARED " +
+    "only, never inferred from the path, and the operands carry no pyramid verdict. The same " +
     "`layer_counts` rides each row of `spec_directories`, the `spec_directory_files` area block " +
     "and each of its file rows, and every per-example row of `slowest_examples`, " +
     "`spec_file_examples` and `repeated_description_examples` carries `intent_layer` and " +

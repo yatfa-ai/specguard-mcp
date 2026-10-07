@@ -1486,6 +1486,27 @@ describe("get_repository_overview — failures an agent can act on", () => {
     assert.match(description, /`declared_intent`/, "must name the per-example key");
   });
 
+  it("advertises latest_run.layer_durations as per-layer machine time, null-not-zero and not wall clock", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`latest_run\.layer_durations`/, "must name the key");
+    assert.match(
+      description,
+      /`latest_run\.layer_durations`[^.]*sibling of `layer_counts`/,
+      "must place it as a sibling of layer_counts",
+    );
+    assert.match(description, /`\{total_seconds, timed_count\}`/, "must name the per-layer shape");
+    assert.match(
+      description,
+      /`total_seconds` is `null`, NOT 0, for a layer with no timed example/,
+      "must state null-not-zero",
+    );
+    assert.match(description, /`timed_count`[^.]*denominator/, "must name timed_count as the denominator");
+    assert.match(description, /machine time and NOT wall clock/, "must state machine time, not wall clock");
+    assert.match(description, /exceed `duration_seconds`/, "must warn it can exceed duration_seconds");
+    assert.match(description, /whole key is `null` when the run stored no per-example rows/, "must state the null key");
+  });
+
   it("lists eight fields on the per-example drill-ins and contrasts the unannotated worklist's six", () => {
     const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
 
