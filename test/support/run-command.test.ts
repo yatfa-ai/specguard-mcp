@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { CommandError } from "../../src/errors.js";
 import {
+  killOutstandingRuns,
   MAX_OUTPUT_BYTES,
   outstandingRunCount,
+  outstandingRunPids,
   runCommand,
   type CommandResult,
 } from "../../src/support/run-command.js";
@@ -558,5 +563,125 @@ describe("runCommand — the registry teardown drains", () => {
     const result = await pending;
     assert.equal(result.code, 3);
     assert.equal(outstandingRunCount(), before);
+  });
+});
+
+describe("runCommand — the spawn options and output ceiling that no other test reads back", () => {
+  const marker = `\n[truncated at ${MAX_OUTPUT_BYTES} bytes]`;
+
+  it("runs the child in the `cwd` it was given", { timeout: 6_000 }, async () => {
+    // Only the failure path of `cwd` was covered (a bad directory is refused).
+    // Nothing read that a GOOD directory is the one the child actually runs in,
+    // so dropping the option from `spawn` left every test green.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "specguard-mcp-cwd-")));
+    try {
+      const result = await runCommand(node("process.stdout.write(process.cwd())"), { cwd: dir });
+
+      assert.equal(result.code, 0);
+      assert.equal(result.stdout, dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("gives the child no stdin to wait on, so a program that reads it sees EOF at once", { timeout: 6_000 }, async () => {
+    // A child on an open stdin pipe would block until the deadline; stdin is
+    // `ignore`, so it reads end-of-file immediately. The short deadline turns a
+    // regression into a rejection rather than a 120s hang.
+    const result = await runCommand(
+      node("process.stdin.on('end', () => process.stdout.write('eof')); process.stdin.resume();"),
+      { timeoutMs: 3_000 },
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "eof");
+  });
+
+  it("does not call a stream of exactly the ceiling truncated", { timeout: 15_000 }, async () => {
+    const result = await runCommand(
+      node(
+        "const mb = 'x'.repeat(1024 * 1024);" +
+          `for (let i = 0; i < ${MAX_OUTPUT_BYTES / (1024 * 1024)}; i++) process.stdout.write(mb);`,
+      ),
+      { timeoutMs: 10_000 },
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stdoutTruncated, false);
+    assert.equal(result.stdout.length, MAX_OUTPUT_BYTES);
+    assert.ok(!result.stdout.includes("[truncated"), "a stream that fits must carry no marker");
+  });
+
+  it("keeps the part of the final chunk that fits, then appends the exact marker", { timeout: 15_000 }, async () => {
+    // The ceiling lands 10 bytes into the second write. The assertion is on the
+    // final text, so it does not depend on how Node splits the data events.
+    const result = await runCommand(
+      node(
+        `process.stdout.write('x'.repeat(${MAX_OUTPUT_BYTES - 10}));` +
+          "setTimeout(() => process.stdout.write('y'.repeat(100)), 50);",
+      ),
+      { timeoutMs: 10_000 },
+    );
+
+    assert.equal(result.stdoutTruncated, true);
+    assert.equal(
+      result.stdout,
+      "x".repeat(MAX_OUTPUT_BYTES - 10) + "y".repeat(10) + marker,
+    );
+    assert.equal(result.stdout.length, MAX_OUTPUT_BYTES + marker.length);
+  });
+
+  it("flags a stderr overrun on stderr alone, with the same marker", { timeout: 15_000 }, async () => {
+    const result = await runCommand(
+      node(
+        "const mb = 'e'.repeat(1024 * 1024);" +
+          "for (let i = 0; i < 5; i++) process.stderr.write(mb);",
+      ),
+      { timeoutMs: 10_000 },
+    );
+
+    assert.equal(result.stderrTruncated, true);
+    assert.equal(result.stdoutTruncated, false);
+    assert.ok(result.stderr.endsWith(marker), "the stderr text must end with the exact marker");
+    assert.equal(result.stderr.length, MAX_OUTPUT_BYTES + marker.length);
+  });
+});
+
+describe("runCommand — what the registry reports at the instant of a spawn failure and a drain", () => {
+  it("counts a failed spawn at once, with no non-integer pid in the projection, then forgets it", { timeout: 6_000 }, async () => {
+    // Read SYNCHRONOUSLY after `runCommand` returns: the spawn-failure entry has
+    // no pid and is only deregistered on the async `error` event, so this is the
+    // one instant the pid filter in `outstandingRunPids` can be observed.
+    const before = outstandingRunCount();
+
+    const pending = runCommand(["specguard-mcp-definitely-not-a-real-binary"]);
+    const rejection = rejects(pending, /not on this server's PATH/);
+
+    assert.equal(outstandingRunCount(), before + 1);
+    for (const pid of outstandingRunPids()) {
+      assert.ok(Number.isInteger(pid), `an undefined pid leaked into the projection: ${String(pid)}`);
+    }
+
+    await rejection;
+    assert.equal(outstandingRunCount(), before);
+  });
+
+  it("empties the registry before a drain returns, so a second drain signals nothing", { timeout: 10_000 }, async () => {
+    const before = outstandingRunCount();
+
+    const pending = runCommand(node("setTimeout(() => {}, 30000)"), { timeoutMs: 20_000 });
+
+    assert.equal(outstandingRunCount(), before + 1);
+
+    const first = killOutstandingRuns();
+
+    // Synchronously after the drain — the child's `exit` event cannot have run
+    // yet, so only a delete-before-kill leaves the registry already empty.
+    assert.equal(outstandingRunCount(), before);
+    assert.ok(first >= 1, `expected the drain to signal the run, got ${first}`);
+    assert.equal(killOutstandingRuns(), 0);
+
+    const result = await pending;
+    assert.equal(result.signal, "SIGKILL");
   });
 });
