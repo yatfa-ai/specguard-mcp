@@ -212,6 +212,16 @@ describe("loadConfig", () => {
 
     assert.equal(loadConfig({ SPECGUARD_TIMEOUT_MS: "5000" }).requestTimeoutMs, 5000);
   });
+
+  it("adopts a padded or boundary integer timeout but refuses one beyond the safe-integer range", () => {
+    assert.equal(loadConfig({ SPECGUARD_TIMEOUT_MS: " 7500 " }).requestTimeoutMs, 7500);
+    assert.equal(loadConfig({ SPECGUARD_TIMEOUT_MS: "1" }).requestTimeoutMs, 1);
+    assert.equal(loadConfig({ SPECGUARD_TIMEOUT_MS: "9007199254740991" }).requestTimeoutMs, 9007199254740991);
+
+    for (const value of ["9007199254740993", "1e400"]) {
+      assert.equal(loadConfig({ SPECGUARD_TIMEOUT_MS: value }).requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+    }
+  });
 });
 
 describe("requireApiConfig", () => {

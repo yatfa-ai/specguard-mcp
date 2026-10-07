@@ -1028,3 +1028,55 @@ describe("repositoryTarget — the singular/plural (path, credential) pair, chos
     assert.equal(path, "/api/v1/repositories/a%20b%2Fc");
   });
 });
+
+/**
+ * The generic arm of `describeFailure`, plus the trim/tail members of the
+ * refusal and 404 sentences.
+ *
+ * Every other describe in this file pins which ARM answers; none pins the exact
+ * bytes the generic arm emits. These do — a body cap that stops capping floods an
+ * agent's context with a proxy's HTML error page on every failed call.
+ */
+describe("describeFailure — exact sentences for the generic arm and the trimmed arms", () => {
+  const config = api("2000");
+
+  async function failure(status: number, body: string): Promise<ApiError> {
+    return (await rejects(getJson(config, "/api/v1/anything", {}, stubFetch({ status, body }).fetch), /./)) as ApiError;
+  }
+
+  it("answers a bodyless status with the bare status, never a dangling separator", async () => {
+    for (const body of ["", "  \n "]) {
+      const error = await failure(502, body);
+
+      assert.equal(error.message, "SpecGuard answered 502");
+      assert.equal(error.status, 502);
+    }
+  });
+
+  it("caps the echoed body at exactly 500 characters, measured after trimming", async () => {
+    const error = await failure(500, `\n ${"x".repeat(600)} \n`);
+
+    assert.equal(error.message, `SpecGuard answered 500: ${"x".repeat(500)}`);
+  });
+
+  it("trims the echoed body", async () => {
+    assert.equal((await failure(500, "  boom  ")).message, "SpecGuard answered 500: boom");
+  });
+
+  it("trims the platform's message in a 400 and a 403 refusal", async () => {
+    for (const status of [400, 403]) {
+      const error = await failure(status, JSON.stringify({ message: "  not allowed \n" }));
+
+      assert.equal(error.message, `SpecGuard refused the request (${status}): not allowed`);
+    }
+  });
+
+  it("answers an unrecognised 404 with the complete canned endpoint hint", async () => {
+    const error = await failure(404, "<html>nope</html>");
+
+    assert.equal(
+      error.message,
+      "https://sg.example.com has no such endpoint (404). Check that SPECGUARD_ENDPOINT is the deployment's root URL, without a path.",
+    );
+  });
+});
