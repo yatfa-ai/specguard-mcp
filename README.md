@@ -233,8 +233,8 @@ spec into four fast ones is `+3` examples and *less* time.
 `spec_directories` ranks the heaviest areas but stops at the area grain, so it says *where* the time
 went and not *which files* spent it. `spec_directory` is the next question: pass a path exactly as
 served in `latest_run.spec_directories.rows[].path` and `latest_run.spec_directory_files` opens with
-the files in that one directory (`total_seconds`, `recorded_count`, `timed_count` each), plus the
-**area's** own `file_count`/`recorded_count`/`timed_count` and the `limit` the row list was cut at —
+the files in that one directory (`total_seconds`, `recorded_count`, `timed_count`, `layer_counts`
+each), plus the **area's** own `layer_counts`, `file_count`/`recorded_count`/`timed_count` and the `limit` the row list was cut at —
 those totals describe the whole area, not the returned page, so don't re-derive them from `rows`.
 Omit the argument and the key is `null`, meaning *you did not ask*; an area the run recorded nothing
 for answers `rows: []` rather than an error, so a renamed or deleted directory is an empty result and
@@ -250,7 +250,8 @@ two are the answer to the question the area-grain comparisons dead-end on — `s
 most and not *which examples* inside them spent it. `spec_file` is the next question: pass a path
 exactly as served in `latest_run.spec_files.rows[].path` and `latest_run.spec_file_examples` opens
 with up to 50 of that file's individual examples, cut by **duration** (`name`, `file_path`,
-`line_number`, `spec_file_path`, `duration_seconds`, `outcome` each), plus the **file's** own
+`line_number`, `spec_file_path`, `duration_seconds`, `outcome`, `intent_layer`, `declared_intent`
+each — eight fields), plus the **file's** own
 `recorded_count`/`timed_count` and the `limit` the row list was cut at — those totals describe the
 whole file, not the returned page, so don't re-derive them from `rows`. Omit the argument and the
 key is `null`, meaning *you did not ask*; a path that matched nothing answers `rows: []` rather than
@@ -260,7 +261,7 @@ an error, so a renamed or deleted spec file and a stale bookmark are empty resul
 ranking — but names the description and the files it was seen in, not *which* examples say the same
 thing. `repeated_description` is the next question: pass a description exactly as served in
 `latest_run.repeated_descriptions.rows[].name` and `latest_run.repeated_description_examples` opens
-with up to 25 of that group's members (the same six fields), plus the **group's** own
+with up to 25 of that group's members (the same eight fields), plus the **group's** own
 `recorded_count`/`timed_count` and the `limit` the row list was cut at — again totals for the whole
 group and not for the returned page. This is the **only** way to reach a group's members:
 `slowest_examples` is the run-wide top ten and rarely contains them, and walking `spec_file` over
@@ -316,7 +317,21 @@ never render that subtraction as blindness. A derived reading is genuinely weake
 one — no preconditions, a behavior written for a test runner's output rather than declared, and a
 layer inferred from the directory — so report it as inferred and never as equivalent. And
 `authored` never replaces `annotated_ratio`: "how much of this suite has a human-written intent" is
-still that figure, off the run's own counters. It is the one argument
+still that figure, off the run's own counters.
+
+**Which layer the suite declares is a third, separate question**, answered on every response by
+`latest_run.layer_counts`, a sibling of `intent_readings`: five operands — `unit`, `integration`,
+`request`, `system` and `undeclared` — that sum to `intent_readings.recorded`. It is `null`, **not
+five zeros**, when the run stored no per-example rows, because a zero would read as a measured none.
+The layers are **declared only** — an `@intent` annotation said so — and **never inferred from the
+directory path**: a test under `spec/models` that declared nothing is `undeclared`, and `undeclared`
+is **not** `unreadable` (a test can be perfectly readable and declare no layer). The operands carry no
+pyramid verdict; reading the mix is yours. The same `layer_counts` rides each row of
+`spec_directories`, the `spec_directory_files` area block and each of its file rows, and every
+per-example row of `slowest_examples`, `spec_file_examples` and `repeated_description_examples`
+carries `intent_layer` and `declared_intent` (`{entity, action, behavior}` or `null`, declared only).
+
+The `unannotated_examples` flag is the one argument
 here that is a **flag rather than a name** — pass `true`, not a value — because it opens a
 *population* rather than a pick: `total_specs` minus `annotated_specs` is a subtraction, and a
 subtraction has no line to name. Which population is still yours to choose: sent alone the flag
@@ -324,8 +339,8 @@ opens the whole run, and sent **together with** `spec_file` or `spec_directory` 
 file, that area, or the AND of the two — those two keep opening their own blocks as well, so
 narrowing this one is additional rather than instead. `latest_run.unannotated_examples` opens with
 up to 100 of the unannotated examples **of whatever you asked for** (`name`, `file_path`,
-`line_number`, `spec_file_path`, `reading` and `derived_intent` each — six fields, and not the
-per-example drill-ins' six: no `duration_seconds` and no `outcome`), plus that
+`line_number`, `spec_file_path`, `reading` and `derived_intent` each — six fields, unlike the
+per-example drill-ins' eight: no `duration_seconds`, no `outcome`, no `intent_layer`), plus that
 same population's own `recorded_count`, `derived_count` and `unreadable_count`, the `limit` the row
 list was cut at, and
 `spec_file`/`spec_directory` **echoed back** as the server read them — `null` for each one you did

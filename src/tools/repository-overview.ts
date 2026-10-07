@@ -516,6 +516,18 @@ const getRepositoryOverview: ToolDefinition = {
     "is the ONLY figure on this endpoint that means tests SpecGuard can say nothing about. Never " +
     "read `total_specs - annotated_specs` as that population — on a suite that has never been " +
     "annotated it is the whole suite, and almost all of it is readable. " +
+    "WHICH LAYER THE SUITE DECLARES IS A THIRD, SEPARATE QUESTION, answered on every response by " +
+    "`latest_run.layer_counts`, a sibling of `intent_readings`: five operands — `unit`, " +
+    "`integration`, `request`, `system` and `undeclared` — that sum to `intent_readings.recorded`. " +
+    "It is `null`, NOT five zeros, when the run stored no per-example rows, because a zero would " +
+    "read as a measured none. The layers are DECLARED only — an `@intent` annotation said so — and " +
+    "NEVER inferred from the directory path, so a test under `spec/models` that declared nothing " +
+    "is `undeclared`; and `undeclared` is NOT `unreadable` (a test can be perfectly readable and " +
+    "declare no layer). The operands carry no pyramid verdict; reading the mix is yours. The same " +
+    "`layer_counts` rides each row of `spec_directories`, the `spec_directory_files` area block " +
+    "and each of its file rows, and every per-example row of `slowest_examples`, " +
+    "`spec_file_examples` and `repeated_description_examples` carries `intent_layer` and " +
+    "`declared_intent` (`{entity, action, behavior}` or `null`, declared only). " +
     "TWO BLOCKS COME BACK ON EVERY RESPONSE — no parameter to pass, no flag to set — and they " +
     "answer what everything above silently depends on: is SpecGuard still being fed? " +
     "`delivery_health` is why the figures may be STALE: `refusing` is a comparison of stamps, not a " +
@@ -669,7 +681,9 @@ const getRepositoryOverview: ToolDefinition = {
           "went by directory but not which files inside it spent it. Use a path exactly as served " +
           "in `latest_run.spec_directories.rows[].path`. Asking populates " +
           "`latest_run.spec_directory_files` — the spec files in that one directory with their " +
-          "`total_seconds`/`recorded_count`/`timed_count`, plus the AREA's own `file_count`, " +
+          "`total_seconds`/`recorded_count`/`timed_count` and a `layer_counts` split of the declared " +
+          "layers (the same five operands as `latest_run.layer_counts`), plus the AREA's own " +
+          "`layer_counts`, `file_count`, " +
           "`recorded_count`, `timed_count` and the `limit` the row list was cut at (the totals " +
           "describe the whole area, not the returned page, so do not re-derive them from `rows`). " +
           "The one ask opens THREE blocks, each in its own grain: `spec_directory_files` for which " +
@@ -697,7 +711,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`latest_run.spec_files.rows[].path`. Asking populates " +
           "`latest_run.spec_file_examples` — up to 50 of that file's individual examples cut by " +
           "DURATION, each with `name`, `file_path`, `line_number`, `spec_file_path`, " +
-          "`duration_seconds` and `outcome`, plus the FILE's own `recorded_count` and " +
+          "`duration_seconds`, `outcome`, `intent_layer` and `declared_intent` (EIGHT fields), " +
+          "plus the FILE's own `recorded_count` and " +
           "`timed_count` and the `limit` the row list was cut at (the totals describe the whole " +
           "file, not the returned page, so do not re-derive them from `rows`). " +
           "SENT TOGETHER WITH `unannotated_examples`, it also narrows THAT worklist to this file — " +
@@ -715,8 +730,8 @@ const getRepositoryOverview: ToolDefinition = {
           "the same thing. Use a description exactly as served in " +
           "`latest_run.repeated_descriptions.rows[].name`. Asking populates " +
           "`latest_run.repeated_description_examples` — up to 25 of that group's members, each " +
-          "with `name`, `file_path`, `line_number`, `spec_file_path`, `duration_seconds` and " +
-          "`outcome`, plus the GROUP's own `recorded_count` and `timed_count` and the `limit` " +
+          "with `name`, `file_path`, `line_number`, `spec_file_path`, `duration_seconds`, " +
+          "`outcome`, `intent_layer` and `declared_intent` (EIGHT fields), plus the GROUP's own `recorded_count` and `timed_count` and the `limit` " +
           "the row list was cut at (the totals describe the whole group, not the returned page, " +
           "so do not re-derive them from `rows`). This is the ONLY way to reach a group's " +
           "members: `slowest_examples` is the run-wide top ten and rarely contains them, and " +
@@ -837,8 +852,9 @@ const getRepositoryOverview: ToolDefinition = {
           "one is additional, not instead. " +
           "Asking populates `latest_run.unannotated_examples` — up to 100 of the unannotated " +
           "examples OF WHATEVER YOU ASKED FOR, each with `name`, `file_path`, `line_number` and " +
-          "`spec_file_path`, `reading` and `derived_intent` (SIX fields: no `duration_seconds` and " +
-          "no `outcome`, unlike the per-example drill-ins above), plus that same population's own " +
+          "`spec_file_path`, `reading` and `derived_intent` (SIX fields: no `duration_seconds`, no " +
+          "`outcome` and no `intent_layer`, unlike the per-example drill-ins above, which carry " +
+          "EIGHT), plus that same population's own " +
           "`recorded_count`, `derived_count` and `unreadable_count`, the " +
           "`limit` the row list was cut at, and `spec_file`/`spec_directory` ECHOED BACK as the " +
           "server READ them — `null` for each one you did not send. " +
