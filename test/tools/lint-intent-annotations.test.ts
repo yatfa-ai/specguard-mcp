@@ -411,6 +411,33 @@ describe("lint_intent_annotations — bad output and bad arguments", () => {
     await rejects(lintIntentAnnotations.run({ paths: [" --version"] }, toolContext()), /cannot start with "-"/);
   });
 
+  it("passes each path trimmed and drops blank entries from a mixed list", async () => {
+    const command = stubCommand({ stdout: report() });
+
+    await lintIntentAnnotations.run(
+      { paths: ["  spec/a_spec.rb ", "", "   ", "spec/b_spec.rb"] },
+      toolContext({ runCommand: command.runCommand }),
+    );
+
+    assert.deepEqual(command.calls[0]?.argv, ["specguard-lint", "--json", "spec/a_spec.rb", "spec/b_spec.rb"]);
+  });
+
+  it("applies the leading-dash refusal to every entry and quotes the offending one", async () => {
+    // The offender sits in the MIDDLE on purpose: at either end, a guard that
+    // only inspects the first or the last entry would still pass this pin.
+    const command = stubCommand({ stdout: report() });
+
+    await rejects(
+      lintIntentAnnotations.run(
+        { paths: ["spec/a_spec.rb", "--version", "spec/b_spec.rb"] },
+        toolContext({ runCommand: command.runCommand }),
+      ),
+      /cannot start with "-" \(got "--version"\)/,
+    );
+
+    assert.equal(command.calls.length, 0, "the linter must not have been run at all");
+  });
+
   it("rejects arguments of the wrong type", async () => {
     await rejects(lintIntentAnnotations.run({ changed: "yes" }, toolContext()), /must be a boolean/);
     await rejects(lintIntentAnnotations.run({ project_dir: 7 }, toolContext()), /must be a string/);
