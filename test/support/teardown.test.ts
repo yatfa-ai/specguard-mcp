@@ -89,6 +89,7 @@ interface TornDownServer {
   readonly status: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
+  readonly stderr: string;
 }
 
 /**
@@ -100,8 +101,11 @@ interface TornDownServer {
  * so a group-directed kill would reach the child by a route that has nothing to
  * do with the handler and would certify a fix that was not there.
  */
-async function runAndSignal(signal: "SIGINT" | "SIGTERM"): Promise<TornDownServer> {
-  const server = spawn(process.execPath, [FIXTURE], { stdio: ["ignore", "pipe", "pipe"] });
+async function runAndSignal(signal: "SIGINT" | "SIGTERM", runs = 1): Promise<TornDownServer> {
+  const server = spawn(process.execPath, [FIXTURE], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, TEARDOWN_RUNS: String(runs) },
+  });
 
   let stdout = "";
   let stderr = "";
@@ -109,7 +113,9 @@ async function runAndSignal(signal: "SIGINT" | "SIGTERM"): Promise<TornDownServe
   server.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
 
   const exited = new Promise<{ status: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    server.on("exit", (status, onSignal) => resolve({ status, signal: onSignal }));
+    // `close`, not `exit`: it fires once the stdio pipes have drained, so the
+    // handler's last stderr line is in `stderr` before it is read.
+    server.on("close", (status, onSignal) => resolve({ status, signal: onSignal }));
   });
 
   const pids = await new Promise<{ registered: number; control: number }>((resolve, reject) => {
@@ -127,7 +133,7 @@ async function runAndSignal(signal: "SIGINT" | "SIGTERM"): Promise<TornDownServe
   server.kill(signal);
   const outcome = await exited;
 
-  return { ...pids, ...outcome, stdout };
+  return { ...pids, ...outcome, stdout, stderr };
 }
 
 describe("teardown — a run in flight dies with the server", () => {
@@ -201,6 +207,49 @@ describe("teardown — a run in flight dies with the server", () => {
         } catch {
           // Nothing to clean up.
         }
+      }
+    }
+  });
+
+  it("says on stderr how many runs it killed and which signal arrived, singular and plural", { timeout: 20_000 }, async () => {
+    // The handler's one human-facing line. Nothing else reads it: the examples
+    // above hold stdout empty, which proves where it is NOT, not what it says.
+    // Ends-with rather than equals because the fixture's own READY line shares
+    // the stream.
+    for (const [signal, runs, expected] of [
+      ["SIGTERM", 1, "specguard-mcp: SIGTERM received, killed 1 run still in flight\n"],
+      ["SIGINT", 2, "specguard-mcp: SIGINT received, killed 2 runs still in flight\n"],
+    ] as const) {
+      const { stderr, control } = await runAndSignal(signal, runs);
+
+      try {
+        assert.ok(
+          stderr.endsWith(expected),
+          `expected stderr to end with ${JSON.stringify(expected)}, got ${JSON.stringify(stderr)}`,
+        );
+      } finally {
+        try {
+          process.kill(control, "SIGKILL");
+        } catch {
+          // Nothing to clean up.
+        }
+      }
+    }
+  });
+
+  it("stays silent when no run was in flight", { timeout: 20_000 }, async () => {
+    // An idle shutdown is the common one, and the operator reads stderr: "killed
+    // 0 runs" on every Ctrl-C of a server that was doing nothing is noise.
+    const { status, stderr, control } = await runAndSignal("SIGTERM", 0);
+
+    try {
+      assert.equal(status, 143);
+      assert.doesNotMatch(stderr, /received|killed/, `expected no teardown line, got ${JSON.stringify(stderr)}`);
+    } finally {
+      try {
+        process.kill(control, "SIGKILL");
+      } catch {
+        // Nothing to clean up.
       }
     }
   });

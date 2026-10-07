@@ -51,23 +51,36 @@ const control = spawn(process.execPath, ["-e", `setTimeout(() => {}, ${CHILD_LIF
 });
 control.unref();
 
-// The registered run. A generous timeout that will never fire: the deadline is
-// not what is under test here, teardown is.
-const run = runCommand([process.execPath, "-e", `setTimeout(() => {}, ${CHILD_LIFETIME_MS})`], {
-  timeoutMs: CHILD_LIFETIME_MS,
-});
+// The registered runs. `TEARDOWN_RUNS` (default 1, which is the behaviour every
+// pre-existing example relies on) says how many to hold in flight; 0 gives a
+// server with nothing running, which is what the zero-run silence is read
+// against. A generous timeout that will never fire: the deadline is not what is
+// under test here, teardown is.
+const RUNS = Number(process.env.TEARDOWN_RUNS ?? "1");
 
-// The drain kills this run, so the promise may reject on the way out. Swallowed
-// so an unhandled rejection cannot replace the exit status the test is reading.
-run.catch(() => {});
+for (let index = 0; index < RUNS; index += 1) {
+  const run = runCommand([process.execPath, "-e", `setTimeout(() => {}, ${CHILD_LIFETIME_MS})`], {
+    timeoutMs: CHILD_LIFETIME_MS,
+  });
 
-// The run's pid is not known until `spawn` returns, and the registry is where it
-// is published. Announced only once both pids exist, so the test never parses a
-// half-built line.
+  // The drain kills this run, so the promise may reject on the way out. Swallowed
+  // so an unhandled rejection cannot replace the exit status the test is reading.
+  run.catch(() => {});
+}
+
+// With no run in flight nothing else holds the event loop open (the control is
+// unref'd), and a fixture that exits on its own is not there to be signalled.
+// The real stdio server is kept alive by its transport; this stands in for that.
+setInterval(() => {}, 1_000);
+
+// The runs' pids are not known until `spawn` returns, and the registry is where
+// they are published. Announced only once every pid exists, so the test never
+// parses a half-built line. `registered` is the first run's pid, or 0 when none
+// was asked for.
 const announce = setInterval(() => {
-  const [registered] = outstandingRunPids();
-  if (registered === undefined || control.pid === undefined) return;
+  const pids = outstandingRunPids();
+  if (pids.length < RUNS || control.pid === undefined) return;
 
   clearInterval(announce);
-  process.stderr.write(`READY registered=${registered} control=${control.pid}\n`);
+  process.stderr.write(`READY registered=${pids[0] ?? 0} control=${control.pid}\n`);
 }, 10);
