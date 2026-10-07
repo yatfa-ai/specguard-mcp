@@ -1080,3 +1080,115 @@ describe("describeFailure — exact sentences for the generic arm and the trimme
     );
   });
 });
+
+/**
+ * The lifecycle of the deadline, and the exact transport sentences.
+ *
+ * The specs above pin that a stall is REPORTED as a timeout; they pass equally
+ * whether or not the in-flight request is actually aborted, whether or not the
+ * timer is cleared once the call settles, and whether or not the
+ * signal-aborted-means-timeout branch is ever entered (their stubs never reject
+ * on abort). Each example here observes one of those through the `signal` the
+ * transport hands `fetch` — the only place they are visible.
+ */
+describe("fetchWithTimeout — the lifecycle of the deadline and the exact transport sentences", () => {
+  // The deadline timer is unref'd; stand in for the socket a real call holds
+  // open so Node does not drain the loop under an awaiting assertion (see the
+  // `getJson — one deadline` describe above for the full reason).
+  let socket: ReturnType<typeof setInterval> | undefined;
+
+  beforeEach(() => {
+    socket = setInterval(() => {}, 1_000);
+  });
+
+  afterEach(() => {
+    clearInterval(socket);
+  });
+
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  /** A `fetch` that hands its signal to the test and then behaves as `answer` says. */
+  function capturing(answer: (init: RequestInit) => Promise<Response>) {
+    const signals: AbortSignal[] = [];
+    // Deliberately NOT `async`: an async wrapper adds promise-adoption ticks
+    // between the abort and the rejection, letting the deadline's own
+    // resolution win the race and hiding the `signal.aborted` catch branch.
+    const fetchImpl = ((_input: unknown, init?: RequestInit) => {
+      signals.push(init?.signal as AbortSignal);
+      return answer(init ?? {});
+    }) as unknown as typeof globalThis.fetch;
+    return { fetch: fetchImpl, signals };
+  }
+
+  it("aborts the in-flight request's signal when the deadline fires", { timeout: 5_000 }, async () => {
+    const http = capturing(() => new Promise<Response>(() => {}));
+
+    await rejects(getJson(api("60"), "/api/v1/repository", {}, http.fetch), /did not respond within 60ms/);
+
+    assert.equal(http.signals.length, 1);
+    assert.equal(http.signals[0]?.aborted, true);
+  });
+
+  it("clears the timer after a success, so the signal is never aborted late", { timeout: 5_000 }, async () => {
+    const http = capturing(async () => new Response("{}", { status: 200 }));
+
+    await getJson(api("60"), "/api/v1/repository", {}, http.fetch);
+    await sleep(150);
+
+    assert.equal(http.signals[0]?.aborted, false);
+  });
+
+  it("clears the timer after an HTTP failure, so the signal is never aborted late", { timeout: 5_000 }, async () => {
+    const http = capturing(async () => new Response("down", { status: 503 }));
+
+    await rejects(getJson(api("60"), "/api/v1/repository", {}, http.fetch), /503/);
+    await sleep(150);
+
+    assert.equal(http.signals[0]?.aborted, false);
+  });
+
+  it("reports an AbortError from a signal-honouring fetch as the timeout, not as unreachable", { timeout: 5_000 }, async () => {
+    // The real-world path: undici rejects with an AbortError when the signal
+    // aborts, so the catch branch sees a non-ApiError and only the
+    // `signal.aborted` guard keeps it from being described as "Could not reach".
+    const http = capturing(
+      (init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    );
+
+    const error = await rejects(
+      getJson(api("60"), "/api/v1/repository", {}, http.fetch),
+      /^https:\/\/sg\.example\.com did not respond within 60ms\.$/,
+    );
+
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, undefined);
+    assert.doesNotMatch(error.message, /Could not reach/);
+  });
+
+  it("words a 2xx non-JSON body exactly, and carries the status", { timeout: 5_000 }, async () => {
+    const error = await rejects(
+      getJson(api("2000"), "/api/v1/repository", {}, stubFetch({ status: 200, body: "<html>login</html>" }).fetch),
+      /^https:\/\/sg\.example\.com answered 200 but the body was not JSON\. Check that SPECGUARD_ENDPOINT points at a SpecGuard deployment and not, say, a proxy or login page\.$/,
+    );
+
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, 200);
+  });
+
+  it("words a non-Error transport failure exactly, with no status", { timeout: 5_000 }, async () => {
+    const thrower = (async () => {
+      throw "socket closed";
+    }) as unknown as typeof globalThis.fetch;
+
+    const error = await rejects(
+      getJson(api("2000"), "/api/v1/repository", {}, thrower),
+      /^Could not reach https:\/\/sg\.example\.com: socket closed\. Check SPECGUARD_ENDPOINT and that the deployment is reachable from this machine\.$/,
+    );
+
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.status, undefined);
+  });
+});
