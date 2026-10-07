@@ -410,6 +410,19 @@ describe("get_intent_schema", () => {
     assert.match(error.message, /schemas\/open-test-intent\.v1\.json/);
   });
 
+  // Each scalar root is valid JSON that parses without throwing, so it reaches
+  // the root-shape guard rather than the not-valid-JSON catch. `null` is the
+  // sharp one: `typeof null === "object"`, so only the explicit null operand
+  // keeps it from being served as `structured.schema: null`.
+  for (const body of ["null", "42", '"schema"', "true"]) {
+    it(`refuses a 2xx body whose JSON root is the scalar ${body}, naming the malformed mirror`, async () => {
+      const error = await rejects(answer(body), /not a JSON object/);
+
+      assert.doesNotMatch(error.message, /proxy or login page/);
+      assert.match(error.message, /schemas\/open-test-intent\.v1\.json/);
+    });
+  }
+
   it("renders describeFailure's canned 404 hint for a deployment that predates the route", async () => {
     // An older deployment answers 404 with whatever its framework renders — a
     // non-contract body naming no cause — so the canned endpoint hint fires.
@@ -554,6 +567,21 @@ describe("get_intent_schema — the enforcement identity beside the document", (
     assert.equal(result.structured?.enforced, null);
     assert.deepEqual(result.structured?.schema, JSON.parse(SERVED_DOCUMENT));
   });
+
+  // The identity pair is all-or-nothing: a /version carrying only ONE of the two
+  // keys would otherwise yield an envelope with the other key undefined.
+  for (const [what, body] of [
+    ["schema_sha256", { version: "0.1.46", schema_sha256: sha256(SERVED_DOCUMENT) }],
+    ["schema_origin", { version: "0.1.46", schema_origin: IDENTITY_ORIGIN }],
+  ] as const) {
+    it(`answers enforced: null for a /version carrying ${what} alone — never a half-identity envelope`, async () => {
+      const result = await answer(SERVED_DOCUMENT, { body: JSON.stringify(body) });
+
+      assert.equal(result.structured?.enforced, null);
+      assert.equal(result.text, SERVED_DOCUMENT);
+      assert.deepEqual(result.structured?.schema, JSON.parse(SERVED_DOCUMENT));
+    });
+  }
 
   it("answers enforced: null when /version answers non-2xx — the document answer still stands", async () => {
     const result = await answer(SERVED_DOCUMENT, { status: 503, body: "upstream down" });
