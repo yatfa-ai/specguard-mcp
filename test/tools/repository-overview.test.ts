@@ -1471,6 +1471,35 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("advertises the declared-layer mix on the tool description, declared-only and never inferred", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`latest_run\.layer_counts`/, "must name the key");
+    for (const operand of ["unit", "integration", "request", "system", "undeclared"]) {
+      assert.match(description, new RegExp("`" + operand + "`"), `must name the ${operand} operand`);
+    }
+    assert.match(description, /sum to `intent_readings\.recorded`/, "must state the sum");
+    assert.match(description, /`null`, NOT five zeros/, "must state null-not-zeros");
+    assert.match(description, /NEVER inferred from the directory path/, "must state declared-only");
+    assert.match(description, /`undeclared` is NOT `unreadable`/, "must keep undeclared distinct from unreadable");
+    assert.match(description, /`intent_layer`/, "must name the per-example key");
+    assert.match(description, /`declared_intent`/, "must name the per-example key");
+  });
+
+  it("lists eight fields on the per-example drill-ins and contrasts the unannotated worklist's six", () => {
+    const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+
+    for (const name of ["spec_file", "repeated_description"]) {
+      assert.match(props[name]!.description, /`intent_layer` and `declared_intent` \(EIGHT fields\)/, name);
+    }
+    assert.match(props["spec_directory"]!.description, /`layer_counts`/);
+    assert.match(
+      props["unannotated_examples"]!.description,
+      /SIX fields.*which carry\s+EIGHT/s,
+      "the unannotated_examples contrast must say the drill-ins carry eight",
+    );
+  });
+
   // The same correction at the TOOL description's grain, which is what an agent
   // reads before it decides whether to call at all — and the one place
   // `intent_readings` can be advertised, since it rides every response and has
