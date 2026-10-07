@@ -326,7 +326,14 @@ five zeros**, when the run stored no per-example rows, because a zero would read
 The layers are **declared only** — an `@intent` annotation said so — and **never inferred from the
 directory path**: a test under `spec/models` that declared nothing is `undeclared`, and `undeclared`
 is **not** `unreadable` (a test can be perfectly readable and declare no layer). The operands carry no
-pyramid verdict; reading the mix is yours. The same `layer_counts` rides each row of
+pyramid verdict; reading the mix is yours. **Where the machine time went by layer** is
+`latest_run.layer_durations`, a sibling of `layer_counts` with the same five keys, each
+`{total_seconds, timed_count}`. `total_seconds` is `null`, **not 0**, for a layer with no timed example,
+so an untimed layer is not a free one; `timed_count` (at most that layer's `layer_counts` entry) is the
+real denominator for any average. The whole key is `null` when the run stored no per-example rows. It is
+a **sum** of example durations — machine time and **not wall clock** — so it can exceed
+`duration_seconds` on a parallel or sharded run. The layer is **declared only**, never inferred from the
+path, and the operands carry no pyramid verdict. The same `layer_counts` rides each row of
 `spec_directories`, the `spec_directory_files` area block and each of its file rows, and every
 per-example row of `slowest_examples`, `spec_file_examples` and `repeated_description_examples`
 carries `intent_layer` and `declared_intent` (`{entity, action, behavior}` or `null`, declared only).
