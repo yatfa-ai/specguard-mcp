@@ -492,9 +492,10 @@ const getRepositoryOverview: ToolDefinition = {
     "`repository` (a numeric id from `list_repositories`) instead asks about that named " +
     "repository under the agent key — one ask that changes the subject and nothing else, so " +
     "every parameter below means the same thing either way. " +
-    "Pass `branch` for two more: which tests fail intermittently rather than consistently (the " +
-    "cross-run flakiness ranking) and how the areas moved across the whole branch window rather " +
-    "than between the last two runs. " +
+    "Pass `branch` for three more: which tests fail intermittently rather than consistently (the " +
+    "cross-run flakiness ranking), which DURABLE tests cost the most wall clock across the " +
+    "window (`slowest_tests`, below), and how the areas moved across the whole branch window " +
+    "rather than between the last two runs. " +
     "Four of those rankings open: pass `spec_directory` to see the spec files inside one of the " +
     "heaviest directories — and, in the same answer, which of those files grew and which got " +
     "slower — `spec_file` to see the individual examples inside one of the heaviest files, " +
@@ -507,6 +508,36 @@ const getRepositoryOverview: ToolDefinition = {
     "`unreadable`, and NOT a measured `unit`. A partially annotated test lists only what was " +
     "declared, and more than one entry means the test changed layer mid-window. It is " +
     "DECLARED-ONLY — the stored column, never inferred from the spec path or `files_seen`. " +
+    "`slowest_tests_window` + `slowest_tests` are the CROSS-RUN runtime ranking, a top-level " +
+    "pair beside `unstable_tests`: one row per DURABLE test (a moved or renamed test keeps its " +
+    "history), ranked by its window `total_seconds` descending, nulls last. It is a DIFFERENT " +
+    "GRAIN from `latest_run.slowest_examples`, which is ONE run at coordinate grain " +
+    "(file and line) and cannot be summed across responses without splitting a moved test in " +
+    "two. BOTH are `null` without `branch` (`slowest_tests_window.grouped` says so: it is true " +
+    "exactly when `slowest_tests` is non-null) — runtimes across branches are runtimes of " +
+    "different code, so an unfiltered window is refused rather than answered. " +
+    "`slowest_tests.state` is FOUR-WAY and only the last may be read as a result: `no_runs` " +
+    "(the window is empty), `unrecorded` (the anchor run wrote no per-example rows), " +
+    "`unresolved` (it wrote rows and none has been matched to a durable test yet — the " +
+    "ORDINARY state for the seconds after an ingest, because identity resolution is " +
+    "asynchronous) and `ranked`. Only `ranked` with `rows: []` means nothing in the suite is " +
+    "slow; an empty list in any other state is work not done. `anchor_run` " +
+    "(`test_run_id`, `commit_sha`, `branch`, `ingested_at`; `null` only in `no_runs`) names the " +
+    "run that decided MEMBERSHIP: the candidates are the NEWEST run's slowest tests and the " +
+    "window only supplies their history, so a test that ran earlier in the window but is absent " +
+    "from the newest run is NOT listed. `truncated` / `unexamined_count` / `limit` disclose the " +
+    "candidate cap, with `candidate_count` and the `rows` length as the operands — size the " +
+    "population from those, never from `rows.length`. `recorded_count`, `unresolved_count`, " +
+    "`candidate_count`, `resolved_count` and `timed_count` are `null` — NOT `0` — in every " +
+    "state that returned before the read that would have produced them; a `0` is a MEASURED " +
+    "zero (a window that excluded nothing). Alongside them: `recorded`, `resolved`, " +
+    "`excluded_unresolved_rows`, `untimed_count`, `complete` and `run_count`. Each " +
+    "`slowest_tests.rows[]` row carries `spec_identity_id` (the join key between responses), " +
+    "`total_seconds` and `slowest_seconds` (`null` when nothing was timed — never a zero), " +
+    "`moved` / `renamed` with their operands `files_seen` / `descriptions`, and " +
+    "`declared_layers` — the sorted DISTINCT set of `@intent layer:` values that test declared " +
+    "in the window; `[]` means none declared, and it is DECLARED-ONLY, never inferred from the " +
+    "spec path. " +
     "All of those describe the repository's NEWEST run, which on a busy repository may be another " +
     "branch's: pass `commit_sha` to be answered about ONE named run instead — after pushing a " +
     "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
@@ -724,10 +755,11 @@ const getRepositoryOverview: ToolDefinition = {
           "and must not be differenced). Narrows `history` ONLY: `latest_run` always names the " +
           "repository's newest run, which on a busy repo may be on another branch. Use a name " +
           "from `branches`; an unknown one returns an empty history rather than an error. " +
-          "It also UNLOCKS two blocks that read the same window and are `null` without it: " +
+          "It also UNLOCKS three blocks that read the same window and are `null` without it: " +
           "`unstable_tests` (which tests failed intermittently across the window rather than " +
-          "consistently) and `directory_growth` (how each area moved between the two ENDPOINTS of " +
-          "that window). The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
+          "consistently), `slowest_tests` together with its `slowest_tests_window` (which durable " +
+          "tests cost the most wall clock across the window) and `directory_growth` (how each area " +
+          "moved between the two ENDPOINTS of that window). The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
           "and `directory_runtime_growth`, the declared-layer mix pair `layer_run_growth` / " +
           "`layer_run_growth_window`, and the declared-layer time pair `layer_runtime_growth` / " +
           "`layer_runtime_growth_window` — need no branch and take none; they scope to the latest " +
