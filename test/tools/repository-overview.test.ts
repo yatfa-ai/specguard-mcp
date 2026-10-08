@@ -1507,6 +1507,34 @@ describe("get_repository_overview — failures an agent can act on", () => {
     assert.match(description, /whole key is `null` when the run stored no per-example rows/, "must state the null key");
   });
 
+  it("advertises layer_run_growth as a top-level sibling of directory_run_growth, null-not-zeros, with a state and a measured-zero change", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`layer_run_growth`/, "must name the key");
+    assert.match(description, /`layer_run_growth_window`/, "must name the contract block");
+    assert.match(
+      description,
+      /TOP-LEVEL siblings of `directory_run_growth`, NOT inside `latest_run`/,
+      "must place the pair beside directory_run_growth, not inside latest_run",
+    );
+    assert.match(description, /ON THE LATEST RUN'S OWN BRANCH/, "must state the previous run is on the same branch");
+    assert.match(
+      description,
+      /`null` in EVERY non-comparable state — NEVER a block of zeros/,
+      "must state null-not-zeros",
+    );
+    assert.match(description, /`layer_run_growth_window\.state` names why/, "must name the state field");
+    for (const state of ["no_latest_run", "no_previous_run", "assembled_differently", "comparable"]) {
+      assert.match(description, new RegExp("`" + state + "`"), `must name state ${state}`);
+    }
+    assert.match(description, /`layer_run_growth_window\.comparable` is true exactly when `layer_run_growth` is non-null/, "must define comparable");
+    assert.match(description, /`change: 0` — a measured\s+zero/, "must state change: 0 is a measured zero");
+    assert.match(description, /`undeclared` is NOT `unreadable`; the operands carry no pyramid verdict/, "must keep undeclared distinct");
+
+    const branch = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    assert.match(branch.branch!.description, /`layer_run_growth` \/ `layer_run_growth_window`/, "branch param must list the pair as branch-free");
+  });
+
   it("lists eight fields on the per-example drill-ins and contrasts the unannotated worklist's six", () => {
     const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
 
