@@ -283,6 +283,14 @@ description's rows run by run in window order, **newest run first**, up to 200 (
 `recorded_count`/`reported_outcome_count`/`unreported_outcome_count`, the window's `run_count` and
 the `limit` the row list was cut at.
 
+Every row of `unstable_tests.rows[]` and of `unstable_tests.shared_description_rows[]` also carries
+`declared_layers` — the sorted distinct set of `@intent layer:` values that test's examples declared
+anywhere in the window. `[]` means no run in the window declared one: it is not `unreadable` and not
+a measured `unit`. A partially annotated test lists only what was declared, and more than one entry
+means the test changed layer mid-window. It is declared-only — the stored column, never inferred from
+the spec path or `files_seen`. The `unstable_test_runs` drill-in rows do **not** carry a layer, so
+read `declared_layers` off the ranking row.
+
 Note the two ways it differs from the drill-ins above. The answer lands **inside** the flakiness
 block — `unstable_tests.unstable_test_runs`, not under `latest_run.*` — and `branch` is a hard
 prerequisite rather than a suggestion: `unstable_tests` is `null` without it, so `unstable_test` sent

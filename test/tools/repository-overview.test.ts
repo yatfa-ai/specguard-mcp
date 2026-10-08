@@ -1577,6 +1577,26 @@ describe("get_repository_overview — failures an agent can act on", () => {
     assert.match(branch.branch!.description, /`layer_run_growth` \/ `layer_run_growth_window`/, "branch param must list the pair as branch-free");
   });
 
+  it("advertises declared_layers on both unstable_tests lists, with [] semantics and declared-only provenance", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`declared_layers`/, "must name the key");
+    assert.match(description, /`unstable_tests\.rows\[\]`/, "must name the ranking list");
+    assert.match(description, /`unstable_tests\.shared_description_rows\[\]`/, "must name the shared-description list");
+    assert.match(description, /sorted DISTINCT set of `@intent layer:` values/, "must define the set");
+    assert.match(description, /`\[\]` means no run in the window declared one[^.]*NOT `unreadable`[^.]*NOT a measured `unit`/, "must state [] semantics");
+    assert.match(description, /partially annotated test lists only what was declared/, "must state partial annotation");
+    assert.match(description, /more than one entry means the test changed layer mid-window/, "must state multi-entry meaning");
+    assert.match(description, /DECLARED-ONLY[^.]*never inferred from the spec path or `files_seen`/, "must state declared-only");
+
+    const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    assert.match(
+      props["unstable_test"]!.description,
+      /drill-in rows do NOT carry a layer[^.]*read `declared_layers` off the ranking row/,
+      "unstable_test param must say the drill-in has no layer",
+    );
+  });
+
   it("lists eight fields on the per-example drill-ins and contrasts the unannotated worklist's six", () => {
     const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
 
