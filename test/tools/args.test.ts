@@ -3,10 +3,23 @@ import { describe, it } from "node:test";
 
 import { ArgumentError } from "../../src/errors.js";
 import {
+  optionalBoolean,
   optionalPositiveInteger,
   optionalStringArray,
   requireStringArray,
 } from "../../src/tools/args.js";
+
+describe("optionalBoolean", () => {
+  it("treats null and undefined as absent rather than refusing them", () => {
+    assert.equal(optionalBoolean(null, "changed"), undefined);
+    assert.equal(optionalBoolean(undefined, "changed"), undefined);
+  });
+
+  it("passes true and false through, false being a value and not an absence", () => {
+    assert.equal(optionalBoolean(true, "changed"), true);
+    assert.equal(optionalBoolean(false, "changed"), false);
+  });
+});
 
 describe("optionalPositiveInteger", () => {
   it("accepts 1, the lowest legal value", () => {
@@ -54,4 +67,18 @@ describe("requireStringArray", () => {
         error instanceof ArgumentError && error.message === "`permissions` must contain only strings.",
     );
   });
+});
+
+describe("requireStringArray — absence versus wrong shape", () => {
+  for (const [label, value] of [
+    ["null", null],
+    ["undefined", undefined],
+  ] as const) {
+    it(`reports ${label} as missing, not as a wrong shape`, () => {
+      assert.throws(
+        () => requireStringArray(value, "permissions"),
+        (error: unknown) => error instanceof ArgumentError && error.message === "`permissions` is required.",
+      );
+    });
+  }
 });
