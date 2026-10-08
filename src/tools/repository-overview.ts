@@ -485,7 +485,7 @@ const getRepositoryOverview: ToolDefinition = {
     "which areas of the suite grew or shrank and which got slower or faster since the previous run " +
     "on the same branch (the per-area comparisons, at BOTH the example-count grain and the " +
     "runtime grain — an area where an existing spec was made slow gains no examples and appears " +
-    "only in the runtime one — and how the run-wide declared-layer mix moved, `layer_run_growth`), " +
+    "only in the runtime one — and how the run-wide declared-layer mix moved, `layer_run_growth` at the count grain and `layer_runtime_growth` at the time grain), " +
     "the recent run history for growth over time, and the branches that have runs. " +
     "Everything above is answered about ONE repository, and WHICH one has two spellings: by " +
     "default it is the repository the configured sgk_… repository key resolves to, and passing " +
@@ -554,7 +554,33 @@ const getRepositoryOverview: ToolDefinition = {
     "zero, not an absence — and the five `change` values sum to `anchor_recorded_count` minus " +
     "`baseline_recorded_count`. The layers are DECLARED only, never inferred from the path, and " +
     "`undeclared` is NOT `unreadable`; the operands carry no pyramid verdict, so reading the shift is " +
-    "yours. The same " +
+    "yours. " +
+    "HOW THE TIME EACH DECLARED LAYER ACCOUNTS FOR MOVED SINCE THE PREVIOUS RUN is `layer_runtime_growth`, " +
+    "with its contract block `layer_runtime_growth_window` — both TOP-LEVEL siblings of " +
+    "`directory_run_growth`, NOT inside `latest_run`, exactly as the count pair is. It answers \"did my " +
+    "push make the request layer N seconds slower?\", which `layer_run_growth` (example counts) and " +
+    "`directory_runtime_growth` (per path, not per declared layer) cannot. They compare the latest run " +
+    "with the previous run ON THE LATEST RUN'S OWN BRANCH, so no `branch` is needed, and `commit_sha` " +
+    "re-anchors them with the rest of the run-grain blocks. `layer_runtime_growth` is `null` in EVERY " +
+    "non-comparable state — NEVER a block of zeros, so `null` is not \"no change\" — and " +
+    "`layer_runtime_growth_window.state` names why: the `layer_run_growth` states `latest_unmeasured`, " +
+    "`previous_unmeasured`, `assembled_differently`, `neither_recorded`, `previous_unrecorded` and " +
+    "`latest_unrecorded`, plus three about timing — `neither_timed`, `previous_untimed` and " +
+    "`latest_untimed` (a run recorded example rows but timed none of them, so there is nothing to " +
+    "subtract) — and `comparable`, `no_latest_run` (CI never reported) and `no_previous_run` (the first " +
+    "run on the branch). `layer_runtime_growth_window.comparable` is true exactly when " +
+    "`layer_runtime_growth` is non-null; the window also carries `basis`, `branch`, `anchor_commit_sha` " +
+    "and `baseline_commit_sha`. When comparable, `layer_runtime_growth` is `{layers}`, where `layers` " +
+    "holds `unit`, `integration`, `request`, `system` and `undeclared`, each `{baseline_seconds, " +
+    "anchor_seconds, baseline_timed_count, anchor_timed_count, baseline_count, anchor_count, change}`. " +
+    "`change` is anchor minus baseline in seconds and is `null` — NOT 0 — when either side's layer was " +
+    "untimed (a layer with no timed example is not a zero-second layer, and reading it as one would " +
+    "turn a telemetry gap into a speedup); a layer that was timed on both sides and did not move reads " +
+    "`change: 0`, a measured zero. The `*_timed_count` fields are the denominators the seconds were " +
+    "summed over. It is a SUM of machine time, NOT wall clock, so it can exceed `duration_seconds` on a " +
+    "parallel or sharded run. The layers are DECLARED only, never inferred from the path, and a test " +
+    "changing its declared `@intent` layer reads as one layer gaining time and another losing it; no " +
+    "verdict is given on a slow layer, so reading the shift is yours. The same " +
     "`layer_counts` rides each row of `spec_directories`, the `spec_directory_files` area block " +
     "and each of its file rows, and every per-example row of `slowest_examples`, " +
     "`spec_file_examples` and `repeated_description_examples` carries `intent_layer` and " +
@@ -702,8 +728,9 @@ const getRepositoryOverview: ToolDefinition = {
           "`unstable_tests` (which tests failed intermittently across the window rather than " +
           "consistently) and `directory_growth` (how each area moved between the two ENDPOINTS of " +
           "that window). The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
-          "and `directory_runtime_growth`, and the declared-layer mix pair `layer_run_growth` / " +
-          "`layer_run_growth_window` — need no branch and take none; they scope to the latest " +
+          "and `directory_runtime_growth`, the declared-layer mix pair `layer_run_growth` / " +
+          "`layer_run_growth_window`, and the declared-layer time pair `layer_runtime_growth` / " +
+          "`layer_runtime_growth_window` — need no branch and take none; they scope to the latest " +
           "run's own branch by construction, so a plain call already carries them.",
       },
       spec_directory: {
