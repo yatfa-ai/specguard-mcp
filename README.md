@@ -772,7 +772,7 @@ both sends both keys, once each. Argument shapes are validated before any reques
 The bounded view's response keys:
 
 - `near_duplicates_summary` — the ranking, **head keys first**, then one entry per cluster carrying
-  `rank`, `files_seen`, `file_count` and `declared_layers` — and **no member lists**.
+  `rank`, `files_seen`, `file_count`, `declared_layers` and `overlap_kind` — and **no member lists**.
 - `near_duplicate_cluster` — one cluster: `requested` (the rank you asked for, echoed), `rank`,
   `cluster_count`, `weighed_run_id`, `computed_at`, `member_listing` (`members` or `layer_groups` —
   which of the two member shapes `cluster` carries) and `cluster` itself.
@@ -799,6 +799,16 @@ Read the response with its own rules in mind:
 
 - `similarity_floor` and `similarity_basis` sit **first** in the block and qualify every figure
   below them — a cluster count without what "similar" meant is a count you cannot act on.
+- `ranking_basis` sits in the head of the block (after `layer_source`) and states the order the
+  clusters are ranked in: clusters spanning more than one spec file first, then by summed wall
+  clock, single-file groups following. So the top row is the costliest **multi-file** cluster, not
+  necessarily the costliest overall. Present on current deployments; an absent `ranking_basis`
+  means the census was stored under the older cost-only order (costliest first) — not an error.
+- `overlap_kind` on each cluster (and on every summary row) is `multi_file` or `single_file`,
+  naming which kind of group the cluster is. It describes where the members' last-known paths sit;
+  it is not a verdict (the census says "read as similar", never "duplicate"), and it is
+  independent of `layer_redundancy` — a two-file group whose members declared different layers is
+  both `multi_file` and `cross_layer`. Absent on older stored censuses.
 - `computed_at` is when the stored census was taken and `weighed_run_id` is the run its weight
   figures are from — read the stamp before acting on the figures. A census read shortly after an
   ingest **or a run deletion** may be the **previous** artifact, carrying its own stamp, while the
