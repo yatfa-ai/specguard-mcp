@@ -224,8 +224,8 @@ successful response is about the commit you named.
 it: `unstable_tests` (which tests failed intermittently across the window rather than consistently)
 and `directory_growth` (how each area moved between the two **endpoints** of the window). The
 per-area comparisons against the **previous run** — `directory_run_growth` at the example-count
-grain and `directory_runtime_growth` at the runtime grain — are a different question and take no
-branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
+grain, `directory_runtime_growth` at the runtime grain, and `layer_run_growth` for the declared-layer
+mix — are a different question and take no branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
 call already carries them. The two grains are independent, which is why both ship: making an
 existing spec slow adds zero examples and shows up only in the runtime pair, and splitting one slow
 spec into four fast ones is `+3` examples and *less* time.
@@ -333,7 +333,24 @@ so an untimed layer is not a free one; `timed_count` (at most that layer's `laye
 real denominator for any average. The whole key is `null` when the run stored no per-example rows. It is
 a **sum** of example durations — machine time and **not wall clock** — so it can exceed
 `duration_seconds` on a parallel or sharded run. The layer is **declared only**, never inferred from the
-path, and the operands carry no pyramid verdict. The same `layer_counts` rides each row of
+path, and the operands carry no pyramid verdict. **How the declared-layer mix moved since the previous
+run** is `layer_run_growth`, with its contract block `layer_run_growth_window` — both **top-level
+siblings of `directory_run_growth`**, not inside `latest_run` (the delta is not in
+`latest_run.layer_counts`). They compare the latest run with the previous run **on the latest run's own
+branch**, so no `branch` is needed, and `commit_sha` re-anchors them with the rest of the run-grain
+blocks. `layer_run_growth` is `null` in **every** non-comparable state — **never a block of zeros**, so
+`null` is not "no change" — and `layer_run_growth_window.state` names why: `latest_unmeasured`,
+`previous_unmeasured`, `assembled_differently`, `neither_recorded`, `previous_unrecorded`,
+`latest_unrecorded`, or `comparable`, plus `no_latest_run` (CI never reported) and `no_previous_run`
+(the first run on the branch). `layer_run_growth_window.comparable` is true exactly when
+`layer_run_growth` is non-null; the window also carries `basis`, `branch`, `anchor_commit_sha` and
+`baseline_commit_sha`. When comparable, `layer_run_growth` is
+`{layers, baseline_recorded_count, anchor_recorded_count}`, where `layers` holds `unit`, `integration`,
+`request`, `system` and `undeclared`, each `{baseline_count, anchor_count, change}`. A layer that did not
+move reads `change: 0` — a **measured zero**, not an absence — and the five `change` values sum to
+`anchor_recorded_count` minus `baseline_recorded_count`. The layers are **declared only**, never inferred
+from the path, `undeclared` is **not** `unreadable`, and the operands carry no pyramid verdict. The same
+`layer_counts` rides each row of
 `spec_directories`, the `spec_directory_files` area block and each of its file rows, and every
 per-example row of `slowest_examples`, `spec_file_examples` and `repeated_description_examples`
 carries `intent_layer` and `declared_intent` (`{entity, action, behavior}` or `null`, declared only).
