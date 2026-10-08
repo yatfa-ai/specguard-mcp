@@ -1641,6 +1641,32 @@ describe("get_repository_overview — failures an agent can act on", () => {
     );
   });
 
+  it("advertises slowest_tests / slowest_tests_window, its four states, anchor_run and declared_layers, and that branch gates it", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`slowest_tests_window`/, "must name the window block");
+    assert.match(description, /`slowest_tests`/, "must name the ranking block");
+    assert.match(description, /DIFFERENT GRAIN from `latest_run\.slowest_examples`/, "must contrast with slowest_examples");
+    assert.match(description, /one row per DURABLE test/, "must state the durable-test grain");
+    for (const state of ["no_runs", "unrecorded", "unresolved", "ranked"]) {
+      assert.ok(description.includes(`\`${state}\``), `must name state ${state}`);
+    }
+    assert.match(description, /Only `ranked` with `rows: \[\]` means nothing in the suite is slow/, "must state the empty-rows rule");
+    assert.match(description, /`anchor_run`/, "must name anchor_run");
+    assert.match(description, /absent\s+from the newest run is NOT listed/, "must state the anchor partition");
+    assert.match(description, /`truncated` \/ `unexamined_count` \/ `limit`/, "must name the cap disclosure");
+    assert.match(description, /`null` — NOT `0`/, "must state null vs 0 on the count keys");
+    assert.match(description, /`slowest_tests\.rows\[\]` row carries[\s\S]*`declared_layers`[\s\S]*DECLARED-ONLY/, "must name declared_layers on the rows");
+    assert.match(description, /BOTH are `null` without `branch`/, "must state branch gates the pair");
+
+    const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    assert.match(
+      props["branch"]!.description,
+      /UNLOCKS three blocks[\s\S]*`slowest_tests` together with its `slowest_tests_window`/,
+      "branch param must list slowest_tests among the unlocked blocks",
+    );
+  });
+
   it("lists eight fields on the per-example drill-ins and contrasts the unannotated worklist's six", () => {
     const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
 

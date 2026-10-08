@@ -193,7 +193,7 @@ before any request is made.
 | argument | |
 | --- | --- |
 | `repository` | ask about THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed call |
-| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests` and `directory_growth`, which read the same window |
+| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`) and `directory_growth`, which read the same window |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
@@ -221,9 +221,10 @@ bookmark, a pruned run, a commit whose CI never reported — does not error: the
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
 successful response is about the commit you named.
 
-`branch` is also the gate on the two blocks read over that same window, and they are `null` without
-it: `unstable_tests` (which tests failed intermittently across the window rather than consistently)
-and `directory_growth` (how each area moved between the two **endpoints** of the window). The
+`branch` is also the gate on the three blocks read over that same window, and they are `null` without
+it: `unstable_tests` (which tests failed intermittently across the window rather than consistently),
+`slowest_tests` with its `slowest_tests_window` (which durable tests cost the most wall clock across
+the window) and `directory_growth` (how each area moved between the two **endpoints** of the window). The
 per-area comparisons against the **previous run** — `directory_run_growth` at the example-count
 grain, `directory_runtime_growth` at the runtime grain, and `layer_run_growth` for the declared-layer
 mix, and `layer_runtime_growth` for the time each declared layer accounts for — are a different question and take no branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
@@ -308,6 +309,33 @@ truncated sequence is still the recent runs. Read the run off each row's `commit
 and never off its index: a run that recorded nothing under the description contributes no row, and a
 description carried by two examples in one run contributes two, so `rows` is not one entry per run
 and its length is not the window's `run_count`.
+
+`slowest_tests_window` + `slowest_tests` are the cross-run runtime ranking, a top-level pair beside
+`unstable_tests`: one row per **durable test** (a moved or renamed test keeps its history), ranked by
+its window `total_seconds`, nulls last. It is a different grain from `latest_run.slowest_examples`,
+which is one run at coordinate grain (file and line). Both keys are `null` without `branch`
+(`slowest_tests_window.grouped` is true exactly when `slowest_tests` is non-null), so `branch` is a
+hard prerequisite here as it is for `unstable_test`.
+
+`slowest_tests.state` is four-way and only the last value is a result: `no_runs` (the window is
+empty), `unrecorded` (the anchor run wrote no per-example rows), `unresolved` (it wrote rows and none
+has been matched to a durable test yet — the ordinary state for the seconds after an ingest, since
+identity resolution is asynchronous) and `ranked`. Only `ranked` with `rows: []` means nothing in the
+suite is slow. `anchor_run` (`test_run_id`, `commit_sha`, `branch`, `ingested_at`; `null` only in
+`no_runs`) names the run that decided membership: candidates are the **newest** run's slowest tests
+and the window only supplies their history, so a test that ran earlier in the window but not in the
+newest run is not listed. `truncated`, `unexamined_count` and `limit` disclose the candidate cap. `recorded`, `resolved`,
+`excluded_unresolved_rows`, `untimed_count`, `complete` and `run_count` are the booleans and operands
+beside them.
+`recorded_count`, `unresolved_count`, `candidate_count`, `resolved_count` and `timed_count` are
+`null` — not `0` — in every state that returned before the read that would have produced them; a `0`
+is a measured zero.
+
+Each `slowest_tests.rows[]` row carries `spec_identity_id`, `total_seconds` / `slowest_seconds`
+(`null` when untimed, never a zero), `moved` / `renamed` with their operands `files_seen` /
+`descriptions`, and `declared_layers` — the sorted distinct set of `@intent layer:` values the test
+declared in the window. `[]` means none declared; it is declared-only, never inferred from the spec
+path.
 
 `annotated_ratio` is the product's adoption metric and it was the one population on this endpoint
 you could not walk down: the dashboard printed *"SpecGuard cannot see the other N tests"* and could
