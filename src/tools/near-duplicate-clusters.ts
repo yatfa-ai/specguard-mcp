@@ -151,7 +151,7 @@ const nearDuplicateClusters: ToolDefinition = {
     "THE BOUNDED VIEW — START WITH `summary`, DRILL IN WITH `cluster`: the default call serves every " +
     "cluster with its full member list, which on a large suite is a large body. `summary: true` asks " +
     "for `near_duplicates_summary` instead: the ranking with the head keys first and, per cluster, " +
-    "`rank`, `files_seen`, `file_count` and `declared_layers` — and NO member lists. Then pass " +
+    "`rank`, `files_seen`, `file_count`, `declared_layers` and `overlap_kind` — and NO member lists. Then pass " +
     "`cluster: <rank>` to ask for `near_duplicate_cluster`: ONE cluster, members once, carrying " +
     "`requested` (the rank you asked for, echoed), `rank`, `cluster_count`, `weighed_run_id`, " +
     "`computed_at`, `member_listing` (`members` or `layer_groups` — which of the two member shapes " +
@@ -164,10 +164,21 @@ const nearDuplicateClusters: ToolDefinition = {
     "ignores the ask; this tool then fails naming the missing key rather than returning a body that " +
     "silently lacks it. " +
     "READ THE DISCLOSURE KEYS BEFORE THE COUNT: `similarity_floor` and `similarity_basis` sit FIRST " +
-    "in the block and qualify every cluster below them — a cluster count without what 'similar' " +
-    "meant is a figure you cannot act on. `truncated: true` means the cluster list was cut at the " +
+    "in the block, and `ranking_basis` sits in the head beside `layer_source`; they qualify every " +
+    "cluster below them — a cluster count without what 'similar' meant is a figure you cannot act on. " +
+    "`truncated: true` means the cluster list was cut at the " +
     "cap while the counts above it (`cluster_count`, `identity_count`, `clustered_*`) describe the " +
     "WHOLE census, so never fold `clusters` length as the total. " +
+    "READ THE RANKING BY ITS STATED BASIS, NOT AS \"COSTLIEST FIRST\": `ranking_basis` (in the head of " +
+    "the block) states the order — clusters spanning more than one spec file first, then by summed wall " +
+    "clock, with single-file groups following — and each cluster's `overlap_kind` (`multi_file` or " +
+    "`single_file`) names which kind it is, in the full census and in every summary row. So the top row " +
+    "is the costliest MULTI-FILE cluster, not necessarily the costliest overall. `overlap_kind` " +
+    "describes where the members' last-known paths sit; it is not a verdict (the census says 'read as " +
+    "similar', never 'duplicate'), and it is independent of `layer_redundancy`: a two-file group whose " +
+    "members declared different layers is both `multi_file` and `cross_layer`. Both keys are present on " +
+    "current deployments and absent on older stored censuses — an absent `ranking_basis` means the " +
+    "census was stored under the older cost-only order (costliest first), not an error. " +
     "READ EVERY CLUSTER'S FIGURES AT THEIR OWN GRAIN: `member_count` counts texts in the REPOSITORY " +
     "across every run, `example_count` counts examples in the ONE run `weighed_run_id` names — a " +
     "three-example table-driven loop is ONE member and THREE examples, and those two numbers beside " +
@@ -237,7 +248,8 @@ const nearDuplicateClusters: ToolDefinition = {
         type: "boolean",
         description:
           "Ask for the BOUNDED census view: the `near_duplicates_summary` block — the ranking " +
-          "(head keys first; per cluster `rank`, `files_seen`, `file_count`, `declared_layers`) with " +
+          "(head keys first, `ranking_basis` among them; per cluster `rank`, `files_seen`, `file_count`, " +
+          "`declared_layers`, `overlap_kind`) with " +
           "NO member lists — instead of the whole census. `true` sends the ask; `false` or omitted " +
           "sends nothing (the server treats any value as an ask, so `false` is never put on the " +
           "wire). When supplied it REPLACES the default `near_duplicates` ask. Start here, then " +

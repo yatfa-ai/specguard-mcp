@@ -548,3 +548,24 @@ describe("near_duplicate_clusters — the old-deployment guard's sentence and pe
     assert.equal(result.text, '{\n  "near_duplicate_cluster": {\n    "requested": 1\n  }\n}');
   });
 });
+
+describe("near_duplicate_clusters — the description teaches the ranking and `overlap_kind` (SPGD-1724)", () => {
+  const summaryProperty = (nearDuplicateClusters.inputSchema.properties as Record<string, { description?: string }>)[
+    "summary"
+  ];
+
+  it("positive control: the same assertions over a token the text already names (`file_count`) pass", () => {
+    assert.ok(nearDuplicateClusters.description.includes("`file_count`"));
+    assert.ok(summaryProperty?.description?.includes("file_count"));
+  });
+
+  it("names `overlap_kind`, `ranking_basis` and the multi-file-first order in the tool description", () => {
+    assert.ok(nearDuplicateClusters.description.includes("`overlap_kind`"));
+    assert.ok(nearDuplicateClusters.description.includes("`ranking_basis`"));
+    assert.ok(nearDuplicateClusters.description.includes("more than one spec file"));
+  });
+
+  it("names `overlap_kind` in the `summary` argument's description", () => {
+    assert.ok(summaryProperty?.description?.includes("overlap_kind"));
+  });
+});
