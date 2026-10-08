@@ -343,3 +343,147 @@ describe("near_duplicate_clusters — the payload it returns", () => {
     assert.ok(!http.requests[0]?.url.includes("near_duplicates"));
   });
 });
+
+describe("near_duplicate_clusters — the bounded view (`summary`, `cluster`)", () => {
+  const SUMMARY_BODY = JSON.stringify({
+    repository: { id: 1, full_name: "acme/app" },
+    near_duplicates_summary: { cluster_count: 1, clusters: [{ rank: 1, files_seen: ["a_spec.rb"], file_count: 1, declared_layers: [] }] },
+  });
+  const CLUSTER_BODY = JSON.stringify({
+    repository: { id: 1, full_name: "acme/app" },
+    near_duplicate_cluster: { requested: 3, rank: 3, cluster_count: 5, member_listing: "members", cluster: { members: [] } },
+  });
+  const BOTH_BODY = JSON.stringify({
+    near_duplicates_summary: { clusters: [] },
+    near_duplicate_cluster: null,
+  });
+
+  it("`summary: true` sends ONLY the summary ask, with no `near_duplicates` key", async () => {
+    const http = stubFetch({ body: SUMMARY_BODY });
+
+    await nearDuplicateClusters.run({ summary: true }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?near_duplicates_summary=true");
+    assert.ok(!http.requests[0]?.url.includes("near_duplicates=true"));
+  });
+
+  it("`summary: true` with a repository goes to the plural endpoint under the agent key", async () => {
+    const http = stubFetch({ body: SUMMARY_BODY });
+
+    await nearDuplicateClusters.run(
+      { summary: true, repository: "42" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42?near_duplicates_summary=true");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("`cluster: 3` sends `near_duplicate_cluster=3` and not the whole-census ask", async () => {
+    const http = stubFetch({ body: CLUSTER_BODY });
+
+    await nearDuplicateClusters.run({ cluster: 3 }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?near_duplicate_cluster=3");
+    assert.ok(!http.requests[0]?.url.includes("near_duplicates="));
+  });
+
+  it("sends both keys, once each, when both arguments are supplied", async () => {
+    const http = stubFetch({ body: BOTH_BODY });
+
+    await nearDuplicateClusters.run({ summary: true, cluster: 2 }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    const url = new URL(http.requests[0]?.url ?? "");
+    assert.deepEqual([...url.searchParams.keys()].sort(), ["near_duplicate_cluster", "near_duplicates_summary"]);
+    assert.equal(url.searchParams.get("near_duplicates_summary"), "true");
+    assert.equal(url.searchParams.get("near_duplicate_cluster"), "2");
+  });
+
+  it("`summary: false` sends the byte-identical no-argument request", async () => {
+    const plain = stubFetch({ body: ASKED_BODY });
+    const off = stubFetch({ body: ASKED_BODY });
+
+    await nearDuplicateClusters.run({}, toolContext({ env: ENV, fetch: plain.fetch }));
+    await nearDuplicateClusters.run({ summary: false }, toolContext({ env: ENV, fetch: off.fetch }));
+
+    assert.equal(off.requests[0]?.url, plain.requests[0]?.url);
+    assert.equal(off.requests[0]?.url, "https://sg.example.com/api/v1/repository?near_duplicates=true");
+  });
+
+  for (const bad of [0, -1, 2.5, "3"]) {
+    it(`refuses cluster ${JSON.stringify(bad)} as an ArgumentError before any request`, async () => {
+      const http = stubFetch({ body: CLUSTER_BODY });
+
+      await rejects(
+        nearDuplicateClusters.run({ cluster: bad }, toolContext({ env: ENV, fetch: http.fetch })),
+        /`cluster`/,
+      );
+      assert.equal(http.requests.length, 0);
+    });
+  }
+
+  it("refuses a non-boolean `summary` before any request", async () => {
+    const http = stubFetch({ body: SUMMARY_BODY });
+
+    await rejects(
+      nearDuplicateClusters.run({ summary: "true" }, toolContext({ env: ENV, fetch: http.fetch })),
+      /`summary` must be a boolean/,
+    );
+    assert.equal(http.requests.length, 0);
+  });
+
+  it("throws naming `near_duplicates_summary` when the asked-for key is ABSENT (old deployment)", async () => {
+    const http = stubFetch({ body: NO_ASK_BODY });
+
+    await rejects(
+      nearDuplicateClusters.run({ summary: true }, toolContext({ env: ENV, fetch: http.fetch })),
+      /near_duplicates_summary.*predates the bounded/s,
+    );
+  });
+
+  it("throws naming `near_duplicate_cluster` when the asked-for key is ABSENT (old deployment)", async () => {
+    const http = stubFetch({ body: NO_ASK_BODY });
+
+    await rejects(
+      nearDuplicateClusters.run({ cluster: 2 }, toolContext({ env: ENV, fetch: http.fetch })),
+      /near_duplicate_cluster.*predates the bounded/s,
+    );
+  });
+
+  it("passes a PRESENT `null` through for both keys (the server's own answer)", async () => {
+    const summaryNull = stubFetch({ body: JSON.stringify({ near_duplicates_summary: null }) });
+    const clusterNull = stubFetch({
+      body: JSON.stringify({ near_duplicate_cluster: { requested: 99, cluster: null } }),
+    });
+    const bareClusterNull = stubFetch({ body: JSON.stringify({ near_duplicate_cluster: null }) });
+
+    const a = await nearDuplicateClusters.run({ summary: true }, toolContext({ env: ENV, fetch: summaryNull.fetch }));
+    const b = await nearDuplicateClusters.run({ cluster: 99 }, toolContext({ env: ENV, fetch: clusterNull.fetch }));
+    const c = await nearDuplicateClusters.run({ cluster: 99 }, toolContext({ env: ENV, fetch: bareClusterNull.fetch }));
+
+    assert.deepEqual(a.structured, { near_duplicates_summary: null });
+    assert.deepEqual(b.structured, { near_duplicate_cluster: { requested: 99, cluster: null } });
+    assert.deepEqual(c.structured, { near_duplicate_cluster: null });
+  });
+
+  it("does not demand a bounded key when none was asked for", async () => {
+    const http = stubFetch({ body: NO_ASK_BODY });
+
+    const result = await nearDuplicateClusters.run({}, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.deepEqual(result.structured, JSON.parse(NO_ASK_BODY));
+  });
+
+  it("advertises exactly repository, summary and cluster on a closed schema", () => {
+    const schema = nearDuplicateClusters.inputSchema as {
+      properties: Record<string, { type?: string; minimum?: number }>;
+      additionalProperties?: boolean;
+    };
+
+    assert.deepEqual(Object.keys(schema.properties).sort(), ["cluster", "repository", "summary"]);
+    assert.equal(schema.additionalProperties, false);
+    assert.equal(schema.properties["cluster"]?.type, "integer");
+    assert.equal(schema.properties["cluster"]?.minimum, 1);
+    assert.equal(schema.properties["summary"]?.type, "boolean");
+  });
+});

@@ -1,5 +1,6 @@
+import { ApiError } from "../errors.js";
 import { getJsonObject, repositoryTarget } from "../support/specguard-api.js";
-import { optionalString } from "./args.js";
+import { optionalBoolean, optionalPositiveInteger, optionalString } from "./args.js";
 import type { ToolDefinition, ToolResult } from "./types.js";
 
 /**
@@ -47,33 +48,54 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * run deletion) the stored census is exactly what a live computation would
  * return: the inputs change only there.
  *
- * == The ask is always sent, and always spelled `"true"`
+ * == The default ask is always sent, and always spelled `"true"`
  *
  * The server reads only whether the parameter is PRESENT
  * (`RequestedNearDuplicatesParam`): `?near_duplicates=false` opens the block
  * exactly as `=true` does, and a non-String shape is read as no ask at all.
- * There is no "off" value for a client to send, so nothing about the CENSUS is
- * choosable from here — the clusters are the repository's, computed over every
- * run, and one call returns them all. What IS choosable, since SPGD-953, is
- * WHICH REPOSITORY is censused: an optional `repository` argument (a numeric id
- * from `list_repositories`) moves the call to the plural endpoint
- * `GET /api/v1/repositories/:id` under either member credential, whichever is
- * set — the AGENT key preferred, and the USER key (a person credential, whose
- * accessible set is the boundary the id is resolved inside) when no agent key
- * is set; SPGD-1106 widened the plural arm from agent-only, on the same
- * agent-wins/user-fallback terms every either-credential tool answers by. Same
- * body (minus the `api_key` block, which is ABSENT on that surface rather than
- * nulled — see `repository-overview.ts` for why the omission is the server's,
- * deliberately), same ask, same cost gate. Without it the request is
- * byte-for-byte the singular, `sgk_`-bound one this tool has always made — and
- * the cost argument above is exactly why the argument is OPTIONAL rather than
- * required: an agent that has only ever had one reachable repository should not
- * be asked to learn a second credential to keep reading it.
+ * There is no "off" value for a client to send, so a call with no `summary`
+ * and no `cluster` sends `near_duplicates=true` and gets the whole census.
+ * What IS choosable is WHICH REPOSITORY is censused (SPGD-953): an optional
+ * `repository` argument (a numeric id from `list_repositories`) moves the call
+ * to the plural endpoint `GET /api/v1/repositories/:id` under either member
+ * credential, whichever is set — the AGENT key preferred, and the USER key (a
+ * person credential, whose accessible set is the boundary the id is resolved
+ * inside) when no agent key is set; SPGD-1106 widened the plural arm from
+ * agent-only, on the same agent-wins/user-fallback terms every
+ * either-credential tool answers by. Same body (minus the `api_key` block,
+ * which is ABSENT on that surface rather than nulled — see
+ * `repository-overview.ts` for why the omission is the server's, deliberately),
+ * same ask, same cost gate. Without it the request is byte-for-byte the
+ * singular, `sgk_`-bound one this tool has always made — and the cost argument
+ * above is exactly why the argument is OPTIONAL rather than required: an agent
+ * that has only ever had one reachable repository should not be asked to learn
+ * a second credential to keep reading it.
  *
- * `near_duplicates: "true"` is built rather than stringified for the same
+ * == SPGD-1714: the bounded view (`summary`, `cluster`)
+ *
+ * The platform half (SPGD-1712) serves two further asks on the same endpoints:
+ * `?near_duplicates_summary=` (the ranking, head keys first, no member lists)
+ * and `?near_duplicate_cluster=<rank>` (ONE cluster, members once). Like the
+ * default ask, the server reads only that the summary key is PRESENT, so
+ * `summary: false` sends NOTHING rather than `=false` — "off" is spelled by
+ * omission. When either bounded ask is made, ONLY the asks named are sent (not
+ * also `near_duplicates=true`: that would open the whole census beside the
+ * bounded view the caller chose it to avoid). `cluster` is not range-checked
+ * here: an out-of-range rank is the server's to answer (a `null` cluster with
+ * the ask echoed).
+ *
+ * Because a deployment that predates SPGD-1712 would silently ignore an
+ * unknown parameter and answer 200 with the plain overview, an ask whose
+ * matching key is ABSENT from the body (absent, not `null` — a present `null`
+ * is the server's own "asked, nothing there") is turned into an error naming
+ * the key. Otherwise "asked for the bounded view, got nothing" and "the
+ * deployment ignored the ask" would share one wire shape. Nothing else is
+ * inspected: the tool stays a pass-through.
+ *
+ * Every key is built conditionally rather than stringified for the same
  * reason `repository-overview.ts` builds its `unannotated_examples` key:
  * `getJson` omits only `undefined`, so a conditional send is the only honest
- * way to spell "always" here. The schema stays CLOSED around the one argument:
+ * way to spell "only when asked". The schema stays CLOSED around its arguments:
  * `server.ts` forwards `arguments` unvalidated, and an open schema would let an
  * invented argument ride through and be silently dropped (see
  * `registrable-repositories.ts` for the same call).
@@ -119,13 +141,28 @@ const nearDuplicateClusters: ToolDefinition = {
     "been computed for the repository yet — a repository that has never ingested, read in the window " +
     "before its first computation lands. It is never a live computation and never zeros: a repository " +
     "whose every test reads differently serves a stored block with `clusters: []` and real counts. " +
-    "Calling this tool IS the ask; nothing about the " +
-    "census is choosable — the clusters are the repository's, computed over every run, and one call " +
-    "returns them all. WHICH repository is censused is the one choice there is: pass `repository` " +
+    "Calling this tool IS the ask; by default one call returns the whole census — the clusters are " +
+    "the repository's, computed over every run. Two optional arguments bound the view instead (below). " +
+    "WHICH repository is censused: pass `repository` " +
     "(a numeric id from `list_repositories`) to census that named repository under either member " +
     "credential — the agent key preferred, the person key when no agent key is set — or omit it to " +
     "census the repository the configured sgk_… key resolves to, exactly as before the argument " +
     "existed. " +
+    "THE BOUNDED VIEW — START WITH `summary`, DRILL IN WITH `cluster`: the default call serves every " +
+    "cluster with its full member list, which on a large suite is a large body. `summary: true` asks " +
+    "for `near_duplicates_summary` instead: the ranking with the head keys first and, per cluster, " +
+    "`rank`, `files_seen`, `file_count` and `declared_layers` — and NO member lists. Then pass " +
+    "`cluster: <rank>` to ask for `near_duplicate_cluster`: ONE cluster, members once, carrying " +
+    "`requested` (the rank you asked for, echoed), `rank`, `cluster_count`, `weighed_run_id`, " +
+    "`computed_at`, `member_listing` (`members` or `layer_groups` — which of the two member shapes " +
+    "the `cluster` carries) and `cluster` itself. When either argument is supplied ONLY the asks " +
+    "named are sent — the whole-census `near_duplicates` block is not also opened; send both and you " +
+    "get both keys. RANKS ARE POSITIONS IN A SNAPSHOT: read `computed_at` before reusing a rank, " +
+    "because an ingest or a run deletion recomputes the census and the same rank can then name a " +
+    "different cluster. A rank beyond `cluster_count` is not an error: the key is present with " +
+    "`cluster: null` and `requested` echoing your ask. A deployment that predates the bounded view " +
+    "ignores the ask; this tool then fails naming the missing key rather than returning a body that " +
+    "silently lacks it. " +
     "READ THE DISCLOSURE KEYS BEFORE THE COUNT: `similarity_floor` and `similarity_basis` sit FIRST " +
     "in the block and qualify every cluster below them — a cluster count without what 'similar' " +
     "meant is a figure you cannot act on. `truncated: true` means the cluster list was cut at the " +
@@ -167,7 +204,8 @@ const nearDuplicateClusters: ToolDefinition = {
     "accessible set bounds the answer instead); with both set the agent key wins. The server " +
     "owns the refusals on that path: a repository outside the presented credential's grant " +
     "answers 404, person and agent alike. " +
-    "The response is the endpoint's full body with the `near_duplicates` block OPENED, passed " +
+    "The response is the endpoint's full body with the asked-for block OPENED (`near_duplicates` by " +
+    "default), passed " +
     "through unmodified — with the one surface difference `get_repository_overview` documents " +
     "for its own `repository` ask: on that plural path the `api_key` block is ABSENT from the " +
     "body rather than nulled (it describes the credential that made the request, and no member " +
@@ -195,12 +233,50 @@ const nearDuplicateClusters: ToolDefinition = {
           "Omit it — or pass a blank — and the call is byte-for-byte the singular one under " +
           "SPECGUARD_API_KEY, exactly as before this argument existed.",
       },
+      summary: {
+        type: "boolean",
+        description:
+          "Ask for the BOUNDED census view: the `near_duplicates_summary` block — the ranking " +
+          "(head keys first; per cluster `rank`, `files_seen`, `file_count`, `declared_layers`) with " +
+          "NO member lists — instead of the whole census. `true` sends the ask; `false` or omitted " +
+          "sends nothing (the server treats any value as an ask, so `false` is never put on the " +
+          "wire). When supplied it REPLACES the default `near_duplicates` ask. Start here, then " +
+          "drill in with `cluster`.",
+      },
+      cluster: {
+        type: "integer",
+        minimum: 1,
+        description:
+          "Ask for ONE cluster by its `rank` in the ranking (1-based): the " +
+          "`near_duplicate_cluster` block, members listed once. Take the rank from a `summary` " +
+          "call and read `computed_at` first — ranks are positions in a snapshot and shift when " +
+          "the census is recomputed. Not range-checked here: a rank past `cluster_count` is " +
+          "answered by the server with `cluster: null` and the ask echoed. When supplied it " +
+          "REPLACES the default `near_duplicates` ask; send it with `summary: true` to get both " +
+          "blocks.",
+      },
     },
     additionalProperties: false,
   },
 
   async run(args, context): Promise<ToolResult> {
+    // Argument shapes are checked FIRST, before any config is resolved or
+    // request made — the class of fault the agent can fix from the message.
     const repository = optionalString(args["repository"], "repository");
+    const summary = optionalBoolean(args["summary"], "summary");
+    const cluster = optionalPositiveInteger(args["cluster"], "cluster");
+
+    // Only the asks NAMED are sent. With neither bounded ask this is exactly
+    // the request this tool has always made. `summary: false` is NO ask — the
+    // server reads only that the key is present, so `=false` would open it.
+    const asks: Record<string, string> = {};
+    if (summary === true) asks["near_duplicates_summary"] = "true";
+    if (cluster !== undefined) asks["near_duplicate_cluster"] = String(cluster);
+    const bounded = Object.keys(asks).length > 0;
+    // Always `"true"` on the default path — the server reads only that the key
+    // is present. See this file's header.
+    const query = bounded ? asks : { near_duplicates: "true" };
+
     // WHICH ENDPOINT AND WHICH CREDENTIAL is one branch point over the one
     // ask, and it is spelled once in `repositoryTarget`
     // (`../support/specguard-api.js`): the pair (path, credential) must not
@@ -210,17 +286,19 @@ const nearDuplicateClusters: ToolDefinition = {
     // a name means the plural one under either member credential (SPGD-1106).
     const { api, path } = repositoryTarget(context.config, repository);
 
-    const overview = await getJsonObject(
-      api,
-      path,
-      {
-        // Always sent, always `"true"` — the server reads only that the key is
-        // present (`?near_duplicates=false` opens the block too), and this
-        // tool exists to open it. See this file's header.
-        near_duplicates: "true",
-      },
-      context.fetch,
-    );
+    const overview = await getJsonObject(api, path, query, context.fetch);
+
+    // Old-server guard: an unknown parameter is silently ignored, so an ask
+    // whose key is ABSENT (not `null`) means the deployment predates it.
+    for (const key of Object.keys(asks)) {
+      if (!(key in overview)) {
+        throw new ApiError(
+          `The response has no \`${key}\` key although it was asked for: this SpecGuard deployment ` +
+            "predates the bounded near-duplicate view and ignored the ask. Call this tool without " +
+            "`summary` and `cluster` for the whole census, or upgrade the deployment.",
+        );
+      }
+    }
 
     return {
       text: JSON.stringify(overview, null, 2),

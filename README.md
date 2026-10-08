@@ -723,14 +723,40 @@ never fit this bridge's 30-second deadline. The opt-in ask is unchanged wire con
 `near_duplicates: null` without it, and `get_repository_overview` never sends the ask). Calling
 this tool **is** the ask.
 
-Nothing about the **census** is choosable — the clusters are the repository's, computed over
-every run; one call returns them all. (The server reads only that the `near_duplicates` key is
-*present* — `=false` would open it too — so there is no value for the ask to carry.) Which
-**repository** is censused is the one choice there is:
+By default one call returns the **whole** census — the clusters are the repository's, computed over
+every run, with every cluster's member list. (The server reads only that the `near_duplicates` key
+is *present* — `=false` would open it too — so there is no value for that default ask to carry.)
+Two optional arguments bound the view instead (SPGD-1714, over the platform's SPGD-1712), and
+`repository` chooses which **repository** is censused:
 
 | argument | |
 | --- | --- |
 | `repository` | census THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed census |
+| `summary` | `true` asks for the bounded **summary** view — the `near_duplicates_summary` block: the ranking with no member lists. `false` or omitted sends nothing (the server treats any value as an ask, so `false` is never sent) |
+| `cluster` | an integer ≥ 1: ask for ONE cluster by its `rank` — the `near_duplicate_cluster` block, members listed once. Not range-checked by the bridge; the server answers an out-of-range rank with `cluster: null` |
+
+**Start with `summary`, drill in with `cluster`.** With neither argument the request is exactly the
+one this tool has always made (`?near_duplicates=true`). With `summary` and/or `cluster`, **only**
+the asks named are sent — the whole-census `near_duplicates` block is not also opened; supplying
+both sends both keys, once each. Argument shapes are validated before any request is made
+(`cluster` must be an integer of at least 1; `0`, `-1`, `2.5` and `"3"` are refused).
+
+The bounded view's response keys:
+
+- `near_duplicates_summary` — the ranking, **head keys first**, then one entry per cluster carrying
+  `rank`, `files_seen`, `file_count` and `declared_layers` — and **no member lists**.
+- `near_duplicate_cluster` — one cluster: `requested` (the rank you asked for, echoed), `rank`,
+  `cluster_count`, `weighed_run_id`, `computed_at`, `member_listing` (`members` or `layer_groups` —
+  which of the two member shapes `cluster` carries) and `cluster` itself.
+- **Ranks are positions in a snapshot** — read `computed_at` before reusing a rank: an ingest or a
+  run deletion recomputes the census, and the same rank can then name a different cluster. A rank
+  past `cluster_count` is not an error: the key is present with `cluster: null` and `requested`
+  echoing the ask.
+- A deployment that predates the bounded view silently ignores the ask. When an ask was sent and
+  its matching key is **absent** from the body (absent, not `null` — a present `null` passes
+  through), the tool fails naming the missing key rather than returning a body that lacks it.
+
+The tool stays a pass-through: no reshaping, filtering or ranking.
 
 The credential changes with `repository`, exactly as on `get_repository_overview`: the plural
 endpoint answers **either member credential**, whichever is set — the agent key preferred (its
@@ -782,7 +808,7 @@ Read the response with its own rules in mind:
 
 Without `repository`, same credential and endpoint as `get_repository_overview`'s default
 (`sgk_…` repository key on `GET /api/v1/repository`); the response is that body with the
-`near_duplicates` block opened, passed through unmodified. With `repository`, the plural endpoint
+asked-for block opened (`near_duplicates` by default), passed through unmodified. With `repository`, the plural endpoint
 answers either member credential, exactly as on `get_repository_overview` — and carries that
 path's one deliberate omission: `api_key` is **absent** from the plural body rather than nulled,
 because the block describes the credential that made the request and no member credential is a
