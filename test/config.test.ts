@@ -760,3 +760,111 @@ describe("tokenise", () => {
     assert.deepEqual(tokenise("   "), []);
   });
 });
+
+/**
+ * The sentences an operator reads verbatim in their MCP client when the bridge
+ * is mis-configured. The examples above pin these by fragment (`/is not set/`,
+ * `/needs no API key/`), which cannot tell a sentence from its remedy: the
+ * per-key minting page, the WHERE-to-set-it instruction, the reassurance, the
+ * closer that stops an agent debugging its own arguments and the 401 `rejection`
+ * fragments each survive a single-token edit with those green. Whole literals
+ * are the only pin that sees a dropped clause, so these are written out in full
+ * on purpose — a deliberate wording change should have to touch them.
+ */
+describe("the configuration sentences an operator reads — pinned as whole literals", () => {
+  function message(run: () => unknown): string {
+    try {
+      run();
+    } catch (error) {
+      assert.ok(error instanceof ConfigError, `expected a ConfigError, got ${String(error)}`);
+      return error.message;
+    }
+
+    return assert.fail("expected a ConfigError");
+  }
+
+  const ENDPOINT = "https://sg.example.com";
+
+  it("names, for each single-key tool, its own variable and the page that mints that kind of key", () => {
+    const head = "This tool talks to a SpecGuard deployment, and ";
+    const tail =
+      " in the MCP server's environment. Set them in your MCP client's server config " +
+      "(SPECGUARD_ENDPOINT is your deployment's root URL, ";
+    const close = "). Tools that do not reach the deployment are unaffected.";
+
+    assert.equal(
+      message(() => requireApiConfig(loadConfig({}))),
+      `${head}SPECGUARD_ENDPOINT and SPECGUARD_API_KEY are not set${tail}` +
+        `SPECGUARD_API_KEY an sgk_… key issued from its API keys page${close}`,
+    );
+    assert.equal(
+      message(() => requireUserApiConfig(loadConfig({}))),
+      `${head}SPECGUARD_ENDPOINT and SPECGUARD_USER_API_KEY are not set${tail}` +
+        `SPECGUARD_USER_API_KEY an sgu_… key issued from your account page${close}`,
+    );
+    assert.equal(
+      message(() => requireAgentApiConfig(loadConfig({}))),
+      `${head}SPECGUARD_ENDPOINT and SPECGUARD_AGENT_API_KEY are not set${tail}` +
+        "SPECGUARD_AGENT_API_KEY an sga_… key issued from your account page's Agent keys panel" +
+        close,
+    );
+  });
+
+  it("names every admissible variable and its minting page when a tool answers either key", () => {
+    assert.equal(
+      message(() => requireUserOrAgentApiConfig(loadConfig({ SPECGUARD_ENDPOINT: ENDPOINT }))),
+      "This tool talks to a SpecGuard deployment, and " +
+        "SPECGUARD_USER_API_KEY or SPECGUARD_AGENT_API_KEY is not set in the MCP server's environment. " +
+        "Set them in your MCP client's server config " +
+        "(SPECGUARD_ENDPOINT is your deployment's root URL, " +
+        "SPECGUARD_USER_API_KEY an sgu_… key issued from your account page, or " +
+        "SPECGUARD_AGENT_API_KEY an sga_… key issued from your account page's Agent keys panel). " +
+        "Tools that do not reach the deployment are unaffected.",
+    );
+  });
+
+  it("tells the credential-free tool where to set the endpoint and that no key is needed", () => {
+    assert.equal(
+      message(() => requireEndpointApiConfig(loadConfig({}))),
+      "This tool talks to a SpecGuard deployment, and SPECGUARD_ENDPOINT " +
+        "is not set in the MCP server's environment. Set it in your MCP client's server config " +
+        "(SPECGUARD_ENDPOINT is your deployment's root URL). This tool needs no API key — the " +
+        "endpoint it reads answers unauthenticated by design — so no key variable is required " +
+        "here. Tools that do not reach the deployment are unaffected.",
+    );
+  });
+
+  it("closes a malformed-endpoint refusal by placing the fault in the MCP server's environment", () => {
+    assert.equal(
+      message(() =>
+        requireApiConfig(loadConfig({ SPECGUARD_API_KEY: "sgk_abc", SPECGUARD_ENDPOINT: "sg.example.com" })),
+      ),
+      'SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com". It must be your SpecGuard ' +
+        "deployment's root URL including the scheme — for example " +
+        "https://specguard.example.com, or http://localhost:3000 for a local deployment. " +
+        "This is the MCP server's own environment: fix SPECGUARD_ENDPOINT in your MCP client's server " +
+        "config. Nothing about your project or your arguments is wrong.",
+    );
+  });
+
+  it("states what a 401 means for the repository key and for the user key", () => {
+    const repository = requireApiConfig(
+      loadConfig({ SPECGUARD_ENDPOINT: ENDPOINT, SPECGUARD_API_KEY: "sgk_abc" }),
+    );
+    const user = requireUserApiConfig(
+      loadConfig({ SPECGUARD_ENDPOINT: ENDPOINT, SPECGUARD_USER_API_KEY: "sgu_abc" }),
+    );
+
+    assert.equal(
+      repository.credential.rejection,
+      "for the repository you are asking about — keys are per-repository, and a " +
+        "revoked key's 401 names the revocation",
+    );
+    assert.equal(
+      user.credential.rejection,
+      "for your own SpecGuard account — a user key speaks for a person and lists what " +
+        "that person may open, an sgk_… repository key is refused here without a lookup, " +
+        "and a revoked key's 401 names the revocation",
+    );
+  });
+});
