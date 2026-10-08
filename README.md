@@ -226,7 +226,7 @@ it: `unstable_tests` (which tests failed intermittently across the window rather
 and `directory_growth` (how each area moved between the two **endpoints** of the window). The
 per-area comparisons against the **previous run** — `directory_run_growth` at the example-count
 grain, `directory_runtime_growth` at the runtime grain, and `layer_run_growth` for the declared-layer
-mix — are a different question and take no branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
+mix, and `layer_runtime_growth` for the time each declared layer accounts for — are a different question and take no branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
 call already carries them. The two grains are independent, which is why both ship: making an
 existing spec slow adds zero examples and shows up only in the runtime pair, and splitting one slow
 spec into four fast ones is `+3` examples and *less* time.
@@ -364,7 +364,27 @@ blocks. `layer_run_growth` is `null` in **every** non-comparable state — **nev
 `request`, `system` and `undeclared`, each `{baseline_count, anchor_count, change}`. A layer that did not
 move reads `change: 0` — a **measured zero**, not an absence — and the five `change` values sum to
 `anchor_recorded_count` minus `baseline_recorded_count`. The layers are **declared only**, never inferred
-from the path, `undeclared` is **not** `unreadable`, and the operands carry no pyramid verdict. The same
+from the path, `undeclared` is **not** `unreadable`, and the operands carry no pyramid verdict.
+**How the time each declared layer accounts for moved since the previous run** is `layer_runtime_growth`,
+with its contract block `layer_runtime_growth_window` — both **top-level siblings of
+`directory_run_growth`**, not inside `latest_run`, exactly as the count pair is. It answers "did my push
+make the request layer N seconds slower?", which `layer_run_growth` (counts) and
+`directory_runtime_growth` (per path) cannot. They compare the latest run with the previous run **on the
+latest run's own branch**, so no `branch` is needed, and `commit_sha` re-anchors them.
+`layer_runtime_growth` is `null` in **every** non-comparable state — **never a block of zeros** — and
+`layer_runtime_growth_window.state` names why: the `layer_run_growth` states (`latest_unmeasured`,
+`previous_unmeasured`, `assembled_differently`, `neither_recorded`, `previous_unrecorded`,
+`latest_unrecorded`), plus `neither_timed`, `previous_untimed` and `latest_untimed` (a run recorded
+example rows but timed none of them), `comparable`, `no_latest_run` and `no_previous_run`.
+`layer_runtime_growth_window.comparable` is true exactly when `layer_runtime_growth` is non-null; the
+window also carries `basis`, `branch`, `anchor_commit_sha` and `baseline_commit_sha`. When comparable,
+`layer_runtime_growth` is `{layers}`, where `layers` holds `unit`, `integration`, `request`, `system` and
+`undeclared`, each `{baseline_seconds, anchor_seconds, baseline_timed_count, anchor_timed_count,
+baseline_count, anchor_count, change}`. `change` is anchor minus baseline in seconds and is `null` —
+**not** `0` — when either side's layer was untimed; a layer timed on both sides that did not move reads
+`change: 0`. It is a **sum of machine time**, not wall clock; layers are **declared only**, a test
+changing its declared `@intent` layer reads as one layer gaining time and another losing it, and no
+verdict is given. The same
 `layer_counts` rides each row of
 `spec_directories`, the `spec_directory_files` area block and each of its file rows, and every
 per-example row of `slowest_examples`, `spec_file_examples` and `repeated_description_examples`

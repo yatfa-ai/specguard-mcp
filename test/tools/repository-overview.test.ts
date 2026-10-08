@@ -1577,6 +1577,50 @@ describe("get_repository_overview — failures an agent can act on", () => {
     assert.match(branch.branch!.description, /`layer_run_growth` \/ `layer_run_growth_window`/, "branch param must list the pair as branch-free");
   });
 
+  it("advertises layer_runtime_growth as a top-level sibling of directory_run_growth, null-not-zeros, with untimed states and a null-not-zero change", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`layer_runtime_growth`/, "must name the key");
+    assert.match(description, /`layer_runtime_growth_window`/, "must name the contract block");
+    assert.match(
+      description,
+      /both TOP-LEVEL siblings of `directory_run_growth`, NOT inside `latest_run`, exactly as the count pair is/,
+      "must place the runtime pair beside directory_run_growth, not inside latest_run",
+    );
+    assert.match(
+      description,
+      /`layer_runtime_growth` is `null` in EVERY non-comparable state — NEVER a block of zeros/,
+      "must state null-not-zeros",
+    );
+    assert.match(description, /`layer_runtime_growth_window\.state` names why/, "must name the state field");
+    for (const state of ["neither_timed", "previous_untimed", "latest_untimed"]) {
+      assert.match(description, new RegExp("`" + state + "`"), `must name state ${state}`);
+    }
+    assert.match(
+      description,
+      /`layer_runtime_growth_window\.comparable` is true exactly when `layer_runtime_growth` is non-null/,
+      "must define comparable",
+    );
+    assert.match(
+      description,
+      /`change` is anchor minus baseline in seconds and is `null` — NOT 0 — when either side's layer was untimed/,
+      "must state change is null, not 0, when a side is untimed",
+    );
+    assert.match(description, /SUM of machine time, NOT wall clock/, "must state machine time, not wall clock");
+    assert.match(
+      description,
+      /changing its declared `@intent` layer reads as one layer gaining time and another losing it/,
+      "must warn about layer re-declaration",
+    );
+
+    const branch = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    assert.match(
+      branch.branch!.description,
+      /`layer_runtime_growth` \/ `layer_runtime_growth_window`/,
+      "branch param must list the runtime pair as branch-free",
+    );
+  });
+
   it("advertises declared_layers on both unstable_tests lists, with [] semantics and declared-only provenance", () => {
     const description = getRepositoryOverview.description;
 
