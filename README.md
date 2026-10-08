@@ -199,14 +199,15 @@ before any request is made.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
+| `layer` | narrow ONLY `latest_run.slowest_examples` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`) — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
 busy repo may be on another branch. That is a property of the endpoint, not of this bridge — and
 `commit_sha` is the remedy: it names WHICH RUN to describe, where `branch` asks about a series. Every
-run-grain block re-anchors together (`latest_run` and its rollups, the four run-grain drill-ins —
-`spec_directory_files`, `spec_file_examples`, `repeated_description_examples`, `unannotated_examples`
-— `shards`, both growth windows, `previous_test_run`); `history` does not, so the
+run-grain block re-anchors together (`latest_run` and its rollups, the five run-grain drill-ins —
+`spec_directory_files`, `spec_file_examples`, `repeated_description_examples`, `unannotated_examples`,
+`slowest_examples` — `shards`, both growth windows, `previous_test_run`); `history` does not, so the
 `history[0] == latest_run` identity holds
 on a default call and is **not** expected to hold under an explicit ask. Nor does `unstable_test_runs`,
 which is read over the branch window rather than off the anchored run. (`unannotated_directories`,
@@ -333,7 +334,13 @@ so an untimed layer is not a free one; `timed_count` (at most that layer's `laye
 real denominator for any average. The whole key is `null` when the run stored no per-example rows. It is
 a **sum** of example durations — machine time and **not wall clock** — so it can exceed
 `duration_seconds` on a parallel or sharded run. The layer is **declared only**, never inferred from the
-path, and the operands carry no pyramid verdict. **How the declared-layer mix moved since the previous
+path, and the operands carry no pyramid verdict. **Which tests those are**: pass `layer`
+(`unit`, `integration`, `request`, `system` or `undeclared`) to narrow `latest_run.slowest_examples`
+— and only that block — to one declared layer; it is echoed as `slowest_examples.layer` only when
+asked, `recorded_count`/`timed_count`/`reported_outcome_count` become that layer's own counts, any
+other value is read by the server as no ask (so it is forwarded unvalidated), and `rows: []` with
+`recorded_count: 0` means that layer has no examples while `slowest_examples: null` means the run
+recorded nothing. **How the declared-layer mix moved since the previous
 run** is `layer_run_growth`, with its contract block `layer_run_growth_window` — both **top-level
 siblings of `directory_run_growth`**, not inside `latest_run` (the delta is not in
 `latest_run.layer_counts`). They compare the latest run with the previous run **on the latest run's own

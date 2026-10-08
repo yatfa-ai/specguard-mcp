@@ -600,6 +600,44 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
 
+  it("passes ?layer= through unvalidated and omits it when blank", async () => {
+    const http = stubFetch({ body: BODY });
+    await getRepositoryOverview.run({ layer: "request" }, toolContext({ env: ENV, fetch: http.fetch }));
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?layer=request");
+
+    // No client-side enum: an unknown value is the server's no-ask, not ours to refuse.
+    const odd = stubFetch({ body: BODY });
+    await getRepositoryOverview.run({ layer: "bogus" }, toolContext({ env: ENV, fetch: odd.fetch }));
+    assert.equal(odd.requests[0]?.url, "https://sg.example.com/api/v1/repository?layer=bogus");
+
+    const blank = stubFetch({ body: BODY });
+    await getRepositoryOverview.run({ layer: "  " }, toolContext({ env: ENV, fetch: blank.fetch }));
+    assert.equal(blank.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
+  it("composes ?layer= with ?commit_sha=", async () => {
+    const http = stubFetch({ body: BODY });
+    await getRepositoryOverview.run(
+      { layer: "request", commit_sha: "a1b2c3d" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?commit_sha=a1b2c3d&layer=request",
+    );
+  });
+
+  it("documents `layer` as narrowing ONLY slowest_examples, with the five values", () => {
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["layer"] as { description?: string })?.description ?? "";
+    assert.match(description, /`latest_run\.slowest_examples`/);
+    assert.match(description, /NOTHING else/);
+    for (const v of ["unit", "integration", "request", "system", "undeclared"]) {
+      assert.ok(description.includes(`\`${v}\``), `layer description must list ${v}`);
+    }
+    assert.match(description, /NO ASK/);
+  });
+
   it("passes ?unannotated_examples=true through when the block is asked for", async () => {
     // Sent alongside `commit_sha` because the two compose the way an agent will
     // actually use them: this block hangs off `latest_run`, so it is at RUN
@@ -1264,6 +1302,10 @@ describe("get_repository_overview — failures an agent can act on", () => {
       spec_file: "spec_file_examples",
       repeated_description: "repeated_description_examples",
       unannotated_examples: "unannotated_examples",
+      // `layer` narrows `latest_run.slowest_examples`, a run-grain block read off
+      // the anchored run, so it MOVES with `commit_sha` and is a roster entry
+      // rather than an exception (the guard is not weakened).
+      layer: "slowest_examples",
     };
 
     const drillIns = Object.keys(properties).filter((name) => !NOT_RUN_GRAIN_DRILL_INS.has(name));

@@ -176,12 +176,12 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * one CHOOSES THAT RUN, which the controller states in those terms: `?branch=`
  * asks about a SERIES, this asks WHICH RUN. It is read once, in that memo, so
  * every run-grain block moves together — `latest_run` and its rollups, the
- * four RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`,
- * `repeated_description_examples` and `unannotated_examples`, the flag-style
- * rung documented below), `shards`, both growth windows and
- * `previous_test_run`.
+ * five RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`,
+ * `repeated_description_examples`, `unannotated_examples` — the flag-style
+ * rung documented below — and `slowest_examples`, which `layer` narrows),
+ * `shards`, both growth windows and `previous_test_run`.
  *
- * That is four of the FIVE drill-ins on this tool, and the excluded one is
+ * That is five of the SIX drill-ins on this tool, and the excluded one is
  * worth naming because it is the composition an agent will actually try:
  * `unstable_test_runs` is read over the BRANCH WINDOW (`history_runs`), not off
  * the anchored run, so it does not move with this parameter. Sent together,
@@ -328,7 +328,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * is an ABSENCE of data. Serving `rows: []` here instead would spend a
  * distinction a client has no other way to make.
  *
- * THE `commit_sha` ROSTERS above and in README.md CORRECTLY STAY AT FOUR, and
+ * THE `commit_sha` ROSTERS above and in README.md COUNT ONE KEY PER DRILL-IN PARAMETER (five, with `layer`), and
  * the reason is the roster's UNIT, not anything about this block's shape. That
  * roster carries ONE REPRESENTATIVE KEY PER DRILL-IN PARAMETER, not one entry
  * per response key: `spec_directory` opens THREE blocks (see its own
@@ -808,15 +808,15 @@ const getRepositoryOverview: ToolDefinition = {
         type: "string",
         description:
           "Anchor the whole answer on ONE run, naming it by commit sha. This is a DIFFERENT KIND " +
-          "OF ASK from every other argument here: the five above narrow what is served ABOUT a run " +
+          "OF ASK from every other argument here: the drill-in arguments narrow what is served ABOUT a run " +
           "that was already chosen for you, and this one CHOOSES THAT RUN. `branch` asks about a " +
           "SERIES; this asks WHICH RUN. Use a sha exactly as served in " +
           "`latest_run.commit_sha`, `history[].commit_sha` or " +
           "`unstable_tests.unstable_test_runs.rows[].commit_sha`. " +
           "Everything at run grain re-anchors together: `latest_run` and its five rollups, the " +
-          "four RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`, " +
-          "`repeated_description_examples` and `unannotated_examples`), `shards`, both per-area " +
-          "growth windows and `previous_test_run`. " +
+          "five RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`, " +
+          "`repeated_description_examples`, `unannotated_examples` and `slowest_examples` — the " +
+          "block `layer` narrows), `shards`, both per-area growth windows and `previous_test_run`. " +
           "`unstable_test_runs` is the one drill-in that does NOT move with " +
           "it: it is read over the branch window rather than off the anchored run, so sending " +
           "this with `unstable_test` still gives you that test across the whole window. " +
@@ -944,6 +944,27 @@ const getRepositoryOverview: ToolDefinition = {
           "same as omitting it and sends nothing at all: declining is not sending, which is how " +
           "every other argument here is declined too — none of them has an \"off\" value.",
       },
+      layer: {
+        type: "string",
+        description:
+          "Narrow ONE block to one DECLARED test layer: `latest_run.slowest_examples` — the " +
+          "run-wide slowest-examples ranking — and NOTHING else. It does NOT narrow " +
+          "`spec_file_examples`, `spec_directory_files`, `unannotated_examples` or " +
+          "`repeated_description_examples`. Use it after `latest_run.layer_durations` shows one " +
+          "layer holding most of the machine time (say `request`) and you need to know WHICH " +
+          "tests. Values: `unit`, `integration`, `request`, `system` or `undeclared` (a test that " +
+          "declared no layer). Any other value is read by the server as NO ASK — never a 400 or " +
+          "404 — so it is forwarded unvalidated and a typo silently returns the un-narrowed " +
+          "ranking: check that `slowest_examples.layer` is echoed back. That echo is present ONLY " +
+          "when a layer was asked (the key is ABSENT otherwise). With a layer asked, " +
+          "`recorded_count`, `timed_count` and `reported_outcome_count` are that LAYER's own " +
+          "counts (`recorded_count` equals `layer_counts[layer]`, `timed_count` equals " +
+          "`layer_durations[layer].timed_count`), not the run's. A layer with no examples answers " +
+          "`rows: []` and `recorded_count: 0`, while `slowest_examples: null` still means the run " +
+          "recorded nothing at all. Layers are DECLARED only (an `@intent` annotation said so), " +
+          "never inferred from the file path. It is at RUN GRAIN, so it moves with `commit_sha`. " +
+          "A blank value sends nothing.",
+      },
     },
     additionalProperties: false,
   },
@@ -962,6 +983,10 @@ const getRepositoryOverview: ToolDefinition = {
     );
     const unstableTest = optionalString(args["unstable_test"], "unstable_test");
     const commitSha = optionalString(args["commit_sha"], "commit_sha");
+    // Forwarded UNVALIDATED, deliberately: the server reads any value outside
+    // the five declared layers as no ask (never a 400/404), so an enum check
+    // here would only add a second, divergent opinion about what is valid.
+    const layer = optionalString(args["layer"], "layer");
     // A BOOLEAN, and deliberately not stringified below. The server reads only
     // whether the key is PRESENT — `?unannotated_examples=false` opens the block
     // exactly as `=true` does — and `getJson` omits only `undefined`, so sending
@@ -993,6 +1018,7 @@ const getRepositoryOverview: ToolDefinition = {
         repeated_description: repeatedDescription,
         unstable_test: unstableTest,
         commit_sha: commitSha,
+        layer,
         unannotated_examples: unannotatedExamples === true ? "true" : undefined,
       },
       context.fetch,
