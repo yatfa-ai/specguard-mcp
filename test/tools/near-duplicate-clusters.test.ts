@@ -487,3 +487,64 @@ describe("near_duplicate_clusters — the bounded view (`summary`, `cluster`)", 
     assert.equal(schema.properties["summary"]?.type, "boolean");
   });
 });
+
+describe("near_duplicate_clusters — the old-deployment guard's sentence and per-key reach", () => {
+  /** The whole operator-facing sentence, for the key that is absent. */
+  const sentence = (key: string): string =>
+    `The response has no \`${key}\` key although it was asked for: this SpecGuard deployment ` +
+    "predates the bounded near-duplicate view and ignored the ask. Call this tool without " +
+    "`summary` and `cluster` for the whole census, or upgrade the deployment.";
+
+  it("states the whole refusal sentence and carries NO HTTP status (no HTTP failure occurred)", async () => {
+    const http = stubFetch({ body: JSON.stringify({ near_duplicates: null }) });
+
+    const error = (await rejects(
+      nearDuplicateClusters.run({ summary: true }, toolContext({ env: ENV, fetch: http.fetch })),
+      /near_duplicates_summary/,
+    )) as Error & { status?: number };
+
+    assert.equal(error.message, sentence("near_duplicates_summary"));
+    assert.equal(error.status, undefined);
+  });
+
+  it("checks the SECOND asked key too: summary present, cluster absent still refuses naming the cluster key", async () => {
+    const http = stubFetch({ body: JSON.stringify({ near_duplicates_summary: { cluster_count: 0 } }) });
+
+    const error = await rejects(
+      nearDuplicateClusters.run({ summary: true, cluster: 2 }, toolContext({ env: ENV, fetch: http.fetch })),
+      /near_duplicate_cluster/,
+    );
+
+    assert.equal(error.message, sentence("near_duplicate_cluster"));
+  });
+
+  it("names the FIRST asked key (summary) when both asked keys are absent", async () => {
+    const http = stubFetch({ body: JSON.stringify({ near_duplicates: null }) });
+
+    const error = await rejects(
+      nearDuplicateClusters.run({ summary: true, cluster: 2 }, toolContext({ env: ENV, fetch: http.fetch })),
+      /^The response has no `near_duplicates_summary` key/,
+    );
+
+    assert.doesNotMatch(error.message, /no `near_duplicate_cluster` key/);
+  });
+
+  it("passes a PRESENT null for a lone cluster ask through unchanged (presence, not truthiness)", async () => {
+    const body = { near_duplicate_cluster: null };
+    const http = stubFetch({ body: JSON.stringify(body) });
+
+    const result = await nearDuplicateClusters.run({ cluster: 2 }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.deepEqual(result.structured, body);
+  });
+
+  it("renders the bounded body as exactly 2-space-indented JSON", async () => {
+    const body = { near_duplicate_cluster: { requested: 1 } };
+    const http = stubFetch({ body: JSON.stringify(body) });
+
+    const result = await nearDuplicateClusters.run({ cluster: 1 }, toolContext({ env: ENV, fetch: http.fetch }));
+
+    assert.equal(result.text, JSON.stringify(body, null, 2));
+    assert.equal(result.text, '{\n  "near_duplicate_cluster": {\n    "requested": 1\n  }\n}');
+  });
+});
