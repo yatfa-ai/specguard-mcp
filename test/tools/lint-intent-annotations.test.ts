@@ -656,6 +656,91 @@ describe("lint_intent_annotations — client-neutral (Ruby and JS/TS)", () => {
   });
 });
 
+describe("lint_intent_annotations — the rendering and refusal sentences", () => {
+  const run = (stub: ReturnType<typeof stubCommand>) =>
+    lintIntentAnnotations.run({}, toolContext({ runCommand: stub.runCommand }));
+
+  it("lays the text out as header, then trimmed provenance, then the indented document", async () => {
+    const clean = JSON.parse(report());
+    const withProvenance = await run(stubCommand({ code: 0, stdout: report(), stderr: "  validated in Ruby \n" }));
+
+    assert.equal(
+      withProvenance.text,
+      "specguard-lint exited 0 (no malformed annotations).\n\nvalidated in Ruby\n\n" + JSON.stringify(clean, null, 2),
+    );
+    assert.equal(withProvenance.structured?.["linter_stderr"], "validated in Ruby");
+
+    // Exit 1 names the findings path, and a whitespace-only stderr contributes
+    // no provenance block at all — not an empty one.
+    const failing = JSON.parse(FAILING);
+    const withoutProvenance = await run(stubCommand({ code: 1, stdout: FAILING, stderr: " \n\t " }));
+
+    assert.equal(
+      withoutProvenance.text,
+      "specguard-lint exited 1 (malformed annotations found).\n\n" + JSON.stringify(failing, null, 2),
+    );
+    assert.equal(withoutProvenance.structured?.["linter_stderr"], "");
+  });
+
+  it("echoes the document's `ok` verbatim rather than coercing it to a boolean", async () => {
+    const result = await run(stubCommand({ code: 0, stdout: report({ ok: "maybe" }) }));
+
+    assert.equal(result.structured?.["ok"], "maybe");
+  });
+
+  it("refuses a document that is not a JSON object, whatever else it is", async () => {
+    for (const stdout of ["null", "[]", '[{"ok":true}]', "42", '"ok"']) {
+      const error = await rejects(
+        run(stubCommand({ code: 0, stdout })),
+        /^specguard-lint's --json output was not a JSON object\.$/,
+      );
+
+      assert.ok(error instanceof CommandError, `${stdout}: expected a CommandError, got ${error.name}`);
+    }
+  });
+
+  it("quotes the trimmed stderr after exit 2, and says so when there is none", async () => {
+    const blank = await rejects(
+      run(stubCommand({ code: 2, stderr: " \n " })),
+      /^specguard-lint could not check anything \(exit 2\)\. It reported:\n\(nothing on stderr\)$/,
+    );
+    assert.equal(
+      blank.message,
+      "specguard-lint could not check anything (exit 2). It reported:\n(nothing on stderr)",
+    );
+
+    const padded = await run(stubCommand({ code: 2, stderr: "\n  boom  \n" })).then(
+      () => assert.fail("expected a rejection"),
+      (error: Error) => error,
+    );
+    assert.equal(padded.message, "specguard-lint could not check anything (exit 2). It reported:\nboom");
+  });
+
+  it("names the signal when the linter died without an exit code", async () => {
+    const error = await rejects(
+      run(stubCommand({ code: null, signal: "SIGKILL", stderr: "" })),
+      /^specguard-lint could not check anything \(exit signal SIGKILL\)\./,
+    );
+
+    assert.equal(
+      error.message,
+      "specguard-lint could not check anything (exit signal SIGKILL). It reported:\n(nothing on stderr)",
+    );
+  });
+
+  it("quotes unparseable output whole at exactly 2000 characters, and cuts it with a marker at 2001", async () => {
+    const prefix = "specguard-lint's output was not JSON, so no findings could be read. It wrote:\n";
+    const exact = "x".repeat(2000);
+    const over = "x".repeat(2001);
+
+    const atLimit = await rejects(run(stubCommand({ code: 0, stdout: exact })), /not JSON/);
+    assert.equal(atLimit.message, prefix + exact);
+
+    const pastLimit = await rejects(run(stubCommand({ code: 0, stdout: over })), /not JSON/);
+    assert.equal(pastLimit.message, prefix + exact + "… [truncated]");
+  });
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
