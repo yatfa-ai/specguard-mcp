@@ -501,6 +501,12 @@ const getRepositoryOverview: ToolDefinition = {
     "`repeated_description` to see the examples that all share one repeated description, or " +
     "`unstable_test` (alongside `branch`) to see one flaky test's outcome run by run, which is " +
     "the only way to tell a regression from genuine flakiness. " +
+    "Every row of `unstable_tests.rows[]` AND of `unstable_tests.shared_description_rows[]` also " +
+    "carries `declared_layers` — the sorted DISTINCT set of `@intent layer:` values that test's " +
+    "examples declared anywhere in the window. `[]` means no run in the window declared one: NOT " +
+    "`unreadable`, and NOT a measured `unit`. A partially annotated test lists only what was " +
+    "declared, and more than one entry means the test changed layer mid-window. It is " +
+    "DECLARED-ONLY — the stored column, never inferred from the spec path or `files_seen`. " +
     "All of those describe the repository's NEWEST run, which on a busy repository may be another " +
     "branch's: pass `commit_sha` to be answered about ONE named run instead — after pushing a " +
     "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
@@ -795,6 +801,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`commit_sha`/`test_run_id`, never off its index: a run that recorded nothing under " +
           "the description contributes no row and a description carried by two examples in one " +
           "run contributes two, so `rows` is not one entry per run. " +
+          "These drill-in rows do NOT carry a layer: read `declared_layers` off the ranking row " +
+          "(`unstable_tests.rows[]`), not here. " +
           "`branch` IS REQUIRED WITH IT, unlike every other argument here: `unstable_tests` is " +
           "served only for a branch-narrowed window, so this parameter sent alone leaves the " +
           "whole containing block `null` and there is nothing to drill into — not an empty " +
