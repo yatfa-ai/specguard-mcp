@@ -193,7 +193,7 @@ before any request is made.
 | argument | |
 | --- | --- |
 | `repository` | ask about THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed call |
-| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`) and `directory_growth`, which read the same window |
+| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth` and `layer_growth` (with `layer_growth_window`), which read the same window |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
@@ -224,7 +224,9 @@ successful response is about the commit you named.
 `branch` is also the gate on the three blocks read over that same window, and they are `null` without
 it: `unstable_tests` (which tests failed intermittently across the window rather than consistently),
 `slowest_tests` with its `slowest_tests_window` (which durable tests cost the most wall clock across
-the window) and `directory_growth` (how each area moved between the two **endpoints** of the window). The
+the window) and `directory_growth` (how each area moved between the two **endpoints** of the window).
+`layer_growth`, with its contract block `layer_growth_window` (how the declared-layer mix moved between the
+same two endpoints), is gated by `branch` in the same way and is `null` without it. The
 per-area comparisons against the **previous run** — `directory_run_growth` at the example-count
 grain, `directory_runtime_growth` at the runtime grain, and `layer_run_growth` for the declared-layer
 mix, and `layer_runtime_growth` for the time each declared layer accounts for — are a different question and take no branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
@@ -423,7 +425,30 @@ baseline_count, anchor_count, change}`. `change` is anchor minus baseline in sec
 **not** `0` — when either side's layer was untimed; a layer timed on both sides that did not move reads
 `change: 0`. It is a **sum of machine time**, not wall clock; layers are **declared only**, a test
 changing its declared `@intent` layer reads as one layer gaining time and another losing it, and no
-verdict is given. The same
+verdict is given.
+**How the declared-layer mix moved across the `branch` window** is `layer_growth`, with its contract block
+`layer_growth_window` — both **top-level siblings of `directory_growth`**, not inside `latest_run`, and
+**branch-gated** exactly as `directory_growth` is: without `branch`, `layer_growth` is `null` and
+`layer_growth_window` reads `grouped: false` with `state: null` (no query ran, and there is no
+all-branches fallback). It is the window grain of `layer_run_growth`, which compares only the latest run
+with the previous one and needs no branch: use `layer_run_growth` for "what did my push change?" and
+`layer_growth` for "how has the pyramid drifted over the window?" — an example added and another removed
+on every push reads ±1 per push there and is never flagged. It compares the **two endpoints** of the
+window (`layer_growth_window.basis` is `"two_endpoints"`) and is **not a series**: an example added in
+run 12 and removed in run 25 reads `change: 0`. The baseline is found by the same walk as
+`directory_growth`, so for one window both carry the same `baseline_commit_sha` and `runs_back`. The window
+block carries `basis`, `branch_scope`, `branch`, `grouped`, `state`, `comparable`, `anchor_commit_sha`,
+`baseline_commit_sha` and `runs_back`. `layer_growth` is `null` in **every** non-comparable state —
+**never a block of zeros** — and `layer_growth_window.state` names why, one of eight: `anchor_unmeasured`,
+`no_earlier_run`, `no_measured_baseline`, `no_comparable_composition`, `neither_recorded`,
+`baseline_unrecorded`, `anchor_unrecorded` or `comparable`. `layer_growth_window.comparable` is true
+exactly when `layer_growth` is non-null. When comparable, `layer_growth` is
+`{layers, baseline_recorded_count, anchor_recorded_count}`, where `layers` holds `unit`, `integration`,
+`request`, `system` and `undeclared`, each `{baseline_count, anchor_count, change}`; a layer that did not
+move reads `change: 0` — a **measured zero**, not an absence — and the five `change` values sum to
+`anchor_recorded_count` minus `baseline_recorded_count`. Layers are **declared only**, never inferred from
+the path, `undeclared` is **not** `unreadable`, and no pyramid verdict is given.
+The same
 `layer_counts` rides each row of
 `spec_directories`, each row of `spec_files` and each row of `repeated_descriptions` (the same five
 operands, **declared only** and never inferred from the path, measured zeros, summing to that row's
