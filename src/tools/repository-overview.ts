@@ -485,7 +485,7 @@ const getRepositoryOverview: ToolDefinition = {
     "which areas of the suite grew or shrank and which got slower or faster since the previous run " +
     "on the same branch (the per-area comparisons, at BOTH the example-count grain and the " +
     "runtime grain — an area where an existing spec was made slow gains no examples and appears " +
-    "only in the runtime one — and how the run-wide declared-layer mix moved, `layer_run_growth` at the count grain and `layer_runtime_growth` at the time grain), " +
+    "only in the runtime one — and how the run-wide declared-layer mix moved, `layer_run_growth` at the count grain and `layer_runtime_growth` at the time grain since the previous run, and `layer_growth` across the `branch` window), " +
     "the recent run history for growth over time, and the branches that have runs. " +
     "Everything above is answered about ONE repository, and WHICH one has two spellings: by " +
     "default it is the repository the configured sgk_… repository key resolves to, and passing " +
@@ -614,7 +614,31 @@ const getRepositoryOverview: ToolDefinition = {
     "summed over. It is a SUM of machine time, NOT wall clock, so it can exceed `duration_seconds` on a " +
     "parallel or sharded run. The layers are DECLARED only, never inferred from the path, and a test " +
     "changing its declared `@intent` layer reads as one layer gaining time and another losing it; no " +
-    "verdict is given on a slow layer, so reading the shift is yours. The same " +
+    "verdict is given on a slow layer, so reading the shift is yours. " +
+    "HOW THE DECLARED-LAYER MIX MOVED ACROSS THE `branch` WINDOW is `layer_growth`, with its contract " +
+    "block `layer_growth_window` — both TOP-LEVEL siblings of `directory_growth`, NOT inside `latest_run`, " +
+    "and BRANCH-GATED exactly as `directory_growth` is: without `branch` both `layer_growth` is `null` and " +
+    "`layer_growth_window` reads `grouped: false` with `state: null` (no query ran, and there is no " +
+    "all-branches fallback). It is the window grain of `layer_run_growth`, which compares only the latest " +
+    "run with the previous one and needs no branch: ask `layer_run_growth` \"what did my push change?\" and " +
+    "`layer_growth` \"how has the pyramid drifted over the window?\", because one example added and one " +
+    "removed per push reads ±1 per push there and is never flagged. It compares the two ENDPOINTS of the " +
+    "window — `layer_growth_window.basis` is `\"two_endpoints\"` — and is NOT a series: an example added " +
+    "in run 12 and removed in run 25 reads `change: 0`. The baseline is found by the same walk as " +
+    "`directory_growth`, so for one window the two carry the same `baseline_commit_sha` and `runs_back`. " +
+    "The window block carries `basis`, `branch_scope`, `branch`, `grouped`, `state`, `comparable`, " +
+    "`anchor_commit_sha`, `baseline_commit_sha` and `runs_back`. `layer_growth` is `null` in EVERY " +
+    "non-comparable state — NEVER a block of zeros, so `null` is not \"no change\" — and " +
+    "`layer_growth_window.state` names why, one of eight: `anchor_unmeasured`, `no_earlier_run`, " +
+    "`no_measured_baseline`, `no_comparable_composition`, `neither_recorded`, `baseline_unrecorded`, " +
+    "`anchor_unrecorded` or `comparable`. `layer_growth_window.comparable` is true exactly when " +
+    "`layer_growth` is non-null. When comparable, `layer_growth` is " +
+    "`{layers, baseline_recorded_count, anchor_recorded_count}`, where `layers` holds `unit`, " +
+    "`integration`, `request`, `system` and `undeclared`, each `{baseline_count, anchor_count, change}`. A " +
+    "layer that did not move reads `change: 0` — a measured zero, not an absence — and the five `change` " +
+    "values sum to `anchor_recorded_count` minus `baseline_recorded_count`. The layers are DECLARED only, " +
+    "never inferred from the path, and `undeclared` is NOT `unreadable`; the operands carry no pyramid " +
+    "verdict, so reading the drift is yours. The same " +
     "`layer_counts` rides each row of `spec_directories`, each row of `spec_files` and each row of " +
     "`repeated_descriptions` (the same five operands, DECLARED only and never inferred from the path, " +
     "measured zeros, summing to that row's `recorded_count`), the `spec_directory_files` area block " +
@@ -769,7 +793,11 @@ const getRepositoryOverview: ToolDefinition = {
           "and `directory_runtime_growth`, the declared-layer mix pair `layer_run_growth` / " +
           "`layer_run_growth_window`, and the declared-layer time pair `layer_runtime_growth` / " +
           "`layer_runtime_growth_window` — need no branch and take none; they scope to the latest " +
-          "run's own branch by construction, so a plain call already carries them.",
+          "run's own branch by construction, so a plain call already carries them. " +
+          "The declared-layer mix over that same window — `layer_growth` with its contract block " +
+          "`layer_growth_window` (the two ENDPOINTS of the window, like `directory_growth`) — is " +
+          "UNLOCKED by `branch` in the same way and is `null` without it; it is NOT one of the " +
+          "branch-free pairs above.",
       },
       spec_directory: {
         type: "string",

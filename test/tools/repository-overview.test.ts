@@ -1607,6 +1607,67 @@ describe("get_repository_overview — failures an agent can act on", () => {
     assert.match(branch.branch!.description, /`layer_run_growth` \/ `layer_run_growth_window`/, "branch param must list the pair as branch-free");
   });
 
+  it("advertises layer_growth as a branch-gated window pair beside directory_growth: two endpoints, null-not-zeros, eight states, measured-zero change, UNLOCKED by branch", () => {
+    const description = getRepositoryOverview.description;
+
+    assert.match(description, /`layer_growth`/, "must name the key");
+    assert.match(description, /`layer_growth_window`/, "must name the contract block");
+    assert.match(
+      description,
+      /both TOP-LEVEL siblings of `directory_growth`, NOT inside `latest_run`/,
+      "must place the pair beside directory_growth, not inside latest_run",
+    );
+    assert.match(
+      description,
+      /BRANCH-GATED[\s\S]*`layer_growth` is `null` and `layer_growth_window` reads `grouped: false` with `state: null`/,
+      "must state the pair is branch-gated and null without branch",
+    );
+    assert.match(description, /no\s+all-branches fallback/, "must state there is no all-branches fallback");
+    assert.match(description, /`layer_growth_window\.basis` is `"two_endpoints"`/, "must state the two-endpoints basis");
+    assert.match(description, /NOT a series: an example added\s+in run 12 and removed in run 25 reads `change: 0`/, "must state it is not a series");
+    assert.match(description, /same `baseline_commit_sha` and `runs_back`/, "must state the shared baseline walk");
+    assert.match(
+      description,
+      /`layer_growth` is `null` in EVERY\s+non-comparable state — NEVER a block of zeros/,
+      "must state null-not-zeros",
+    );
+    assert.match(description, /`layer_growth_window\.state` names why, one of eight/, "must name the state field and count");
+    const states = [
+      "anchor_unmeasured",
+      "no_earlier_run",
+      "no_measured_baseline",
+      "no_comparable_composition",
+      "neither_recorded",
+      "baseline_unrecorded",
+      "anchor_unrecorded",
+      "comparable",
+    ];
+    const stateSentence = description.match(/`layer_growth_window\.state` names why, one of eight:([^.]*)\./);
+    assert.ok(stateSentence, "must list the states in one sentence");
+    const listed = [...stateSentence![1]!.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]);
+    assert.deepEqual(listed, states, "must list exactly the eight LayerWindowGrowth::STATES");
+    assert.match(
+      description,
+      /`layer_growth_window\.comparable` is true exactly when\s+`layer_growth` is non-null/,
+      "must define comparable",
+    );
+    assert.match(description, /`change: 0` — a measured zero, not an absence/, "must state change: 0 is a measured zero");
+    assert.match(description, /sum to `anchor_recorded_count` minus `baseline_recorded_count`/, "must state the changes reconcile");
+    assert.match(description, /`undeclared` is NOT `unreadable`; the operands carry no pyramid\s+verdict, so reading the drift is yours/, "must keep undeclared distinct");
+
+    const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    const branchText = props["branch"]!.description;
+    assert.match(
+      branchText,
+      /`layer_growth` with its contract block\s+`layer_growth_window`[\s\S]*UNLOCKED by `branch`[\s\S]*`null` without it/,
+      "branch param must list the pair as UNLOCKED",
+    );
+    // The pair must NOT be in the branch-free list (the `need no branch` sentence).
+    const branchFree = branchText.match(/the PREVIOUS RUN[\s\S]*?already carries them\./);
+    assert.ok(branchFree, "branch param must keep the branch-free sentence");
+    assert.doesNotMatch(branchFree![0], /layer_growth/, "layer_growth must not be listed among the branch-free pairs");
+  });
+
   it("advertises layer_runtime_growth as a top-level sibling of directory_run_growth, null-not-zeros, with untimed states and a null-not-zero change", () => {
     const description = getRepositoryOverview.description;
 
