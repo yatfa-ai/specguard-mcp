@@ -615,7 +615,9 @@ const getRepositoryOverview: ToolDefinition = {
     "parallel or sharded run. The layers are DECLARED only, never inferred from the path, and a test " +
     "changing its declared `@intent` layer reads as one layer gaining time and another losing it; no " +
     "verdict is given on a slow layer, so reading the shift is yours. The same " +
-    "`layer_counts` rides each row of `spec_directories`, the `spec_directory_files` area block " +
+    "`layer_counts` rides each row of `spec_directories`, each row of `spec_files` and each row of " +
+    "`repeated_descriptions` (the same five operands, DECLARED only and never inferred from the path, " +
+    "measured zeros, summing to that row's `recorded_count`), the `spec_directory_files` area block " +
     "and each of its file rows, and every per-example row of `slowest_examples`, " +
     "`spec_file_examples` and `repeated_description_examples` carries `intent_layer` and " +
     "`declared_intent` (`{entity, action, behavior}` or `null`, declared only). " +
