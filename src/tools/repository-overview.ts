@@ -538,6 +538,9 @@ const getRepositoryOverview: ToolDefinition = {
     "`declared_layers` — the sorted DISTINCT set of `@intent layer:` values that test declared " +
     "in the window; `[]` means none declared, and it is DECLARED-ONLY, never inferred from the " +
     "spec path. " +
+    "Add `layer` (with `branch`) to ask for the slowest tests of ONE declared layer across the " +
+    "window — `layer` narrows `slowest_tests` as well as `slowest_examples`; the window echo " +
+    "is `slowest_tests_window.layer` (see `layer`). " +
     "All of those describe the repository's NEWEST run, which on a busy repository may be another " +
     "branch's: pass `commit_sha` to be answered about ONE named run instead — after pushing a " +
     "commit and waiting for CI, say — then read `run_anchor` to confirm which run you were served, " +
@@ -759,7 +762,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`unstable_tests` (which tests failed intermittently across the window rather than " +
           "consistently), `slowest_tests` together with its `slowest_tests_window` (which durable " +
           "tests cost the most wall clock across the window) and `directory_growth` (how each area " +
-          "moved between the two ENDPOINTS of that window). The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
+          "moved between the two ENDPOINTS of that window). Add `layer` to narrow `slowest_tests` to " +
+          "one declared layer. The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
           "and `directory_runtime_growth`, the declared-layer mix pair `layer_run_growth` / " +
           "`layer_run_growth_window`, and the declared-layer time pair `layer_runtime_growth` / " +
           "`layer_runtime_growth_window` — need no branch and take none; they scope to the latest " +
@@ -884,6 +888,9 @@ const getRepositoryOverview: ToolDefinition = {
           "five RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`, " +
           "`repeated_description_examples`, `unannotated_examples` and `slowest_examples` — the " +
           "block `layer` narrows), `shards`, both per-area growth windows and `previous_test_run`. " +
+          "The window-grain narrowing `layer` also applies to `slowest_tests` (with `branch`) does " +
+          "NOT move with it: that ranking is read over the branch window, anchored on its own " +
+          "newest run. " +
           "`unstable_test_runs` is the one drill-in that does NOT move with " +
           "it: it is read over the branch window rather than off the anchored run, so sending " +
           "this with `unstable_test` still gives you that test across the whole window. " +
@@ -1014,23 +1021,37 @@ const getRepositoryOverview: ToolDefinition = {
       layer: {
         type: "string",
         description:
-          "Narrow ONE block to one DECLARED test layer: `latest_run.slowest_examples` — the " +
-          "run-wide slowest-examples ranking — and NOTHING else. It does NOT narrow " +
-          "`spec_file_examples`, `spec_directory_files`, `unannotated_examples` or " +
-          "`repeated_description_examples`. Use it after `latest_run.layer_durations` shows one " +
-          "layer holding most of the machine time (say `request`) and you need to know WHICH " +
-          "tests. Values: `unit`, `integration`, `request`, `system` or `undeclared` (a test that " +
-          "declared no layer). Any other value is read by the server as NO ASK — never a 400 or " +
-          "404 — so it is forwarded unvalidated and a typo silently returns the un-narrowed " +
-          "ranking: check that `slowest_examples.layer` is echoed back. That echo is present ONLY " +
-          "when a layer was asked (the key is ABSENT otherwise). With a layer asked, " +
-          "`recorded_count`, `timed_count` and `reported_outcome_count` are that LAYER's own " +
-          "counts (`recorded_count` equals `layer_counts[layer]`, `timed_count` equals " +
-          "`layer_durations[layer].timed_count`), not the run's. A layer with no examples answers " +
-          "`rows: []` and `recorded_count: 0`, while `slowest_examples: null` still means the run " +
-          "recorded nothing at all. Layers are DECLARED only (an `@intent` annotation said so), " +
-          "never inferred from the file path. It is at RUN GRAIN, so it moves with `commit_sha`. " +
-          "A blank value sends nothing.",
+          "Narrow to one DECLARED test layer. It narrows TWO blocks, at two different grains. " +
+          "(1) `latest_run.slowest_examples` — the run-wide slowest-examples ranking, at RUN " +
+          "GRAIN, so it moves with `commit_sha`; echoed as `slowest_examples.layer`. " +
+          "(2) The cross-run `slowest_tests` ranking — but ONLY when `branch` is also asked, " +
+          "because without `branch` that block is `null`. That one is at WINDOW GRAIN and does " +
+          "NOT move with `commit_sha`; echoed as `slowest_tests_window.layer`. On `slowest_tests` " +
+          "the CANDIDATE step is narrowed (a test is a candidate only if it has at least one " +
+          "anchor-run example in the layer), while each row's totals stay the whole durable " +
+          "test's — so a row's `declared_layers` may list several layers, not just the one you " +
+          "asked for. `resolved_count`, `candidate_count`, `timed_count` and `untimed_count` " +
+          "become the layer's anchor-run figures, while `recorded_count` and `unresolved_count` " +
+          "stay WHOLE-RUN. A layer the anchor run never declared answers `state: \"ranked\"` " +
+          "with `rows: []`: that is NOT \"nothing is slow\", it is \"nothing in that layer\". " +
+          "It does NOT narrow `spec_file_examples`, `spec_directory_files`, " +
+          "`unannotated_examples` or `repeated_description_examples`. " +
+          "Use it after `latest_run.layer_durations` shows one layer holding most of the machine " +
+          "time (say `request`) and you need to know WHICH tests — in this run, or (with " +
+          "`branch`) across the window. Values: `unit`, `integration`, `request`, `system` or " +
+          "`undeclared` (a test that declared no layer). Any other value is read by the server " +
+          "as NO ASK — never a 400 or 404 — so it is forwarded unvalidated and a typo silently " +
+          "returns the un-narrowed ranking: check that BOTH echoes come back — " +
+          "`slowest_examples.layer` and, when `branch` was asked, `slowest_tests_window.layer`. " +
+          "Each echo is present ONLY when a layer was asked and well-formed (the key is ABSENT " +
+          "otherwise, and `slowest_tests_window.layer` is also ABSENT whenever `branch` was not " +
+          "asked). With a layer asked, on `slowest_examples` `recorded_count`, `timed_count` and " +
+          "`reported_outcome_count` are that LAYER's own counts (`recorded_count` equals " +
+          "`layer_counts[layer]`, `timed_count` equals `layer_durations[layer].timed_count`), " +
+          "not the run's. A layer with no examples answers `rows: []` and `recorded_count: 0`, " +
+          "while `slowest_examples: null` still means the run recorded nothing at all. Layers " +
+          "are DECLARED only (an `@intent` annotation said so), never inferred from the file " +
+          "path. A blank value sends nothing.",
       },
     },
     additionalProperties: false,

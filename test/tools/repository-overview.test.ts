@@ -627,11 +627,20 @@ describe("get_repository_overview — the request it makes", () => {
     );
   });
 
-  it("documents `layer` as narrowing ONLY slowest_examples, with the five values", () => {
+  it("documents `layer` as narrowing slowest_examples AND (with branch) slowest_tests, with the five values", () => {
     const properties = getRepositoryOverview.inputSchema.properties ?? {};
     const description = (properties["layer"] as { description?: string })?.description ?? "";
     assert.match(description, /`latest_run\.slowest_examples`/);
-    assert.match(description, /NOTHING else/);
+    assert.doesNotMatch(description, /NOTHING else/, "layer no longer narrows only one block");
+    // Both blocks and both echoes, so the verification rule is not the old one-echo rule.
+    assert.match(description, /`slowest_tests`/);
+    assert.match(description, /`slowest_examples\.layer`/);
+    assert.ok(description.includes("`slowest_tests_window.layer`"), "must name the window echo `slowest_tests_window.layer`");
+    // The branch prerequisite and the grain difference vs commit_sha.
+    assert.match(description, /ONLY when `branch` is also asked/);
+    assert.match(description, /WINDOW GRAIN[\s\S]*does\s+NOT move with `commit_sha`/);
+    assert.match(description, /state: "ranked"`\s+with `rows: \[\]`/);
+    assert.match(description, /does NOT narrow `spec_file_examples`/);
     for (const v of ["unit", "integration", "request", "system", "undeclared"]) {
       assert.ok(description.includes(`\`${v}\``), `layer description must list ${v}`);
     }
@@ -1339,6 +1348,14 @@ describe("get_repository_overview — failures an agent can act on", () => {
         `actually documents (${drillIns.length}), not a count left over from before the last one ` +
         "was added",
     );
+  });
+
+  it("states that the window-grain `layer` narrowing of `slowest_tests` does not move with `commit_sha`", () => {
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["commit_sha"] as { description?: string })?.description ?? "";
+    assert.match(description, /`layer` also applies to `slowest_tests` \(with `branch`\)\s+does NOT move with it/);
+    const branch = (properties["branch"] as { description?: string })?.description ?? "";
+    assert.match(branch, /Add `layer` to narrow `slowest_tests`/);
   });
 
   it("points `commit_sha` at response paths that actually exist", () => {

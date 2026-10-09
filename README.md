@@ -199,7 +199,7 @@ before any request is made.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `layer` | narrow ONLY `latest_run.slowest_examples` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`) — see below |
+| `layer` | narrow `latest_run.slowest_examples` — and, when `branch` is also asked, the cross-run `slowest_tests` — to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`) — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
@@ -315,7 +315,7 @@ and its length is not the window's `run_count`.
 its window `total_seconds`, nulls last. It is a different grain from `latest_run.slowest_examples`,
 which is one run at coordinate grain (file and line). Both keys are `null` without `branch`
 (`slowest_tests_window.grouped` is true exactly when `slowest_tests` is non-null), so `branch` is a
-hard prerequisite here as it is for `unstable_test`.
+hard prerequisite here as it is for `unstable_test`. Add `layer` to narrow it to one declared layer (echoed as `slowest_tests_window.layer`).
 
 `slowest_tests.state` is four-way and only the last value is a result: `no_runs` (the window is
 empty), `unrecorded` (the anchor run wrote no per-example rows), `unresolved` (it wrote rows and none
@@ -371,11 +371,20 @@ real denominator for any average. The whole key is `null` when the run stored no
 a **sum** of example durations — machine time and **not wall clock** — so it can exceed
 `duration_seconds` on a parallel or sharded run. The layer is **declared only**, never inferred from the
 path, and the operands carry no pyramid verdict. **Which tests those are**: pass `layer`
-(`unit`, `integration`, `request`, `system` or `undeclared`) to narrow `latest_run.slowest_examples`
-— and only that block — to one declared layer; it is echoed as `slowest_examples.layer` only when
-asked, `recorded_count`/`timed_count`/`reported_outcome_count` become that layer's own counts, any
-other value is read by the server as no ask (so it is forwarded unvalidated), and `rows: []` with
-`recorded_count: 0` means that layer has no examples while `slowest_examples: null` means the run
+(`unit`, `integration`, `request`, `system` or `undeclared`) to narrow `latest_run.slowest_examples` (run
+grain, moves with `commit_sha`, echoed as `slowest_examples.layer`) **and**, only when `branch` is also
+asked, the cross-run `slowest_tests` (window grain, does **not** move with `commit_sha`, echoed as
+`slowest_tests_window.layer`, which is absent when `branch` is not asked or the value is malformed) to one
+declared layer. On `slowest_tests` the candidate step is narrowed (at least one anchor-run example in the
+layer) while row totals stay the whole durable test's, so `declared_layers` may list several layers;
+`resolved_count`, `candidate_count`, `timed_count` and `untimed_count` become the layer's anchor-run
+figures while `recorded_count` and `unresolved_count` stay whole-run; a layer the anchor never declared
+answers `state: "ranked"` with `rows: []` — not "nothing is slow". It does not narrow `spec_file_examples`,
+`spec_directory_files`, `unannotated_examples` or `repeated_description_examples`. Each echo is present only
+when a layer was asked, `slowest_examples.layer` `recorded_count`/`timed_count`/`reported_outcome_count`
+become that layer's own counts, any other value is read by the server as no ask (so it is forwarded
+unvalidated — verify **both** echoes), and `rows: []` with `recorded_count: 0` means that layer has no
+examples while `slowest_examples: null` means the run
 recorded nothing. **How the declared-layer mix moved since the previous
 run** is `layer_run_growth`, with its contract block `layer_run_growth_window` — both **top-level
 siblings of `directory_run_growth`**, not inside `latest_run` (the delta is not in
