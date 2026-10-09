@@ -248,7 +248,8 @@ since the previous run, and `directory_runtime_file_growth` for which of them ch
 two are the answer to the question the area-grain comparisons dead-end on — `spec/models 412 → 459
 (+47)`, but *which files did that* — so they need no second parameter.
 
-`spec_files` ranks the heaviest files but stops at the file grain, so it says *which files* cost the
+`spec_files` ranks the heaviest files (each row: `path`, `total_seconds`, `recorded_count`,
+`timed_count`, `layer_counts`) but stops at the file grain, so it says *which files* cost the
 most and not *which examples* inside them spent it. `spec_file` is the next question: pass a path
 exactly as served in `latest_run.spec_files.rows[].path` and `latest_run.spec_file_examples` opens
 with up to 50 of that file's individual examples, cut by **duration** (`name`, `file_path`,
@@ -260,7 +261,8 @@ key is `null`, meaning *you did not ask*; a path that matched nothing answers `r
 an error, so a renamed or deleted spec file and a stale bookmark are empty results and not failures.
 
 `repeated_descriptions` ranks the descriptions carried by the most examples — the overcoverage
-ranking — but names the description and the files it was seen in, not *which* examples say the same
+ranking; each row: `name`, `total_seconds`, `recorded_count`, `timed_count`, `files_seen`,
+`layer_counts` — but names the description and the files it was seen in, not *which* examples say the same
 thing. `repeated_description` is the next question: pass a description exactly as served in
 `latest_run.repeated_descriptions.rows[].name` and `latest_run.repeated_description_examples` opens
 with up to 25 of that group's members (the same eight fields), plus the **group's** own
@@ -423,7 +425,9 @@ baseline_count, anchor_count, change}`. `change` is anchor minus baseline in sec
 changing its declared `@intent` layer reads as one layer gaining time and another losing it, and no
 verdict is given. The same
 `layer_counts` rides each row of
-`spec_directories`, the `spec_directory_files` area block and each of its file rows, and every
+`spec_directories`, each row of `spec_files` and each row of `repeated_descriptions` (the same five
+operands, **declared only** and never inferred from the path, measured zeros, summing to that row's
+`recorded_count`), the `spec_directory_files` area block and each of its file rows, and every
 per-example row of `slowest_examples`, `spec_file_examples` and `repeated_description_examples`
 carries `intent_layer` and `declared_intent` (`{entity, action, behavior}` or `null`, declared only).
 

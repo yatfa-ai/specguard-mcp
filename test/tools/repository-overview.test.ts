@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { ApiError, ArgumentError, SpecGuardMcpError } from "../../src/errors.js";
 import getRepositoryOverview from "../../src/tools/repository-overview.js";
@@ -1543,6 +1544,18 @@ describe("get_repository_overview — failures an agent can act on", () => {
     assert.match(description, /`undeclared` is NOT `unreadable`/, "must keep undeclared distinct from unreadable");
     assert.match(description, /`intent_layer`/, "must name the per-example key");
     assert.match(description, /`declared_intent`/, "must name the per-example key");
+  });
+
+  it("names layer_counts on each spec_files row and each repeated_descriptions row, in the description and the README", () => {
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+    const sentence =
+      /`layer_counts` rides each row of `spec_directories`, each row of `spec_files` and each row of `repeated_descriptions` \(the same five operands, (?:\*\*)?declared only(?:\*\*)? and never inferred from the path, measured zeros, summing to that row's `recorded_count`\)/i;
+    for (const [label, text] of [
+      ["tool description", getRepositoryOverview.description],
+      ["README", readme],
+    ] as const) {
+      assert.match(text.replace(/\s+/g, " "), sentence, `${label} must tie layer_counts to spec_files and repeated_descriptions rows`);
+    }
   });
 
   it("advertises latest_run.layer_durations as per-layer machine time, null-not-zero and not wall clock", () => {
