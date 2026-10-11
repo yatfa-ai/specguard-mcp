@@ -5,8 +5,10 @@ import { ApiError, SpecGuardMcpError } from "../../src/errors.js";
 import { SERVER_VERSION } from "../../src/server.js";
 import {
   deleteJson,
+  deleteJsonObject,
   getJson,
   getJsonObject,
+  patchJsonObject,
   postJson,
   postJsonObject,
   repositoryTarget,
@@ -286,6 +288,46 @@ describe("postJson — the write transport", () => {
       stubFetch({ status: 201, body: "[]" }).fetch,
     );
     assert.deepEqual(body, [], "postJson itself must stay un-narrowed, like getJson");
+  });
+});
+
+/**
+ * `deleteJsonObject` and `patchJsonObject` route through the same private
+ * `asJsonObject` guard as the GET/POST pair, but only that pair was pinned at
+ * the transport: replacing the guard with a bare `as Record<string, unknown>`
+ * cast at either of these two call sites left the whole suite green. A non-object
+ * 2xx answered to a revoke or a rename would then flow through as `structured`
+ * of the wrong type — a protocol error instead of the agent-readable ApiError.
+ */
+describe("deleteJsonObject / patchJsonObject — the same object narrowing", () => {
+  const config = api("2000");
+
+  const verbs = {
+    deleteJsonObject: (fetch: typeof globalThis.fetch) =>
+      deleteJsonObject(config, "/api/v1/repositories/1/agent_keys/2", fetch),
+    patchJsonObject: (fetch: typeof globalThis.fetch) =>
+      patchJsonObject(config, "/api/v1/repositories/1", { github_full_name: "acme/app" }, fetch),
+  } as const;
+
+  for (const [name, call] of Object.entries(verbs)) {
+    for (const [shape, body] of [
+      ["an array", "[]"],
+      ["null", "null"],
+      ["a bare scalar", "42"],
+    ] as const) {
+      it(`${name} refuses ${shape}`, async () => {
+        await rejects(call(stubFetch({ body }).fetch), /not an object/);
+      });
+    }
+  }
+
+  it("passes an object body through unchanged on both verbs", async () => {
+    // Guards against a narrowing that rejects everything.
+    const body = { agent_key: { id: 2, revoked_at: "2026-01-01T00:00:00Z" } };
+
+    for (const call of Object.values(verbs)) {
+      assert.deepEqual(await call(stubFetch({ body: JSON.stringify(body) }).fetch), body);
+    }
   });
 });
 
