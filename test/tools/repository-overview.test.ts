@@ -641,7 +641,23 @@ describe("get_repository_overview — the request it makes", () => {
     assert.match(description, /ONLY when `branch` is also asked/);
     assert.match(description, /WINDOW GRAIN[\s\S]*does\s+NOT move with `commit_sha`/);
     assert.match(description, /state: "ranked"`\s+with `rows: \[\]`/);
-    assert.match(description, /does NOT narrow `spec_file_examples`/);
+    // The closed list of narrowed blocks, run grain and window grain.
+    for (const block of [
+      "spec_files",
+      "spec_directories",
+      "repeated_descriptions",
+      "repeated_description_examples",
+      "spec_file_examples",
+      "spec_directory_files",
+      "unstable_tests_window.layer",
+    ]) {
+      assert.ok(description.includes(`\`${block}\``), `layer description must name \`${block}\``);
+    }
+    // unannotated_* stay NOT narrowed, stated in a NOT-narrowed clause.
+    assert.match(description, /NOT narrowed:[^.]*`unannotated_examples`/);
+    // The old false claims are gone.
+    assert.doesNotMatch(description, /does NOT\s+narrow\s+`spec_file_examples`/);
+    assert.doesNotMatch(description, /narrows\s+TWO\s+blocks/);
     for (const v of ["unit", "integration", "request", "system", "undeclared"]) {
       assert.ok(description.includes(`\`${v}\``), `layer description must list ${v}`);
     }

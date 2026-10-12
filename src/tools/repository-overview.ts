@@ -1051,30 +1051,40 @@ const getRepositoryOverview: ToolDefinition = {
       layer: {
         type: "string",
         description:
-          "Narrow to one DECLARED test layer. It narrows TWO blocks, at two different grains. " +
-          "(1) `latest_run.slowest_examples` — the run-wide slowest-examples ranking, at RUN " +
-          "GRAIN, so it moves with `commit_sha`; echoed as `slowest_examples.layer`. " +
-          "(2) The cross-run `slowest_tests` ranking — but ONLY when `branch` is also asked, " +
-          "because without `branch` that block is `null`. That one is at WINDOW GRAIN and does " +
-          "NOT move with `commit_sha`; echoed as `slowest_tests_window.layer`. On `slowest_tests` " +
-          "the CANDIDATE step is narrowed (a test is a candidate only if it has at least one " +
-          "anchor-run example in the layer), while each row's totals stay the whole durable " +
-          "test's — so a row's `declared_layers` may list several layers, not just the one you " +
-          "asked for. `resolved_count`, `candidate_count`, `timed_count` and `untimed_count` " +
-          "become the layer's anchor-run figures, while `recorded_count` and `unresolved_count` " +
-          "stay WHOLE-RUN. A layer the anchor run never declared answers `state: \"ranked\"` " +
-          "with `rows: []`: that is NOT \"nothing is slow\", it is \"nothing in that layer\". " +
-          "It does NOT narrow `spec_file_examples`, `spec_directory_files`, " +
-          "`unannotated_examples` or `repeated_description_examples`. " +
+          "Narrow to one DECLARED test layer. It narrows several blocks, at two different " +
+          "grains, and each narrowed block echoes `layer` on its own block (the key is ABSENT " +
+          "when a layer was not asked or is malformed). " +
+          "RUN GRAIN — these move with `commit_sha`: `latest_run.slowest_examples` (echoed as " +
+          "`slowest_examples.layer`), `spec_files`, `spec_directories` (both ranked by that " +
+          "layer's time), `repeated_descriptions` and `repeated_description_examples` " +
+          "(descriptions repeated WITHIN the layer), `spec_file_examples` and " +
+          "`spec_directory_files` (the latter adds a `layer-empty` state). A layer with no rows " +
+          "answers `rows: []` with the block still present. " +
+          "WINDOW GRAIN — these work ONLY when `branch` is also asked (without it each is `null`) " +
+          "and each does NOT move with `commit_sha`: the cross-run `slowest_tests` ranking (echoed as " +
+          "`slowest_tests_window.layer`) and `unstable_tests` (echoed as " +
+          "`unstable_tests_window.layer`; the candidate step is the tests that FAILED in a " +
+          "layer example, while each row's history stays whole). " +
+          "On `slowest_tests` the CANDIDATE step is narrowed (a test is a candidate only if it " +
+          "has at least one anchor-run example in the layer), while each row's totals stay the " +
+          "whole durable test's — so a row's `declared_layers` may list several layers, not just " +
+          "the one you asked for. `resolved_count`, `candidate_count`, `timed_count` and " +
+          "`untimed_count` become the layer's anchor-run figures, while `recorded_count` and " +
+          "`unresolved_count` stay WHOLE-RUN. A layer the anchor run never declared answers " +
+          "`state: \"ranked\"` with `rows: []`: that is NOT \"nothing is slow\", it is " +
+          "\"nothing in that layer\". " +
+          "NOT narrowed: `unannotated_examples` and `unannotated_directories` ignore `layer`. " +
           "Use it after `latest_run.layer_durations` shows one layer holding most of the machine " +
           "time (say `request`) and you need to know WHICH tests — in this run, or (with " +
           "`branch`) across the window. Values: `unit`, `integration`, `request`, `system` or " +
           "`undeclared` (a test that declared no layer). Any other value is read by the server " +
           "as NO ASK — never a 400 or 404 — so it is forwarded unvalidated and a typo silently " +
-          "returns the un-narrowed ranking: check that BOTH echoes come back — " +
-          "`slowest_examples.layer` and, when `branch` was asked, `slowest_tests_window.layer`. " +
+          "returns the un-narrowed ranking: check that the per-block echoes come back — " +
+          "`slowest_examples.layer` (and the same `layer` key on each other run-grain block you " +
+          "read) and, when `branch` was asked, `slowest_tests_window.layer` and " +
+          "`unstable_tests_window.layer`. " +
           "Each echo is present ONLY when a layer was asked and well-formed (the key is ABSENT " +
-          "otherwise, and `slowest_tests_window.layer` is also ABSENT whenever `branch` was not " +
+          "otherwise, and the two window echoes are also ABSENT whenever `branch` was not " +
           "asked). With a layer asked, on `slowest_examples` `recorded_count`, `timed_count` and " +
           "`reported_outcome_count` are that LAYER's own counts (`recorded_count` equals " +
           "`layer_counts[layer]`, `timed_count` equals `layer_durations[layer].timed_count`), " +
