@@ -433,6 +433,32 @@ describe("the version the server advertises", () => {
     }
   });
 
+  it("walks exactly six directory levels: a manifest at the sixth is found, one at the seventh is not", () => {
+    // Pins the walk's bound at its edge. The other resolver examples place the
+    // manifest two levels up, or place none anywhere, so a loop bound widened
+    // or narrowed within that range was never observed. Here a REAL,
+    // name-matching manifest sits at the sixth directory visited (found) and
+    // then at the seventh (not found — the walk stops first and answers the
+    // sentinel). The start files need not exist; resolution runs off their
+    // directories.
+    const root = mkdtempSync(join(tmpdir(), "sgmcp-version-"));
+    try {
+      writeFileSync(
+        join(root, "package.json"),
+        JSON.stringify({ name: "specguard-mcp", version: "7.7.7" }),
+      );
+      // root is the 6th directory visited (start dir = root/a/b/c/d/e).
+      assert.equal(readPackageVersion(join(root, "a", "b", "c", "d", "e", "server.js")), "7.7.7");
+      // root is the 7th (start dir = root/a/b/c/d/e/f).
+      assert.equal(
+        readPackageVersion(join(root, "a", "b", "c", "d", "e", "f", "server.js")),
+        "0.0.0",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("answers 0.0.0 without throwing when no discoverable manifest names this package", () => {
     // The no-throw contract, driven at unit level through the injected start
     // rather than by booting a manifest-less process: the temp tree is deep
