@@ -638,7 +638,46 @@ const getRepositoryOverview: ToolDefinition = {
     "layer that did not move reads `change: 0` — a measured zero, not an absence — and the five `change` " +
     "values sum to `anchor_recorded_count` minus `baseline_recorded_count`. The layers are DECLARED only, " +
     "never inferred from the path, and `undeclared` is NOT `unreadable`; the operands carry no pyramid " +
-    "verdict, so reading the drift is yours. The same " +
+    "verdict, so reading the drift is yours. " +
+    "HOW THE MACHINE TIME MOVED ACROSS THE `branch` WINDOW is two more pairs, the TIME siblings of " +
+    "`directory_growth` and `layer_growth`: `layer_runtime_window_growth` with its contract block " +
+    "`layer_runtime_window_growth_window` (declared-layer time) and `directory_runtime_window_growth` " +
+    "with its contract block `directory_runtime_window_growth_window` (per-AREA time). All four are " +
+    "TOP-LEVEL siblings of `directory_growth` and `layer_growth`, NOT inside `latest_run`, and " +
+    "BRANCH-GATED exactly as they are: without `branch` both growth keys are `null` and both window " +
+    "blocks read `grouped: false` with `state: null` (no query ran, and there is no all-branches " +
+    "fallback). They are the window grain of `layer_runtime_growth` and `directory_runtime_growth`, " +
+    "which compare only the latest run with the previous one and need no branch: ask those \"did my " +
+    "push make something slower?\" and these \"how has the time drifted over the window?\", because a " +
+    "small slowdown and a small speedup per push cancel here and are never flagged. They compare the " +
+    "two ENDPOINTS of the window — each window block's `basis` is `\"two_endpoints\"` — and are NOT a " +
+    "series: a layer or area slowed in run 12 and sped up in run 25 reads `change: 0`. The baseline is " +
+    "found by the same walk as `directory_growth`, so for one window all of them carry the same " +
+    "`baseline_commit_sha` and `runs_back`. Each window block carries `basis`, `branch_scope`, " +
+    "`branch`, `grouped`, `state`, `comparable`, `anchor_commit_sha`, `baseline_commit_sha` and " +
+    "`runs_back`; `directory_runtime_window_growth_window` also carries `order` " +
+    "(`abs_change_desc_nulls_last,path_asc` — an area an end did not time sorts after every timed " +
+    "one), `tie_break_served` and `limit`, and echoes `layer` ONLY when `layer` was asked (that pair " +
+    "is narrowed by `layer`; `layer_runtime_window_growth` is NOT). Each growth key is `null` in EVERY " +
+    "non-comparable state — NEVER a block of zeros, so `null` is not \"no change\" — and the window " +
+    "block's `state` names why, one of eleven: `anchor_unmeasured`, `no_earlier_run`, " +
+    "`no_measured_baseline`, `no_comparable_composition`, `neither_recorded`, `baseline_unrecorded`, " +
+    "`anchor_unrecorded`, `neither_timed`, `baseline_untimed`, `anchor_untimed` or `comparable` (the " +
+    "three timing states mean an end recorded example rows but timed none of them, so there is " +
+    "nothing to subtract). Each window block's `comparable` is true exactly when its growth key is " +
+    "non-null. When comparable, `layer_runtime_window_growth` is `{layers}`, where `layers` holds " +
+    "`unit`, `integration`, `request`, `system` and `undeclared`, each `{baseline_seconds, " +
+    "anchor_seconds, baseline_timed_count, anchor_timed_count, baseline_count, anchor_count, change}`; " +
+    "`directory_runtime_window_growth` is `{rows, directory_count, truncated, baseline_recorded_count, " +
+    "anchor_recorded_count, baseline_timed_count, anchor_timed_count, limit}` (plus `layer` when " +
+    "asked), `rows` being per-area operands and `change`. `change` is anchor minus baseline in seconds " +
+    "and is `null` — NOT 0 — when either end was untimed (an untimed layer or area is not a " +
+    "zero-second one, and reading it as one would turn a telemetry gap into a speedup); one timed on " +
+    "both ends that did not move reads `change: 0`, a measured zero. The `*_timed_count` fields are " +
+    "the denominators the seconds were summed over. It is a SUM of machine time, NOT wall clock, so " +
+    "it can exceed `duration_seconds` on a parallel or sharded run. Layers are DECLARED only, never " +
+    "inferred from the path; no verdict is given on a slow layer or area, so reading the shift is " +
+    "yours. The same " +
     "`layer_counts` rides each row of `spec_directories`, each row of `spec_files` and each row of " +
     "`repeated_descriptions` (the same five operands, DECLARED only and never inferred from the path, " +
     "measured zeros, summing to that row's `recorded_count`), the `spec_directory_files` area block " +
@@ -799,7 +838,11 @@ const getRepositoryOverview: ToolDefinition = {
           "The declared-layer mix over that same window — `layer_growth` with its contract block " +
           "`layer_growth_window` (the two ENDPOINTS of the window, like `directory_growth`) — is " +
           "UNLOCKED by `branch` in the same way and is `null` without it; it is NOT one of the " +
-          "branch-free pairs above.",
+          "branch-free pairs above. So are the two window-grain TIME pairs " +
+          "`layer_runtime_window_growth` / `layer_runtime_window_growth_window` and " +
+          "`directory_runtime_window_growth` / `directory_runtime_window_growth_window` (machine " +
+          "time between the window's two ENDPOINTS): `null` without `branch`, and `layer` narrows " +
+          "the second pair only.",
       },
       spec_directory: {
         type: "string",
@@ -1079,7 +1122,12 @@ const getRepositoryOverview: ToolDefinition = {
           "`unstable_tests_window.layer`; the candidate step is the tests that FAILED in a " +
           "layer example, while each row's history stays whole) and `directory_growth` (the " +
           "per-area movement between the two ENDPOINTS of the window, narrowed to the layer's " +
-          "examples; echoed as `directory_growth.layer` and `directory_growth_window.layer`). " +
+          "examples; echoed as `directory_growth.layer` and `directory_growth_window.layer`) and " +
+          "`directory_runtime_window_growth` (the per-area TIME movement between the same two " +
+          "ENDPOINTS, narrowed to the layer's examples; echoed as " +
+          "`directory_runtime_window_growth.layer` and `directory_runtime_window_growth_window.layer`). " +
+          "`layer_runtime_window_growth` is NOT narrowed — it already splits time BY declared layer, " +
+          "so it ignores `layer`. " +
           "On `slowest_tests` the CANDIDATE step is narrowed (a test is a candidate only if it " +
           "has at least one anchor-run example in the layer), while each row's totals stay the " +
           "whole durable test's — so a row's `declared_layers` may list several layers, not just " +
@@ -1098,7 +1146,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`slowest_examples.layer` (and the same `layer` key on each other run-grain block you " +
           "read, such as the growth echoes above) and, " +
           "when `branch` was asked, `slowest_tests_window.layer`, `unstable_tests_window.layer`, " +
-          "`directory_growth.layer` and `directory_growth_window.layer`. " +
+          "`directory_growth.layer`, `directory_growth_window.layer`, " +
+          "`directory_runtime_window_growth.layer` and `directory_runtime_window_growth_window.layer`. " +
           "Each echo is present ONLY when a layer was asked and well-formed (the key is ABSENT " +
           "otherwise, and the window-grain echoes are also ABSENT whenever `branch` was not " +
           "asked). With a layer asked, on `slowest_examples` `recorded_count`, `timed_count` and " +
