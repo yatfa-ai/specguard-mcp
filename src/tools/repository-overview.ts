@@ -788,8 +788,10 @@ const getRepositoryOverview: ToolDefinition = {
           "`unstable_tests` (which tests failed intermittently across the window rather than " +
           "consistently), `slowest_tests` together with its `slowest_tests_window` (which durable " +
           "tests cost the most wall clock across the window) and `directory_growth` (how each area " +
-          "moved between the two ENDPOINTS of that window). Add `layer` to narrow `slowest_tests` to " +
-          "one declared layer. The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
+          "moved between the two ENDPOINTS of that window). Add `layer` to narrow " +
+          "`slowest_tests` (and, in the same window, `unstable_tests` and `directory_growth`) to " +
+          "one declared layer. " +
+          "The per-area comparisons against the PREVIOUS RUN — `directory_run_growth` " +
           "and `directory_runtime_growth`, the declared-layer mix pair `layer_run_growth` / " +
           "`layer_run_growth_window`, and the declared-layer time pair `layer_runtime_growth` / " +
           "`layer_runtime_growth_window` — need no branch and take none; they scope to the latest " +
@@ -1058,13 +1060,26 @@ const getRepositoryOverview: ToolDefinition = {
           "`slowest_examples.layer`), `spec_files`, `spec_directories` (both ranked by that " +
           "layer's time), `repeated_descriptions` and `repeated_description_examples` " +
           "(descriptions repeated WITHIN the layer), `spec_file_examples` and " +
-          "`spec_directory_files` (the latter adds a `layer-empty` state). A layer with no rows " +
-          "answers `rows: []` with the block still present. " +
+          "`spec_directory_files` (the latter adds a `layer-empty` state), and the previous-run " +
+          "area-growth blocks `directory_run_growth` (echoed as `directory_run_growth.layer` and " +
+          "`directory_run_growth_window.layer`) and `directory_runtime_growth` (echoed as " +
+          "`directory_runtime_growth.layer` and `directory_runtime_growth_window.layer`) plus, when " +
+          "`spec_directory` is also asked, the file-growth drill-ins `directory_run_file_growth` " +
+          "(`directory_run_file_growth.layer` / `directory_run_file_growth_window.layer`) and " +
+          "`directory_runtime_file_growth` (`directory_runtime_file_growth.layer` / " +
+          "`directory_runtime_file_growth_window.layer`). " +
+          "The four growth blocks need no `branch` (they compare the latest run with the previous " +
+          "run on its own branch) and move with `commit_sha`; every area count and every time sum " +
+          "in them is THAT layer's, not the area's whole population. A layer empty in both runs " +
+          "stays comparable with no rows; a layer empty in only one run reads as a new or removed " +
+          "area. A layer with no rows answers `rows: []` with the block still present. " +
           "WINDOW GRAIN — these work ONLY when `branch` is also asked (without it each is `null`) " +
           "and each does NOT move with `commit_sha`: the cross-run `slowest_tests` ranking (echoed as " +
           "`slowest_tests_window.layer`) and `unstable_tests` (echoed as " +
           "`unstable_tests_window.layer`; the candidate step is the tests that FAILED in a " +
-          "layer example, while each row's history stays whole). " +
+          "layer example, while each row's history stays whole) and `directory_growth` (the " +
+          "per-area movement between the two ENDPOINTS of the window, narrowed to the layer's " +
+          "examples; echoed as `directory_growth.layer` and `directory_growth_window.layer`). " +
           "On `slowest_tests` the CANDIDATE step is narrowed (a test is a candidate only if it " +
           "has at least one anchor-run example in the layer), while each row's totals stay the " +
           "whole durable test's — so a row's `declared_layers` may list several layers, not just " +
@@ -1081,10 +1096,11 @@ const getRepositoryOverview: ToolDefinition = {
           "as NO ASK — never a 400 or 404 — so it is forwarded unvalidated and a typo silently " +
           "returns the un-narrowed ranking: check that the per-block echoes come back — " +
           "`slowest_examples.layer` (and the same `layer` key on each other run-grain block you " +
-          "read) and, when `branch` was asked, `slowest_tests_window.layer` and " +
-          "`unstable_tests_window.layer`. " +
+          "read, such as the growth echoes above) and, " +
+          "when `branch` was asked, `slowest_tests_window.layer`, `unstable_tests_window.layer`, " +
+          "`directory_growth.layer` and `directory_growth_window.layer`. " +
           "Each echo is present ONLY when a layer was asked and well-formed (the key is ABSENT " +
-          "otherwise, and the two window echoes are also ABSENT whenever `branch` was not " +
+          "otherwise, and the window-grain echoes are also ABSENT whenever `branch` was not " +
           "asked). With a layer asked, on `slowest_examples` `recorded_count`, `timed_count` and " +
           "`reported_outcome_count` are that LAYER's own counts (`recorded_count` equals " +
           "`layer_counts[layer]`, `timed_count` equals `layer_durations[layer].timed_count`), " +
