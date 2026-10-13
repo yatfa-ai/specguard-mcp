@@ -193,13 +193,13 @@ before any request is made.
 | argument | |
 | --- | --- |
 | `repository` | ask about THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed call |
-| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth` and `layer_growth` (with `layer_growth_window`), which read the same window (`layer` narrows `slowest_tests`, `unstable_tests` and `directory_growth` there) |
+| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth`, `layer_growth` (with `layer_growth_window`), `layer_runtime_window_growth` (with `layer_runtime_window_growth_window`) and `directory_runtime_window_growth` (with `directory_runtime_window_growth_window`), which read the same window (`layer` narrows `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` there; `layer_runtime_window_growth` is not narrowed) |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests` and `directory_growth` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
+| `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
@@ -389,7 +389,10 @@ area); a layer with no rows answers `rows: []` with the block still present. **W
 `slowest_tests` (echoed as `slowest_tests_window.layer`) and `unstable_tests` (echoed as
 `unstable_tests_window.layer`; the candidate step is the tests that *failed* in a layer example while each
 row's history stays whole) and `directory_growth` (echoed as `directory_growth.layer` and
-`directory_growth_window.layer`); all the window echoes are absent when `branch` is not asked or the value is malformed.
+`directory_growth_window.layer`) and `directory_runtime_window_growth` (the per-area **time** movement between the
+same two endpoints; echoed as `directory_runtime_window_growth.layer` and
+`directory_runtime_window_growth_window.layer`); `layer_runtime_window_growth` is **not** narrowed. All the window echoes are
+absent when `branch` is not asked or the value is malformed.
 On `slowest_tests` the candidate step is narrowed (at least one anchor-run example in the
 layer) while row totals stay the whole durable test's, so `declared_layers` may list several layers;
 `resolved_count`, `candidate_count`, `timed_count` and `untimed_count` become the layer's anchor-run
@@ -459,6 +462,29 @@ exactly when `layer_growth` is non-null. When comparable, `layer_growth` is
 move reads `change: 0` — a **measured zero**, not an absence — and the five `change` values sum to
 `anchor_recorded_count` minus `baseline_recorded_count`. Layers are **declared only**, never inferred from
 the path, `undeclared` is **not** `unreadable`, and no pyramid verdict is given.
+**How the machine time moved across the `branch` window** is two more pairs, the time siblings of
+`directory_growth` and `layer_growth`: `layer_runtime_window_growth` with its contract block
+`layer_runtime_window_growth_window` (declared-layer time) and `directory_runtime_window_growth` with
+`directory_runtime_window_growth_window` (per-area time). All four are **top-level siblings of
+`directory_growth`**, not inside `latest_run`, and **branch-gated** exactly as it is: without `branch` both growth
+keys are `null` and both window blocks read `grouped: false` with `state: null` (no query ran, and there is no
+all-branches fallback). They are the window grain of `layer_runtime_growth` and `directory_runtime_growth`, which
+compare only the latest run with the previous one and need no branch. They compare the **two endpoints** of the
+window (`basis` is `"two_endpoints"`) and are **not a series**: a layer or area slowed in run 12 and sped up in run
+25 reads `change: 0`. The baseline is found by the same walk as `directory_growth`, so for one window all of them
+carry the same `baseline_commit_sha` and `runs_back`. `directory_runtime_window_growth_window` also carries `order`
+(`abs_change_desc_nulls_last,path_asc`), `tie_break_served` and `limit`, and echoes `layer` only when `layer` was
+asked (that pair is narrowed by `layer`; `layer_runtime_window_growth` is not). Each growth key is `null` in
+**every** non-comparable state — **never a block of zeros** — and the window block's `state` names why, one of
+eleven: `anchor_unmeasured`, `no_earlier_run`, `no_measured_baseline`, `no_comparable_composition`,
+`neither_recorded`, `baseline_unrecorded`, `anchor_unrecorded`, `neither_timed`, `baseline_untimed`,
+`anchor_untimed` or `comparable`. `comparable` is true exactly when the growth key is non-null. When comparable,
+`layer_runtime_window_growth` is `{layers}` with `unit`, `integration`, `request`, `system` and `undeclared`, each
+`{baseline_seconds, anchor_seconds, baseline_timed_count, anchor_timed_count, baseline_count, anchor_count, change}`;
+`directory_runtime_window_growth` is `{rows, directory_count, truncated, baseline_recorded_count,
+anchor_recorded_count, baseline_timed_count, anchor_timed_count, limit}`. `change` is anchor minus baseline in
+seconds and is `null` — **not** `0` — when either end was untimed; one timed on both ends that did not move reads
+`change: 0`. It is a **sum of machine time**, not wall clock, layers are **declared only**, and no verdict is given.
 The same
 `layer_counts` rides each row of
 `spec_directories`, each row of `spec_files` and each row of `repeated_descriptions` (the same five

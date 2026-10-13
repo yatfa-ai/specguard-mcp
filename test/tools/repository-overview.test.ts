@@ -662,6 +662,10 @@ describe("get_repository_overview — the request it makes", () => {
       "directory_growth",
       "directory_growth.layer",
       "directory_growth_window.layer",
+      // SPGD-1796: the window-grain TIME pair that `?layer=` narrows (server SPGD-1788).
+      "directory_runtime_window_growth",
+      "directory_runtime_window_growth.layer",
+      "directory_runtime_window_growth_window.layer",
     ]) {
       assert.ok(description.includes(`\`${block}\``), `layer description must name \`${block}\``);
     }
@@ -1754,6 +1758,79 @@ describe("get_repository_overview — failures an agent can act on", () => {
       branch.branch!.description,
       /`layer_runtime_growth` \/ `layer_runtime_growth_window`/,
       "branch param must list the runtime pair as branch-free",
+    );
+  });
+
+  it("advertises the window-grain TIME pairs layer_/directory_runtime_window_growth: branch-gated, two_endpoints, null-not-zeros, eleven states", () => {
+    const description = getRepositoryOverview.description;
+
+    for (const key of [
+      "layer_runtime_window_growth",
+      "layer_runtime_window_growth_window",
+      "directory_runtime_window_growth",
+      "directory_runtime_window_growth_window",
+    ]) {
+      assert.ok(description.includes(`\`${key}\``), `must name \`${key}\``);
+    }
+    assert.match(description, /TOP-LEVEL siblings of `directory_growth` and `layer_growth`, NOT inside `latest_run`/);
+    assert.match(
+      description,
+      /BRANCH-GATED[\s\S]*without `branch` both growth keys are `null` and both window\s+blocks read `grouped: false` with `state: null`/,
+      "must state branch-gating",
+    );
+    assert.match(description, /basis` is `"two_endpoints"`[\s\S]*NOT a\s+series/, "must state two_endpoints, not a series");
+    assert.match(description, /same walk as `directory_growth`[\s\S]*`baseline_commit_sha` and `runs_back`/, "must state the shared baseline walk");
+    assert.match(
+      description,
+      /Each growth key is `null` in EVERY\s+non-comparable state — NEVER a block of zeros/,
+      "must state null-not-zeros",
+    );
+    assert.match(description, /one of eleven/, "must state the count of states");
+    for (const state of [
+      "anchor_unmeasured",
+      "no_earlier_run",
+      "no_measured_baseline",
+      "no_comparable_composition",
+      "neither_recorded",
+      "baseline_unrecorded",
+      "anchor_unrecorded",
+      "neither_timed",
+      "baseline_untimed",
+      "anchor_untimed",
+      "comparable",
+    ]) {
+      assert.ok(description.includes(`\`${state}\``), `must name state \`${state}\``);
+    }
+    assert.match(
+      description,
+      /`change` is anchor minus baseline in seconds\s+and is `null` — NOT 0 — when either end was untimed/,
+      "must state change is null, not 0, when an end is untimed",
+    );
+    assert.match(description, /SUM of machine time, NOT wall clock/, "must state machine time, not wall clock");
+    assert.match(description, /no verdict is given on a slow layer or area/, "must state no verdict");
+    assert.match(
+      description,
+      /window grain of `layer_runtime_growth` and `directory_runtime_growth`/,
+      "must distinguish from the previous-run pairs",
+    );
+    assert.match(description, /that pair\s+is narrowed by `layer`; `layer_runtime_window_growth` is NOT/, "must state which pair `layer` narrows");
+
+    const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    const branchText = props["branch"]!.description;
+    assert.match(
+      branchText,
+      /UNLOCKED by `branch`[\s\S]*`layer_runtime_window_growth` \/ `layer_runtime_window_growth_window`[\s\S]*`directory_runtime_window_growth` \/ `directory_runtime_window_growth_window`[\s\S]*`null` without `branch`/,
+      "branch param must list both TIME pairs as UNLOCKED",
+    );
+    const branchFree = branchText.match(/the PREVIOUS RUN[\s\S]*?already carries them\./);
+    assert.ok(branchFree, "branch param must keep the branch-free sentence");
+    assert.doesNotMatch(branchFree![0], /runtime_window_growth/, "window TIME pairs must not be among the branch-free pairs");
+
+    const layerText = props["layer"]!.description;
+    assert.match(
+      layerText,
+      /WINDOW GRAIN[\s\S]*`directory_runtime_window_growth`[\s\S]*`layer_runtime_window_growth` is NOT narrowed/,
+      "layer param must place directory_runtime_window_growth at WINDOW GRAIN and say layer_runtime_window_growth is not narrowed",
     );
   });
 
