@@ -193,13 +193,13 @@ before any request is made.
 | argument | |
 | --- | --- |
 | `repository` | ask about THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed call |
-| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth` and `layer_growth` (with `layer_growth_window`), which read the same window |
+| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth` and `layer_growth` (with `layer_growth_window`), which read the same window (`layer` narrows `slowest_tests`, `unstable_tests` and `directory_growth` there) |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`) and — when `branch` is also asked — the window-grain `slowest_tests` and `unstable_tests` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
+| `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests` and `directory_growth` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
@@ -380,11 +380,16 @@ echoes `layer` on its own block (the key is absent when a layer was not asked or
 grain** (moves with `commit_sha`): `latest_run.slowest_examples` (echoed as `slowest_examples.layer`),
 `spec_files` and `spec_directories` (ranked by that layer's time), `repeated_descriptions` and
 `repeated_description_examples` (repeated *within* the layer), `spec_file_examples` and
-`spec_directory_files` (which adds a `layer-empty` state); a layer with no rows answers `rows: []` with the
-block still present. **Window grain** (needs `branch`, does **not** move with `commit_sha`): the cross-run
+`spec_directory_files` (which adds a `layer-empty` state), and the previous-run area-growth blocks
+`directory_run_growth` and `directory_runtime_growth` plus, when `spec_directory` is also asked,
+`directory_run_file_growth` and `directory_runtime_file_growth` (each echoed as `<block>.layer` and
+`<block>_window.layer`; they need no `branch`, and every area count and time sum in them is that layer's;
+a layer empty in both runs stays comparable with no rows, empty in only one run reads as a new or removed
+area); a layer with no rows answers `rows: []` with the block still present. **Window grain** (needs `branch`, does **not** move with `commit_sha`): the cross-run
 `slowest_tests` (echoed as `slowest_tests_window.layer`) and `unstable_tests` (echoed as
 `unstable_tests_window.layer`; the candidate step is the tests that *failed* in a layer example while each
-row's history stays whole); both echoes are absent when `branch` is not asked or the value is malformed.
+row's history stays whole) and `directory_growth` (echoed as `directory_growth.layer` and
+`directory_growth_window.layer`); all the window echoes are absent when `branch` is not asked or the value is malformed.
 On `slowest_tests` the candidate step is narrowed (at least one anchor-run example in the
 layer) while row totals stay the whole durable test's, so `declared_layers` may list several layers;
 `resolved_count`, `candidate_count`, `timed_count` and `untimed_count` become the layer's anchor-run

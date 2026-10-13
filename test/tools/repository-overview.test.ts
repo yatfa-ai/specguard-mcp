@@ -650,9 +650,38 @@ describe("get_repository_overview — the request it makes", () => {
       "spec_file_examples",
       "spec_directory_files",
       "unstable_tests_window.layer",
+      // SPGD-1791: the area-growth family `?layer=` also narrows (server SPGD-1780 / SPGD-1782).
+      "directory_run_growth",
+      "directory_run_growth_window.layer",
+      "directory_runtime_growth",
+      "directory_runtime_growth_window.layer",
+      "directory_run_file_growth",
+      "directory_run_file_growth_window.layer",
+      "directory_runtime_file_growth",
+      "directory_runtime_file_growth_window.layer",
+      "directory_growth",
+      "directory_growth.layer",
+      "directory_growth_window.layer",
     ]) {
       assert.ok(description.includes(`\`${block}\``), `layer description must name \`${block}\``);
     }
+    // Grain placement of the growth family: the four previous-run blocks move with `commit_sha` and
+    // need no `branch`; `directory_growth` is window grain and needs `branch`.
+    assert.match(
+      description,
+      /RUN GRAIN[^]*`directory_run_growth`[^]*need no `branch`[^]*WINDOW GRAIN/,
+      "run-grain growth blocks must be named before WINDOW GRAIN and stated to need no `branch`",
+    );
+    assert.match(
+      description,
+      /WINDOW GRAIN[^]*`directory_growth`[^]*`directory_growth_window\.layer`/,
+      "directory_growth must be placed at WINDOW GRAIN",
+    );
+    assert.match(description, /window-grain echoes are also ABSENT whenever `branch` was not\s+asked/, "window echoes must be stated absent without `branch`");
+    // `branch` no longer implies slowest_tests is the only layer-narrowable window block.
+    const branchDescription = (properties["branch"] as { description?: string })?.description ?? "";
+    assert.doesNotMatch(branchDescription, /Add `layer` to narrow `slowest_tests` to\s+one declared layer\./);
+    assert.match(branchDescription, /Add `layer` to narrow\s+`slowest_tests` \(and[^)]*`unstable_tests`[^)]*`directory_growth`/);
     // unannotated_* stay NOT narrowed, stated in a NOT-narrowed clause.
     assert.match(description, /NOT narrowed:[^.]*`unannotated_examples`/);
     // The old false claims are gone.
