@@ -193,13 +193,13 @@ before any request is made.
 | argument | |
 | --- | --- |
 | `repository` | ask about THIS repository (its numeric id from `list_repositories`) under the **agent key** (`SPECGUARD_AGENT_API_KEY`, `sga_…`), or — when no agent key is set — the **user key** (`SPECGUARD_USER_API_KEY`, `sgu_…`), instead of the one the `sgk_…` key resolves to — omit it for the default, `sgk_`-keyed call |
-| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth`, `layer_growth` (with `layer_growth_window`), `layer_runtime_window_growth` (with `layer_runtime_window_growth_window`) and `directory_runtime_window_growth` (with `directory_runtime_window_growth_window`), which read the same window (`layer` narrows `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` there; `layer_runtime_window_growth` is not narrowed) |
+| `branch` | narrow the run **history** to one branch, for a real growth series — and unlock `unstable_tests`, `slowest_tests` (with `slowest_tests_window`), `directory_growth`, `layer_growth` (with `layer_growth_window`), `layer_runtime_window_growth` (with `layer_runtime_window_growth_window`) and `directory_runtime_window_growth` (with `directory_runtime_window_growth_window`), which read the same window (`layer` narrows `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` there; `layer_runtime_window_growth` is not narrowed) — and, together with `spec_directory`, the window file drill-ins `directory_file_growth` (with `directory_file_growth_window`) and `directory_runtime_window_file_growth` (with `directory_runtime_window_file_growth_window`), both `null` without `branch` and also without `spec_directory`, and both narrowed by `layer` |
 | `spec_directory` | open ONE of the heaviest directories and list the spec files inside it |
 | `spec_file` | open ONE of the heaviest spec files and list the individual examples inside it |
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
+| `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` (plus, with `spec_directory`, `directory_file_growth` and `directory_runtime_window_file_growth`) to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
 `branch` narrows `history` only — `latest_run` always names the repository's newest run, which on a
@@ -244,11 +244,14 @@ Omit the argument and the key is `null`, meaning *you did not ask*; an area the 
 for answers `rows: []` rather than an error, so a renamed or deleted directory is an empty result and
 not a failure.
 
-That one ask opens **three** blocks, each in its own grain: `latest_run.spec_directory_files` for
+That one ask opens **three** blocks at run grain, each in its own grain: `latest_run.spec_directory_files` for
 which files carry the area's wall clock, `directory_run_file_growth` for which of them changed size
 since the previous run, and `directory_runtime_file_growth` for which of them changed time. The last
 two are the answer to the question the area-grain comparisons dead-end on — `spec/models 412 → 459
-(+47)`, but *which files did that* — so they need no second parameter.
+(+47)`, but *which files did that* — so they need no second parameter. When `branch` is also asked it
+opens **two more**, at window grain: `directory_file_growth` (which files gained or lost examples across the
+`branch` window) and `directory_runtime_window_file_growth` (which got slower or faster across it), each with its
+`_window` contract block; both bodies are `null` without `branch`.
 
 `spec_files` ranks the heaviest files (each row: `path`, `total_seconds`, `recorded_count`,
 `timed_count`, `layer_counts`) but stops at the file grain, so it says *which files* cost the
@@ -391,7 +394,10 @@ area); a layer with no rows answers `rows: []` with the block still present. **W
 row's history stays whole) and `directory_growth` (echoed as `directory_growth.layer` and
 `directory_growth_window.layer`) and `directory_runtime_window_growth` (the per-area **time** movement between the
 same two endpoints; echoed as `directory_runtime_window_growth.layer` and
-`directory_runtime_window_growth_window.layer`); `layer_runtime_window_growth` is **not** narrowed. All the window echoes are
+`directory_runtime_window_growth_window.layer`) and, when `spec_directory` is also asked, the window file drill-ins
+`directory_file_growth` (echoed as `directory_file_growth.layer` and `directory_file_growth_window.layer`) and
+`directory_runtime_window_file_growth` (echoed as `directory_runtime_window_file_growth.layer` and
+`directory_runtime_window_file_growth_window.layer`); `layer_runtime_window_growth` is **not** narrowed. All the window echoes are
 absent when `branch` is not asked or the value is malformed.
 On `slowest_tests` the candidate step is narrowed (at least one anchor-run example in the
 layer) while row totals stay the whole durable test's, so `declared_layers` may list several layers;
@@ -485,6 +491,26 @@ eleven: `anchor_unmeasured`, `no_earlier_run`, `no_measured_baseline`, `no_compa
 anchor_recorded_count, baseline_timed_count, anchor_timed_count, limit}`. `change` is anchor minus baseline in
 seconds and is `null` — **not** `0` — when either end was untimed; one timed on both ends that did not move reads
 `change: 0`. It is a **sum of machine time**, not wall clock, layers are **declared only**, and no verdict is given.
+**Which files moved across the `branch` window** is two more pairs, the file grain of `directory_growth` and
+`directory_runtime_window_growth`: `directory_file_growth` with `directory_file_growth_window` (which spec files of
+one area gained or lost examples) and `directory_runtime_window_file_growth` with
+`directory_runtime_window_file_growth_window` (which got slower or faster). All four are **top-level siblings**, not
+inside `latest_run`; the two bodies are `null` unless `branch` **and** `spec_directory` are both asked (the window
+blocks are always present: otherwise they read `grouped: false` with `state: null`, and `path` restates the ask),
+and `layer` narrows both. They compare the **two endpoints** of the window (`basis` is `"two_endpoints"`) and are
+**not a series**: a file that changed in run 12 and changed back in run 25 reads `change: 0`, and a *moved* file reads
+as one removed file beside one new file. Each window block's `state` and `comparable` are the **parent area block's**
+verdict, not re-derived from the file rows — the eight states of `directory_growth_window` for
+`directory_file_growth`, the eleven of `directory_runtime_window_growth_window` for
+`directory_runtime_window_file_growth` — and each carries `path`, `order`, `tie_break_served`, `limit`, `basis`,
+`branch_scope`, `branch`, `grouped`, `anchor_commit_sha`, `baseline_commit_sha` and `runs_back`, plus `layer` only when
+`layer` was asked. Each body is `null` in every non-comparable state — never a block of zeros. When comparable,
+`directory_file_growth` is `{rows, file_count, truncated, baseline_recorded_count, anchor_recorded_count}`, each row
+`{path, baseline_count, anchor_count, change, moved, new_file, removed_file}`; `directory_runtime_window_file_growth`
+adds `baseline_timed_count` and `anchor_timed_count` (the four denominators are the **area's** own, not the whole
+run's) and its rows are `{path, baseline_seconds, anchor_seconds, change, comparable, moved, new_file, removed_file,
+timing_gap}`, where `change` is `null` — **not** `0` — for a new, removed or untimed end. `file_count` is counted
+**before** the `limit`, so `truncated` is judged against it and never against `rows.length`.
 The same
 `layer_counts` rides each row of
 `spec_directories`, each row of `spec_files` and each row of `repeated_descriptions` (the same five

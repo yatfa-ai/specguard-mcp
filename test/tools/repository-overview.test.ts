@@ -666,6 +666,13 @@ describe("get_repository_overview — the request it makes", () => {
       "directory_runtime_window_growth",
       "directory_runtime_window_growth.layer",
       "directory_runtime_window_growth_window.layer",
+      // SPGD-1807: the window FILE drill-ins `?layer=` narrows (server SPGD-1794 / SPGD-1803).
+      "directory_file_growth",
+      "directory_file_growth.layer",
+      "directory_file_growth_window.layer",
+      "directory_runtime_window_file_growth",
+      "directory_runtime_window_file_growth.layer",
+      "directory_runtime_window_file_growth_window.layer",
     ]) {
       assert.ok(description.includes(`\`${block}\``), `layer description must name \`${block}\``);
     }
@@ -1831,6 +1838,62 @@ describe("get_repository_overview — failures an agent can act on", () => {
       layerText,
       /WINDOW GRAIN[\s\S]*`directory_runtime_window_growth`[\s\S]*`layer_runtime_window_growth` is NOT narrowed/,
       "layer param must place directory_runtime_window_growth at WINDOW GRAIN and say layer_runtime_window_growth is not narrowed",
+    );
+  });
+
+  it("advertises the window FILE drill-ins directory_file_growth / directory_runtime_window_file_growth: gated on branch AND spec_directory, two_endpoints, null-not-zeros", () => {
+    const description = getRepositoryOverview.description;
+
+    for (const key of [
+      "directory_file_growth",
+      "directory_file_growth_window",
+      "directory_runtime_window_file_growth",
+      "directory_runtime_window_file_growth_window",
+    ]) {
+      assert.ok(description.includes(`\`${key}\``), `must name \`${key}\``);
+    }
+    assert.match(description, /FILE grain of `directory_growth`\s+and `directory_runtime_window_growth`/, "must place them as the file grain");
+    assert.match(
+      description,
+      /`null` unless `branch` AND\s+`spec_directory` are both asked/,
+      "must state the branch + spec_directory gate",
+    );
+    assert.match(description, /`basis` is\s+`"two_endpoints"`[\s\S]*NOT a series/, "must state two_endpoints, not a series");
+    assert.match(description, /a MOVED file reads as one removed file beside one new file/, "must state the moved-file reading");
+    assert.match(description, /PARENT area block's verdict/, "must state state is the parent's verdict");
+    assert.match(description, /the eight states of `directory_growth_window`/, "must state the eight count states");
+    assert.match(description, /the eleven of\s+`directory_runtime_window_growth_window`/, "must state the eleven time states");
+    assert.match(description, /`new_file`|new_file, removed_file/, "must name the per-row new/removed flags");
+    assert.match(description, /`change` is `null` — NOT 0 — for a new,\s+removed or untimed end/, "time change is null, not 0");
+    assert.match(description, /`baseline_timed_count` and `anchor_timed_count`/, "must name the timed denominators");
+    assert.match(description, /counted BEFORE the `limit`/, "file_count is counted before the limit");
+    assert.match(description, /plus `layer` ONLY when `layer`\s+was asked/, "layer echoed only when asked");
+
+    const props = (getRepositoryOverview.inputSchema.properties ?? {}) as Record<string, { description: string }>;
+    const branchText = props["branch"]!.description;
+    assert.match(
+      branchText,
+      /`directory_file_growth` \/ `directory_file_growth_window`[\s\S]*`directory_runtime_window_file_growth` \/ `directory_runtime_window_file_growth_window`[\s\S]*`null` without `branch` and also without `spec_directory`/,
+      "branch param must list both file drill-ins as UNLOCKED and gated on spec_directory",
+    );
+    const branchFree = branchText.match(/the PREVIOUS RUN[\s\S]*?already carries them\./);
+    assert.ok(branchFree, "branch param must keep the branch-free sentence");
+    assert.doesNotMatch(branchFree![0], /file_growth/, "window file drill-ins must not be among the branch-free pairs");
+
+    const specDirText = props["spec_directory"]!.description;
+    assert.doesNotMatch(specDirText, /opens THREE blocks, each/, "spec_directory must not claim only THREE blocks without the window qualifier");
+    assert.match(specDirText, /THREE blocks at run grain/, "spec_directory must qualify the three as run grain");
+    assert.match(
+      specDirText,
+      /`branch` is also asked it opens TWO more, at window grain: `directory_file_growth`[\s\S]*`directory_runtime_window_file_growth`/,
+      "spec_directory must name the two window-grain blocks gated on branch",
+    );
+
+    const layerText = props["layer"]!.description;
+    assert.match(
+      layerText,
+      /WINDOW GRAIN[\s\S]*`directory_file_growth`[\s\S]*`directory_runtime_window_file_growth`[\s\S]*`layer_runtime_window_growth` is NOT narrowed/,
+      "layer param must place both file drill-ins at WINDOW GRAIN",
     );
   });
 

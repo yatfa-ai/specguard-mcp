@@ -677,7 +677,36 @@ const getRepositoryOverview: ToolDefinition = {
     "the denominators the seconds were summed over. It is a SUM of machine time, NOT wall clock, so " +
     "it can exceed `duration_seconds` on a parallel or sharded run. Layers are DECLARED only, never " +
     "inferred from the path; no verdict is given on a slow layer or area, so reading the shift is " +
-    "yours. The same " +
+    "yours. " +
+    "WHICH FILES MOVED ACROSS THE `branch` WINDOW is two more pairs, the FILE grain of `directory_growth` " +
+    "and `directory_runtime_window_growth`: `directory_file_growth` with its contract block " +
+    "`directory_file_growth_window` (which spec files of ONE area gained or lost examples) and " +
+    "`directory_runtime_window_file_growth` with its contract block " +
+    "`directory_runtime_window_file_growth_window` (which of them got slower or faster). All four are " +
+    "TOP-LEVEL siblings, NOT inside `latest_run`, and the two bodies are `null` unless `branch` AND " +
+    "`spec_directory` are both asked (the window blocks are always present: without both they read " +
+    "`grouped: false` with `state: null`, and `path` restates the ask, `null` when no area was asked; " +
+    "no query ran); `layer` narrows both. They compare the two ENDPOINTS of the window — `basis` is " +
+    "`\"two_endpoints\"` — and are NOT a series: a file that changed in run 12 and changed back in " +
+    "run 25 reads `change: 0`, and a MOVED file reads as one removed file beside one new file. Each " +
+    "window block's `state` and `comparable` are the PARENT area block's verdict, not re-derived from " +
+    "the file rows — for `directory_file_growth` the eight states of `directory_growth_window` and " +
+    "`layer_growth_window`, for `directory_runtime_window_file_growth` the eleven of " +
+    "`directory_runtime_window_growth_window` — and each carries `path`, `order`, `tie_break_served`, " +
+    "`limit` and the same `basis`, `branch_scope`, `branch`, `grouped`, `anchor_commit_sha`, " +
+    "`baseline_commit_sha` and `runs_back` as the area window blocks, plus `layer` ONLY when `layer` " +
+    "was asked. Each body is `null` in EVERY non-comparable state — NEVER a block of zeros. When " +
+    "comparable, `directory_file_growth` is `{rows, file_count, truncated, baseline_recorded_count, " +
+    "anchor_recorded_count}` (plus `layer` when asked), each row `{path, baseline_count, anchor_count, " +
+    "change, moved, new_file, removed_file}`; `directory_runtime_window_file_growth` adds " +
+    "`baseline_timed_count` and `anchor_timed_count` — the four denominators are the AREA's own, not " +
+    "the whole run's — and its rows are `{path, baseline_seconds, anchor_seconds, change, comparable, " +
+    "moved, new_file, removed_file, timing_gap}`, where `change` is `null` — NOT 0 — for a new, " +
+    "removed or untimed end (the seconds are `null` for an untimed or absent end, and `timing_gap` " +
+    "says both ends have the file and one reported no timing). `file_count` is the area's file total " +
+    "counted BEFORE the `limit`, so `truncated` is judged against it and never against " +
+    "`rows.length`. " +
+    "The same " +
     "`layer_counts` rides each row of `spec_directories`, each row of `spec_files` and each row of " +
     "`repeated_descriptions` (the same five operands, DECLARED only and never inferred from the path, " +
     "measured zeros, summing to that row's `recorded_count`), the `spec_directory_files` area block " +
@@ -842,7 +871,11 @@ const getRepositoryOverview: ToolDefinition = {
           "`layer_runtime_window_growth` / `layer_runtime_window_growth_window` and " +
           "`directory_runtime_window_growth` / `directory_runtime_window_growth_window` (machine " +
           "time between the window's two ENDPOINTS): `null` without `branch`, and `layer` narrows " +
-          "the second pair only.",
+          "the second pair only. So are the two window-grain FILE drill-ins " +
+          "`directory_file_growth` / `directory_file_growth_window` and " +
+          "`directory_runtime_window_file_growth` / `directory_runtime_window_file_growth_window` " +
+          "(which files of the ONE area named by `spec_directory` moved, in count and in time): " +
+          "`null` without `branch` and also without `spec_directory`, and `layer` narrows both.",
       },
       spec_directory: {
         type: "string",
@@ -856,12 +889,15 @@ const getRepositoryOverview: ToolDefinition = {
           "`layer_counts`, `file_count`, " +
           "`recorded_count`, `timed_count` and the `limit` the row list was cut at (the totals " +
           "describe the whole area, not the returned page, so do not re-derive them from `rows`). " +
-          "The one ask opens THREE blocks, each in its own grain: `spec_directory_files` for which " +
+          "The one ask opens THREE blocks at run grain, each in its own grain: `spec_directory_files` for which " +
           "files carry the area's wall clock, `directory_run_file_growth` for which of them changed " +
           "SIZE since the previous run, and `directory_runtime_file_growth` for which of them " +
           "changed TIME. The last two are the answer to the dead end the area-grain comparisons " +
           "leave — `spec/models 412 → 459 (+47)`, but WHICH FILES did that — and they need no " +
-          "second parameter. " +
+          "second parameter. When `branch` is also asked it opens TWO more, at window grain: " +
+          "`directory_file_growth` (which files gained or lost examples across the `branch` window) " +
+          "and `directory_runtime_window_file_growth` (which got slower or faster across it), each " +
+          "with its `_window` contract block; both bodies are `null` without `branch`. " +
           "SENT TOGETHER WITH `unannotated_examples`, it also narrows THAT worklist to this area — " +
           "its rows and its `recorded_count` both — and that block echoes the path back so you can " +
           "see which population its count is of. That is a narrowing of a block the FLAG opened, " +
@@ -1125,7 +1161,11 @@ const getRepositoryOverview: ToolDefinition = {
           "examples; echoed as `directory_growth.layer` and `directory_growth_window.layer`) and " +
           "`directory_runtime_window_growth` (the per-area TIME movement between the same two " +
           "ENDPOINTS, narrowed to the layer's examples; echoed as " +
-          "`directory_runtime_window_growth.layer` and `directory_runtime_window_growth_window.layer`). " +
+          "`directory_runtime_window_growth.layer` and `directory_runtime_window_growth_window.layer`) " +
+          "and, when `spec_directory` is also asked, the window file drill-ins `directory_file_growth` " +
+          "(`directory_file_growth.layer` / `directory_file_growth_window.layer`) and " +
+          "`directory_runtime_window_file_growth` (`directory_runtime_window_file_growth.layer` / " +
+          "`directory_runtime_window_file_growth_window.layer`). " +
           "`layer_runtime_window_growth` is NOT narrowed — it already splits time BY declared layer, " +
           "so it ignores `layer`. " +
           "On `slowest_tests` the CANDIDATE step is narrowed (a test is a candidate only if it " +
