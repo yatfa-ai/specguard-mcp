@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -395,6 +395,62 @@ describe("runCommand — ENOENT names the thing that was actually missing", () =
         return true;
       },
     );
+  });
+});
+
+describe("runCommand — a program that exists but cannot be run is not 'not on PATH'", () => {
+  const HINT = "Set SPECGUARD_LINT_COMMAND.";
+
+  /** A real file that exists but has no exec bit: spawn reports EACCES, not ENOENT. */
+  function nonExecutableFile(): { readonly dir: string; readonly file: string } {
+    const dir = mkdtempSync(join(tmpdir(), "run-command-noexec-"));
+    const file = join(dir, "not-executable.sh");
+    writeFileSync(file, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+    return { dir, file };
+  }
+
+  it("names the program and carries the OS's own reason, as a CommandError, without the PATH sentence", async () => {
+    const { dir, file } = nonExecutableFile();
+    try {
+      const error = await rejects(runCommand([file]), /EACCES/);
+
+      assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
+      assert.ok(
+        error.message.startsWith(`Could not run \`${file}\`: `),
+        `expected the message to name the program, got: ${error.message}`,
+      );
+      // Advice about the wrong problem: the file IS there.
+      assert.doesNotMatch(error.message, /is not on this server's PATH/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not append the caller's not-found hint to it", async () => {
+    const { dir, file } = nonExecutableFile();
+    try {
+      const error = await rejects(runCommand([file], { notFoundHint: HINT }), /EACCES/);
+
+      assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
+      assert.ok(!error.message.includes(HINT), `the hint is about a missing binary, got: ${error.message}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers a SYNCHRONOUS spawn throw with the same sentence, still as a CommandError", async () => {
+    // A NUL byte in the program makes `spawn` throw ERR_INVALID_ARG_VALUE
+    // synchronously instead of emitting an `error` event, which exercises the
+    // try/catch around the spawn call rather than the event listener.
+    const program = "bad\0program";
+    const error = await rejects(runCommand([program]), /must be a string without null bytes/);
+
+    assert.ok(error instanceof CommandError, `expected a CommandError, got ${error.name}`);
+    assert.ok(
+      error.message.startsWith(`Could not run \`${program}\`: `),
+      `expected the message to name the program, got: ${error.message}`,
+    );
+    assert.doesNotMatch(error.message, /is not on this server's PATH/);
   });
 });
 
