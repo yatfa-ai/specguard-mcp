@@ -783,6 +783,13 @@ const getRepositoryOverview: ToolDefinition = {
     "A half-reported run is the ORDINARY state, not an exotic one: every sharded run passes " +
     "through it while its shards are still arriving, and a job cancelled after two of four shards " +
     "leaves a half-sized row in the history permanently. " +
+    "Every `history[]` row ALSO carries `layer_counts` as its LAST key — the same five operands " +
+    "(`unit`, `integration`, `request`, `system`, `undeclared`) as `latest_run.layer_counts`, " +
+    "declared only and never inferred from the path, measured zeros, or `null` (NOT five zeros) " +
+    "when that run stored no per-example rows — so the history is a per-run SERIES of the " +
+    "declared-layer mix, which `layer_run_growth` (latest vs previous) and `layer_growth` (two " +
+    "endpoints) cannot give. It is a SUM over the shards RECORDED, so difference it only across " +
+    "rows of EQUAL `shard_count`; the operands carry no verdict. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
@@ -852,6 +859,7 @@ const getRepositoryOverview: ToolDefinition = {
           "and must not be differenced). Narrows `history` ONLY: `latest_run` always names the " +
           "repository's newest run, which on a busy repo may be on another branch. Use a name " +
           "from `branches`; an unknown one returns an empty history rather than an error. " +
+          "With it, `history[].layer_counts` is that one branch's per-run declared-layer mix series. " +
           "It also UNLOCKS three blocks that read the same window and are `null` without it: " +
           "`unstable_tests` (which tests failed intermittently across the window rather than " +
           "consistently), `slowest_tests` together with its `slowest_tests_window` (which durable " +

@@ -654,6 +654,14 @@ speedup produced entirely by telemetry loss. A half-reported run is the **ordina
 exotic one: every sharded run passes through it while its shards are still arriving, and a job
 cancelled after two of four shards leaves a half-sized row in the history permanently.
 
+Every `history[]` row also carries `layer_counts` as its **last** key — the same five operands
+(`unit`, `integration`, `request`, `system`, `undeclared`) as `latest_run.layer_counts`, declared only and
+never inferred from the path, measured zeros, or `null` (**not** five zeros) when that run stored no
+per-example rows — so the history is a per-run *series* of the declared-layer mix, which
+`layer_run_growth` (latest vs previous) and `layer_growth` (two endpoints) cannot give. Pass `branch` and it
+is that one branch's series. It is a sum over the shards recorded, so difference it only across rows of
+*equal* `shard_count`; the operands carry no verdict.
+
 ### `get_server_version`
 
 Reports **which build of the SpecGuard deployment is answering**, read from the deployment's own

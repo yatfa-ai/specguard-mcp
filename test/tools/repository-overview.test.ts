@@ -1614,6 +1614,23 @@ describe("get_repository_overview — failures an agent can act on", () => {
     }
   });
 
+  it("ties layer_counts to every history[] row as a per-run series, null-not-zeros, differenced only across equal shard_count, in the description and the README", () => {
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+    const pins: Array<[RegExp, string]> = [
+      [/Every `history\[\]` row (?:ALSO|also) carries `layer_counts` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, "tie layer_counts to history[] rows as the last key"],
+      [/or `null` \((?:NOT|\*\*not\*\*) five zeros\) when that run stored no per-example rows/, "state null-not-zeros for history rows"],
+      [/difference it only across rows of (?:EQUAL|\*equal\*) `shard_count`/, "state it is differenced only across rows of equal shard_count"],
+    ];
+    for (const [label, text] of [
+      ["tool description", getRepositoryOverview.description],
+      ["README", readme],
+    ] as const) {
+      for (const [re, what] of pins) {
+        assert.match(text.replace(/\s+/g, " "), re, `${label} must ${what}`);
+      }
+    }
+  });
+
   it("advertises latest_run.layer_durations as per-layer machine time, null-not-zero and not wall clock", () => {
     const description = getRepositoryOverview.description;
 
