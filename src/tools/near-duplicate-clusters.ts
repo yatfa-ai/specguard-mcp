@@ -167,8 +167,8 @@ const nearDuplicateClusters: ToolDefinition = {
     "in the block, and `ranking_basis` sits in the head beside `layer_source`; they qualify every " +
     "cluster below them — a cluster count without what 'similar' meant is a figure you cannot act on. " +
     "`truncated: true` means the cluster list was cut at the " +
-    "cap while the counts above it (`cluster_count`, `identity_count`, `clustered_*`) describe the " +
-    "WHOLE census, so never fold `clusters` length as the total. " +
+    "cap while the counts above it (`cluster_count`, `layer_redundancy_counts`, `identity_count`, " +
+    "`clustered_*`) describe the WHOLE census, so never fold `clusters` length as the total. " +
     "READ THE RANKING BY ITS STATED BASIS, NOT AS \"COSTLIEST FIRST\": `ranking_basis` (in the head of " +
     "the block) states the order — clusters spanning more than one spec file first, then by summed wall " +
     "clock, with single-file groups following — and each cluster's `overlap_kind` (`multi_file` or " +
@@ -203,6 +203,14 @@ const nearDuplicateClusters: ToolDefinition = {
     "it declared — so the groups' sizes can exceed `member_count` by exactly those members, which " +
     "is the finding, not an arithmetic bug — and a member that declared nothing stays in its " +
     "cluster's null group, never dropped. " +
+    "HOW MANY GROUPS SPAN MORE THAN ONE LAYER IS THE HEAD'S ANSWER, NOT A TALLY OVER THE PAGE: the head " +
+    "carries `layer_redundancy_counts` = `{cross_layer, same_layer, undeclared}`, counted over EVERY " +
+    "cluster in the census (not the served page of clusters) and summing to `cluster_count`. " +
+    "`undeclared` (clusters whose members declared no layer) is neither state and must not be folded " +
+    "into `same_layer`; a layer-free suite reads `{0, 0, cluster_count}`, and an empty census reads all " +
+    "zeros. The key is ABSENT on a census stored before it existed (an older stored census, not an " +
+    "error). Use it — not a count of `layer_redundancy` values over `clusters` — to answer how many " +
+    "groups span more than one layer. " +
     "A quiet answer is a FINDING, not a gap: `clusters: []` with a real `identity_count` is the " +
     "success state (nothing reads alike), and the three silences — nothing ingested " +
     "(`recorded_count: 0`), nothing embedded (`identity_count: 0`), nothing alike — are kept " +
@@ -248,7 +256,7 @@ const nearDuplicateClusters: ToolDefinition = {
         type: "boolean",
         description:
           "Ask for the BOUNDED census view: the `near_duplicates_summary` block — the ranking " +
-          "(head keys first, `ranking_basis` among them; per cluster `rank`, `files_seen`, `file_count`, " +
+          "(head keys first, `ranking_basis` and `layer_redundancy_counts` among them; per cluster `rank`, `files_seen`, `file_count`, " +
           "`declared_layers`, `overlap_kind`) with " +
           "NO member lists — instead of the whole census. `true` sends the ask; `false` or omitted " +
           "sends nothing (the server treats any value as an ask, so `false` is never put on the " +
