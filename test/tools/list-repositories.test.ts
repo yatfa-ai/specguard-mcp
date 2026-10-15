@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { ArgumentError } from "../../src/errors.js";
 import listRepositories from "../../src/tools/list-repositories.js";
@@ -718,5 +719,73 @@ describe("a 401 names the variable the tool that hit it actually reads", () => {
       listRepositories.run({}, toolContext({ env: viaAlias, fetch: stubFetch({ status: 404 }).fetch })),
       /Check that SPECGUARD_URL is the deployment's root URL/,
     );
+  });
+});
+
+/**
+ * `list_repositories` forwards `sort` verbatim and the SERVER owns the ordering,
+ * so the only place an agent learns which end each word puts first, where an
+ * unmeasured suite lands and what the pyramid ratio divides by is PROSE, on
+ * three surfaces: the `sort` argument description, the top-level tool
+ * description and the README `sort` row. The wire tests above pin the enum and
+ * the pass-through; nothing pinned the direction. Flipping `LOWEST`→`HIGHEST`,
+ * `leads`→`trails`, `EXCLUDED`→`INCLUDED` or `LAST`→`FIRST` left the suite
+ * green, so an agent could be told the opposite of the order served. Quoted
+ * exactly, not loosely matched.
+ */
+describe("list_repositories — the sort orderings are stated, not only forwarded", () => {
+  // From `.test-build/test/tools/` the README is three levels up.
+  const README = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const readmeRow = README.split("\n").find((line) => line.startsWith("| `sort` |")) ?? "";
+  const argumentProps = listRepositories.inputSchema.properties as Record<string, { description?: string }>;
+  const argumentDescription = argumentProps["sort"]?.description ?? "";
+  const toolDescription = listRepositories.description;
+
+  it("finds the sort prose on all three surfaces (positive control: a wrong path or reworded row cannot go vacuously green)", () => {
+    assert.notEqual(readmeRow, "", "the README must carry a `| `sort` |` row");
+    assert.match(argumentDescription, /`annotated` puts the LEAST-annotated suites first/);
+    assert.match(toolDescription, /`"annotated"`: least-annotated share first/);
+    assert.match(readmeRow, /`"annotated"` — re-order least-annotated share first/);
+  });
+
+  it("states the pyramid direction, denominator and unmeasured placement on the argument description", () => {
+    assert.match(
+      argumentDescription,
+      /`pyramid` puts the suites with the LOWEST share of request\+system examples among their declared layers first/,
+    );
+    assert.match(argumentDescription, /`layer_counts`, ascending, with `undeclared` EXCLUDED from the denominator\./);
+    assert.match(argumentDescription, /A measured 0 leads;/);
+    assert.match(argumentDescription, /or whose declared total is 0 come LAST — never ranked as 0%/);
+  });
+
+  it("states the pyramid direction, denominator and unmeasured placement on the top-level description", () => {
+    assert.match(
+      toolDescription,
+      /`"pyramid"`: lowest request\+system share of the declared layers first/,
+    );
+    assert.match(toolDescription, /ascending, `undeclared` excluded from the denominator — a measured 0 first/);
+    assert.match(toolDescription, /or a declared total of 0 last, never ranked as 0%/);
+  });
+
+  it("states the pyramid direction, denominator and unmeasured placement on the README row", () => {
+    assert.match(readmeRow, /`"pyramid"` — re-order lowest request\+system share first/);
+    assert.match(readmeRow, /with `undeclared` excluded from the denominator; a measured 0 leads,/);
+    assert.match(readmeRow, /or a declared total of 0 come last \(never ranked as 0%\)/);
+  });
+
+  it("states the stale and annotated directions and unmeasured-last placement", () => {
+    assert.match(
+      argumentDescription,
+      /the repositories CI has NEVER ingested a run for FIRST .*, then least-recently-ingested, newest last,/,
+    );
+    assert.match(argumentDescription, /annotated share of the latest run, ascending\): a suite measured at 0-of-N leads,/);
+    assert.match(argumentDescription, /or whose suite was not measured, come LAST/);
+    assert.match(
+      toolDescription,
+      /CI has never ingested a run for first, then least-recently-ingested, `full_name` breaking ties/,
+    );
+    assert.match(toolDescription, /with no run or an unmeasured suite last — never ranked as 0% — a suite measured at 0-of-N first/);
+    assert.match(readmeRow, /`"stale"` — re-order stalest-first: repositories CI has never ingested a run for first, then least-recently-ingested/);
+    assert.match(readmeRow, /repositories with no run or an unmeasured suite come last \(never ranked as 0%\)/);
   });
 });
