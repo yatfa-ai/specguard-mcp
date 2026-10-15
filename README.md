@@ -703,7 +703,7 @@ blank value is no ask: passing an empty string and omitting the argument make th
 | --- | --- |
 | `q` | keep only repositories whose `full_name` (`org/repo`) contains this substring, case-insensitively. A plain substring, not a pattern — the LIKE wildcards `%`/`_` are escaped server-side, so `org/my_repo` matches itself. A match-less ask is an empty list, not an error |
 | `role` | `"owned"` or `"shared"` — one half of the list's mix: the repositories this person owns, or the ones shared with them. Mind the spelling: the *ask* values are `owned`/`shared`, while each entry's `role` field reads `owner`/`member` — `role: "owner"` is not a valid ask and settles to no ask (full list, no error). Under the `sga_…` agent key the ask settles to no ask for every value: ownership is a person fact and the key speaks for nobody, so the full granted list is served |
-| `sort` | `"stale"` — re-order stalest-first: repositories CI has never ingested a run for first, then least-recently-ingested, with `full_name` breaking ties so two calls agree element for element. `"annotated"` — re-order least-annotated share first: a suite measured at 0-of-N leads, repositories with no run or an unmeasured suite come last (never ranked as 0%), and `full_name` breaks ties. The same entries, a different order; the default order stays `full_name` ascending |
+| `sort` | `"stale"` — re-order stalest-first: repositories CI has never ingested a run for first, then least-recently-ingested, with `full_name` breaking ties so two calls agree element for element. `"annotated"` — re-order least-annotated share first: a suite measured at 0-of-N leads, repositories with no run or an unmeasured suite come last (never ranked as 0%), and `full_name` breaks ties. `"pyramid"` — re-order lowest request+system share first: ascending `(request+system)/(unit+integration+request+system)` of the latest run's `layer_counts`, with `undeclared` excluded from the denominator; a measured 0 leads, repositories with no run, a `null` `layer_counts` or a declared total of 0 come last (never ranked as 0%), and `full_name` breaks ties. The same entries, a different order; the default order stays `full_name` ascending |
 
 The body comes back as SpecGuard serves it — `{"repositories": […]}`, each entry carrying `id`,
 `full_name`, `name`, `registered_at`, `role`, `delivery_health` and `latest_run`, ordered by
@@ -720,6 +720,12 @@ the overview's fuller per-repository block. A quiet verdict is a finding, not a 
 `latest_run` is the entry's newest run — when CI last reported, on what branch and commit, how big
 the suite is, how much of it SpecGuard can read, and the run-level cost scalars. `null` means CI
 has **never reported** for that repository — never a run that found an empty suite.
+
+Each list entry's `latest_run` also carries `layer_counts` — five operands, `unit`, `integration`,
+`request`, `system` and `undeclared`, that sum to the run's recorded examples. It is `null`, not five
+zeros, when the run recorded no per-example rows (a zero would read as a measured none). The layers
+are **declared** only — an `@intent` annotation said so — never inferred from a path, and
+`undeclared` is not `unreadable`. The operands carry no pyramid verdict; reading the mix is yours.
 
 `role` has one value per
 credential kind: under a **user** key (`sgu_…`) it is `owner` or `member` — the list mixes

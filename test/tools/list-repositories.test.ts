@@ -71,6 +71,8 @@ const BODY = JSON.stringify({
         suite_size_measured: true,
         duration_seconds: 96.4,
         shards: null,
+        // Five DECLARED-layer operands, served on every list entry's latest_run (SPGD-1813).
+        layer_counts: { unit: 200, integration: 60, request: 90, system: 10, undeclared: 40 },
       },
     },
     {
@@ -81,6 +83,27 @@ const BODY = JSON.stringify({
       role: "member",
       delivery_health: { refusing: true, last_rejection_at: "2026-02-12T09:30:00Z" },
       latest_run: null,
+    },
+    {
+      id: "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b",
+      full_name: "acme/legacy",
+      name: "legacy",
+      registered_at: "2026-03-01T12:00:00Z",
+      role: "owner",
+      delivery_health: { refusing: false, last_rejection_at: null },
+      latest_run: {
+        ingested_at: "2026-03-02T08:00:00Z",
+        branch: "main",
+        commit_sha: "a1b2c3d",
+        total_specs: 50,
+        annotated_specs: 0,
+        annotated_ratio: 0,
+        suite_size_measured: true,
+        duration_seconds: 12.5,
+        shards: null,
+        // null, NEVER five zeros, when the run recorded no per-example rows.
+        layer_counts: null,
+      },
     },
   ],
 });
@@ -324,6 +347,13 @@ describe("list_repositories", () => {
     assert.match(description, /`latest_run`/);
     assert.match(description, /`null` means CI has never reported/);
 
+    // `layer_counts` rides every list entry's latest_run (SPGD-1813), with the
+    // null-not-zeros reading, and `pyramid` is a named sort word.
+    assert.match(description, /`layer_counts`/);
+    assert.match(description, /`null`, NOT five zeros/);
+    assert.match(description, /pyramid/);
+    assert.doesNotMatch(description, /`stale` and `annotated` are the sole sort words/);
+
     // The agent key's own grant block is named, with both credential arms:
     // top level under an agent key, ABSENT — not nulled — under a person key.
     assert.match(description, /`credential\.capabilities`/);
@@ -400,7 +430,7 @@ describe("list_repositories — the narrowing asks", () => {
     // endpoint would clamp to no-ask is not offered to a schema-honouring
     // client at all.
     assert.deepEqual(properties["role"]?.enum, ["owned", "shared"]);
-    assert.deepEqual(properties["sort"]?.enum, ["stale", "annotated"]);
+    assert.deepEqual(properties["sort"]?.enum, ["stale", "annotated", "pyramid"]);
   });
 
   it("passes ?q= through when a search is asked for", async () => {
@@ -440,6 +470,14 @@ describe("list_repositories — the narrowing asks", () => {
     await listRepositories.run({ sort: "annotated" }, toolContext({ env: USER_ENV, fetch: http.fetch }));
 
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories?sort=annotated");
+  });
+
+  it("passes ?sort=pyramid through when the lowest-request-and-system-share-first ordering is asked for", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await listRepositories.run({ sort: "pyramid" }, toolContext({ env: USER_ENV, fetch: http.fetch }));
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories?sort=pyramid");
   });
 
   it("composes several asks onto ONE request, in the server's own composition", async () => {

@@ -66,7 +66,11 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * least-recently-ingested, `github_full_name` breaking ties so the order is
  * deterministic) or `?sort=annotated` (least-annotated share first; a
  * repository with no run or an unmeasured suite last, never ranked as 0%; a
- * suite measured at 0-of-N first; `github_full_name` breaking ties). The concern's own comment says the endpoint reads them "for
+ * suite measured at 0-of-N first; `github_full_name` breaking ties) or `?sort=pyramid`
+ * (SPGD-1805: ascending `(request+system)/(unit+integration+request+system)` of the
+ * latest run's `layer_counts`, `undeclared` excluded from the denominator; a repository
+ * with no run, a nil `layer_counts` or a declared total of 0 last, never ranked as 0%; a
+ * measured 0 first; `github_full_name` breaking ties). The concern's own comment says the endpoint reads them "for
  * a machine" — and this bridge IS that machine, so they are forwarded here
  * rather than re-invented.
  *
@@ -164,7 +168,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * The order is `full_name` ascending, which the controller picks as the only
  * column a client can page or diff against without SpecGuard promising an id
  * ordering it has not designed — and `?sort=stale` re-sequences exactly that
- * loaded set rather than issuing a different query (as does `?sort=annotated`),
+ * loaded set rather than issuing a different query (as do `?sort=annotated` and `?sort=pyramid`),
  * so the entries never change, only their order does. It is stated here for the same reason the
  * other tool states its orders: a list whose order is a coincidence and a list
  * whose order is a contract look identical in a response body.
@@ -186,7 +190,13 @@ const listRepositories: ToolDefinition = {
     "`latest_run` is the entry's newest run — when CI last reported, on what branch and commit, " +
     "how big the suite is, how much of it SpecGuard can read, and the run-level cost scalars; " +
     "`null` means CI has never reported for that repository, never a run that found an empty " +
-    "suite. " +
+    "suite. Each list entry's `latest_run` also carries `layer_counts` — five operands " +
+    "`unit`, `integration`, `request`, `system` and `undeclared` that sum to the run's recorded " +
+    "examples. It is `null`, NOT five zeros, when the run recorded no per-example rows (a zero " +
+    "would read as a measured none). The layers are DECLARED only — an `@intent` annotation " +
+    "said so — never inferred from a path, and `undeclared` is NOT `unreadable` (a test can be " +
+    "perfectly readable and declare no layer). The operands carry no pyramid verdict; reading " +
+    "the mix is yours. " +
     "`role` has one value per credential kind. Under a PERSON key (`sgu_…`) it is `owner` or " +
     "`member`: the list mixes repositories this person owns with repositories somebody shared " +
     "with them, and nothing else distinguishes the two. Under an AGENT key (`sga_…`) every " +
@@ -207,6 +217,10 @@ const listRepositories: ToolDefinition = {
     "CI has never ingested a run for first, then least-recently-ingested, `full_name` " +
     "breaking ties; `\"annotated\"`: least-annotated share first, repositories with no run " +
     "or an unmeasured suite last — never ranked as 0% — a suite measured at 0-of-N first, " +
+    "`full_name` breaking ties; `\"pyramid\"`: lowest request+system share of the declared layers first " +
+    "— `(request+system)/(unit+integration+request+system)` of the latest run's `layer_counts`, " +
+    "ascending, `undeclared` excluded from the denominator — a measured 0 first, repositories " +
+    "with no run, a null `layer_counts` or a declared total of 0 last, never ranked as 0%, " +
     "`full_name` breaking ties). Omit them all and the request is the plain full list. " +
     "Ordered by `full_name` ascending unless `sort` asks otherwise, and stable across calls " +
     "either way. " +
@@ -261,7 +275,7 @@ const listRepositories: ToolDefinition = {
       },
       sort: {
         type: "string",
-        enum: ["stale", "annotated"],
+        enum: ["stale", "annotated", "pyramid"],
         description:
           "Re-order the list. The default order is `full_name` ascending, which " +
           "is stable across calls but says nothing about what needs attention; `stale` puts " +
@@ -273,8 +287,14 @@ const listRepositories: ToolDefinition = {
           "run, ascending): a suite measured at 0-of-N leads, and repositories CI has never " +
           "reported a run for, or whose suite was not measured, come LAST — an unmeasured suite " +
           "is never ranked as 0% — with `github_full_name` breaking ties. " +
+          "`pyramid` puts the suites with the LOWEST share of request+system examples among their " +
+          "declared layers first: `(request+system)/(unit+integration+request+system)` of the " +
+          "latest run's `layer_counts`, ascending, with `undeclared` EXCLUDED from the denominator. " +
+          "A measured 0 leads; repositories CI has never reported a run for, whose `layer_counts` " +
+          "is null (no per-example rows), or whose declared total is 0 come LAST — never ranked " +
+          "as 0% — with `github_full_name` breaking ties. The order carries no pyramid verdict. " +
           "It re-sequences the loaded set rather than issuing a different query: the same " +
-          "entries, a different order. `stale` and `annotated` are the sole sort words the endpoint " +
+          "entries, a different order. `stale`, `annotated` and `pyramid` are the sole sort words the endpoint " +
           "names — there is deliberately no word for the default, because omitting the argument already " +
           "means it. " +
           "Any other value a schema-bypassing client sends settles to the server's no-ask clamp " +
