@@ -926,7 +926,8 @@ Read the response with its own rules in mind:
   one run `weighed_run_id` names) are **different grains**: a three-example table-driven loop is
   one member and three examples. Never fold them.
 - `truncated: true` means the `clusters` list was cut at the cap while the counts above it
-  (`cluster_count`, `identity_count`, `clustered_*`) describe the whole census.
+  (`cluster_count`, `layer_redundancy_counts`, `identity_count`, `clustered_*`) describe the
+  whole census.
 - `unobserved_members: true` on a cluster says a member identity the weighed run did not observe
   (deleted, renamed, deselected) is still listed — do not reconcile the member list against that
   run's examples.
@@ -941,6 +942,13 @@ Read the response with its own rules in mind:
   DISTINCT layers (the same behaviour covered on several levels — the test-pyramid question),
   `same_layer` when confined to one (a plain duplicate), `null` when its members declared nothing
   — neither state, never folded into `same_layer`.
+- `layer_redundancy_counts` in the census head is `{cross_layer, same_layer, undeclared}`, counted
+  over **every** cluster in the census (not the served page of `clusters`) and summing to
+  `cluster_count`. `undeclared` (clusters whose members declared no layer) is neither state and is
+  never folded into `same_layer`; a layer-free suite reads `{0, 0, cluster_count}` and an empty
+  census all zeros. The key is absent on a census stored before it existed (an older stored census,
+  not an error). Use it — not a tally of `layer_redundancy` over `clusters` — to answer how many
+  groups span more than one layer. It rides `summary: true` (`near_duplicates_summary`) verbatim.
 - `layer_groups` holds the members grouped by declared layer (alphabetically, the undeclared LAST
   as the `layer: null` group), each group's members in the same five-field shape the flat list
   serves. A member whose own examples declared two layers appears in EACH group it declared, so

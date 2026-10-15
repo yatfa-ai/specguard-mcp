@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import getRepositoryOverview from "../../src/tools/repository-overview.js";
@@ -567,5 +568,50 @@ describe("near_duplicate_clusters — the description teaches the ranking and `o
 
   it("names `overlap_kind` in the `summary` argument's description", () => {
     assert.ok(summaryProperty?.description?.includes("overlap_kind"));
+  });
+});
+
+describe("near_duplicate_clusters — the description teaches the census-head `layer_redundancy_counts` (SPGD-1826)", () => {
+  // From `.test-build/test/tools/` the README is three levels up.
+  const README = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const readmeBullet = README.split(/\n(?=- )/).find((b) => b.startsWith("- `layer_redundancy_counts`")) ?? "";
+  const readmeTruncation = README.split(/\n(?=- )/).find((b) => b.startsWith("- `truncated: true`")) ?? "";
+  const description = nearDuplicateClusters.description;
+  const summaryDescription =
+    (nearDuplicateClusters.inputSchema.properties as Record<string, { description?: string }>)["summary"]
+      ?.description ?? "";
+
+  it("positive control: the surfaces are found and a token they already carry (`layer_redundancy`) matches", () => {
+    assert.notEqual(readmeBullet, "", "the README must carry a `- `layer_redundancy_counts`` bullet");
+    assert.notEqual(readmeTruncation, "", "the README must carry the `- `truncated: true`` bullet");
+    assert.ok(description.includes("`layer_redundancy`"));
+    assert.ok(readmeBullet.includes("layer_redundancy"));
+  });
+
+  it("names the key, its three members and the whole-census-not-the-page rule in the tool description", () => {
+    assert.ok(description.includes("`layer_redundancy_counts`"));
+    assert.ok(description.includes("`{cross_layer, same_layer, undeclared}`"));
+    assert.match(description, /counted over EVERY\s+cluster in the census \(not the served page of clusters\)/);
+    assert.match(description, /summing to `cluster_count`/);
+    assert.match(description, /`\{0, 0, cluster_count\}`/);
+    assert.match(description, /ABSENT on a census stored before it existed/);
+  });
+
+  it("lists it among the whole-census head figures in the `truncated` sentence", () => {
+    assert.match(description, /\(`cluster_count`, `layer_redundancy_counts`, `identity_count`, `clustered_\*`\)/);
+    assert.match(readmeTruncation, /`layer_redundancy_counts`/);
+  });
+
+  it("names it in the `summary` argument's description", () => {
+    assert.ok(summaryDescription.includes("`layer_redundancy_counts`"));
+  });
+
+  it("carries the same bullet in the README", () => {
+    assert.match(readmeBullet, /`\{cross_layer, same_layer, undeclared\}`/);
+    assert.match(readmeBullet, /\*\*every\*\* cluster in the census \(not the served page/);
+    assert.match(readmeBullet, /summing to\s+`cluster_count`/);
+    assert.match(readmeBullet, /never folded into `same_layer`/);
+    assert.match(readmeBullet, /`\{0, 0, cluster_count\}`/);
+    assert.match(readmeBullet, /absent on a census stored before it existed/);
   });
 });
