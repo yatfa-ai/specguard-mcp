@@ -1617,7 +1617,7 @@ describe("get_repository_overview — failures an agent can act on", () => {
   it("ties layer_counts to every history[] row as a per-run series, null-not-zeros, differenced only across equal shard_count, in the description and the README", () => {
     const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
     const pins: Array<[RegExp, string]> = [
-      [/Every `history\[\]` row (?:ALSO|also) carries `layer_counts` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, "tie layer_counts to history[] rows as the last key"],
+      [/Every `history\[\]` row (?:ALSO|also) carries `layer_counts` \(followed by `layer_durations`\)/, "tie layer_counts to history[] rows and name layer_durations as following it"],
       [/or `null` \((?:NOT|\*\*not\*\*) five zeros\) when that run stored no per-example rows/, "state null-not-zeros for history rows"],
       [/difference it only across rows of (?:EQUAL|\*equal\*) `shard_count`/, "state it is differenced only across rows of equal shard_count"],
     ];
@@ -1628,6 +1628,28 @@ describe("get_repository_overview — failures an agent can act on", () => {
       for (const [re, what] of pins) {
         assert.match(text.replace(/\s+/g, " "), re, `${label} must ${what}`);
       }
+    }
+  });
+
+  it("ties layer_durations to every history[] row as its last key, a per-run machine-time series, null-not-zero, not wall clock, differenced only across equal shard_count AND timed_shard_count, in the description and the README", () => {
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+    const pins: Array<[RegExp, string]> = [
+      [/Every `history\[\]` row (?:ALSO|also) carries `layer_durations` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, "tie layer_durations to history[] rows as the last key"],
+      [/each `\{total_seconds, timed_count\}`/, "name the per-layer shape"],
+      [/`total_seconds` is `null`,? \(?(?:NOT|\*\*not\*\*) 0\)?,? for a layer with no timed example/, "state null-not-zero for history rows"],
+      [/(?:machine time and NOT wall clock|machine\s+time and \*\*not\*\* wall clock)/, "state machine time, not wall clock"],
+      [/(?:EQUAL|\*equal\*) `shard_count` (?:AND|\*\*and\*\*) (?:EQUAL|\*equal\*) `timed_shard_count`/, "state it is differenced only across equal shard_count AND equal timed_shard_count"],
+      [/`layer_runtime_growth`[^.]*`layer_runtime_window_growth`[^.]*cannot give/, "tie it to the two-point growth blocks it complements"],
+    ];
+    for (const [label, text] of [
+      ["tool description", getRepositoryOverview.description],
+      ["README", readme],
+    ] as const) {
+      const flat = text.replace(/\s+/g, " ");
+      for (const [re, what] of pins) {
+        assert.match(flat, re, `${label} must ${what}`);
+      }
+      assert.doesNotMatch(flat, /`layer_counts` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, `${label} must not call layer_counts the last history[] key`);
     }
   });
 

@@ -783,13 +783,21 @@ const getRepositoryOverview: ToolDefinition = {
     "A half-reported run is the ORDINARY state, not an exotic one: every sharded run passes " +
     "through it while its shards are still arriving, and a job cancelled after two of four shards " +
     "leaves a half-sized row in the history permanently. " +
-    "Every `history[]` row ALSO carries `layer_counts` as its LAST key — the same five operands " +
+    "Every `history[]` row ALSO carries `layer_counts` (followed by `layer_durations`) — the same five operands " +
     "(`unit`, `integration`, `request`, `system`, `undeclared`) as `latest_run.layer_counts`, " +
     "declared only and never inferred from the path, measured zeros, or `null` (NOT five zeros) " +
     "when that run stored no per-example rows — so the history is a per-run SERIES of the " +
     "declared-layer mix, which `layer_run_growth` (latest vs previous) and `layer_growth` (two " +
     "endpoints) cannot give. It is a SUM over the shards RECORDED, so difference it only across " +
     "rows of EQUAL `shard_count`; the operands carry no verdict. " +
+    "Every `history[]` row ALSO carries `layer_durations` as its LAST key — the same five layers as " +
+    "`latest_run.layer_durations`, each `{total_seconds, timed_count}`, where `total_seconds` is `null`, " +
+    "NOT 0, for a layer with no timed example and the whole key is `null` when that run stored no " +
+    "per-example rows — so the history is also a per-run SERIES of machine time by declared layer, " +
+    "which `layer_runtime_growth` (latest vs previous) and `layer_runtime_window_growth` (two " +
+    "endpoints) cannot give. It is a SUM of example durations — machine time and NOT wall clock — so " +
+    "difference it only across rows of EQUAL `shard_count` AND EQUAL `timed_shard_count`; the " +
+    "operands carry no verdict. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
@@ -859,7 +867,8 @@ const getRepositoryOverview: ToolDefinition = {
           "and must not be differenced). Narrows `history` ONLY: `latest_run` always names the " +
           "repository's newest run, which on a busy repo may be on another branch. Use a name " +
           "from `branches`; an unknown one returns an empty history rather than an error. " +
-          "With it, `history[].layer_counts` is that one branch's per-run declared-layer mix series. " +
+          "With it, `history[].layer_counts` is that one branch's per-run declared-layer mix series " +
+          "and `history[].layer_durations` is that one branch's per-run machine-time series. " +
           "It also UNLOCKS three blocks that read the same window and are `null` without it: " +
           "`unstable_tests` (which tests failed intermittently across the window rather than " +
           "consistently), `slowest_tests` together with its `slowest_tests_window` (which durable " +
