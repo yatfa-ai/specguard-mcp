@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import findTestsNearBehavior from "../../src/tools/find-tests-near-behavior.js";
@@ -407,5 +408,74 @@ describe("find_tests_near_behavior — the description carries the honesty contr
   it("requires `behavior` and closes the schema", () => {
     assert.deepEqual(findTestsNearBehavior.inputSchema.required, ["behavior"]);
     assert.equal(findTestsNearBehavior.inputSchema.additionalProperties, false);
+  });
+});
+
+/**
+ * The tool's whole agent-facing contract is prose: the `description` and the README section. The
+ * headline fragments above pin the honesty sentences; these pin the clauses an agent actually ACTS on
+ * when it reads a `near` block — each on BOTH surfaces, because the README states them independently
+ * and nothing else reads that section.
+ *
+ * The README section is sliced from its heading to the next `### `; `**` emphasis is dropped and
+ * whitespace collapsed (the README wraps lines mid-sentence) so assertions are line-wrap-proof.
+ */
+describe("find_tests_near_behavior — the operative prose is pinned on the description AND the README", () => {
+  const HEADING = "### `find_tests_near_behavior`";
+  const collapse = (text: string): string => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(findTestsNearBehavior.description);
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.match(section, /billed embedding call/);
+    assert.ok(section.length > 1000, "the README section is suspiciously short");
+  });
+
+  it("pins the default page of 10 and the clamp to 50", () => {
+    assert.match(d, /the default page is 10 hits/);
+    assert.match(d, /it clamps your ask to 50/);
+    assert.match(section, /omit it for the default page of 10/);
+    assert.match(section, /The server clamps the ask to 50/);
+    assert.match(section, /\*?1–50/);
+  });
+
+  it("pins what each of the three silences means, and that null is never []", () => {
+    assert.match(d, /this says NOTHING about the suite/);
+    assert.match(d, /the repository holds no identities, nothing has been ingested/);
+    assert.match(d, /the nearest one's similarity is served so that "nothing near" is a finding you can check/);
+    assert.match(d, /`null` and `\[\]` are never interchangeable here/);
+    assert.match(section, /This says nothing about the suite/);
+    assert.match(section, /the repository holds no identities; nothing has been ingested/);
+    assert.match(section, /the nearest one's similarity is served so "nothing near" is a finding you can check/);
+    assert.match(section, /`null` is never `\[\]`/);
+  });
+
+  it("pins that a name match and an intent match are different evidence", () => {
+    assert.match(d, /are DIFFERENT EVIDENCE: a name match and an intent match are not the same claim/);
+    assert.match(section, /are different evidence — read the source before leaning on a hit/);
+  });
+
+  it("pins the billing rule: a repeated phrase is cache-served and free, a novel one is billed, and the ask is live", () => {
+    assert.match(d, /repeating a phrase is served from the cache and costs nothing/);
+    assert.match(d, /a repeated phrase is cache-served and free, while each paraphrase is a novel phrase and one billed embed/);
+    assert.match(d, /The ask is LIVE — computed on the request/);
+    assert.match(section, /a repeated phrase is cache-served and free, while each paraphrase is a novel phrase and one billed embed/);
+    assert.match(section, /a repeated phrase is served from the cache and costs nothing/);
+    assert.match(section, /The ask is live — computed on the request/);
+  });
+
+  it("pins credential precedence (agent key preferred, wins when both are set) and `api_key` ABSENT rather than nulled", () => {
+    assert.match(d, /the agent key preferred, the person key when no agent key is set/);
+    assert.match(d, /with both set the agent key wins/);
+    assert.match(d, /person and agent alike/);
+    assert.match(d, /the `api_key` block is ABSENT from the body rather than nulled/);
+    assert.match(section, /the \*?agent key \(`SPECGUARD_AGENT_API_KEY`, `sga_…`\), or — when no agent key is set — the user key/);
+    assert.match(section, /the agent key preferred, the user key when no agent key is set/);
+    assert.match(section, /`api_key` is absent from the body rather than nulled/);
   });
 });
