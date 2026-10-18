@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import listRepositoryApiKeys from "../../src/tools/list-repository-api-keys.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -233,5 +234,111 @@ describe("list_repository_api_keys", () => {
     assert.match(error.message, /sga_… key/);
     assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+});
+
+/**
+ * The tool's whole agent-facing contract is prose: the `description` and the README section. The
+ * wire tests above pin requests, pass-through and error rendering but no sentence an agent reads —
+ * their fixture has no `last_used_at: null` row and no `last_refused_at` key at all — so these pin
+ * the clauses the mint-and-replace rotation ACTS on, each on BOTH surfaces, because the README
+ * states them independently and `readme.test.ts` checks identifier presence only (any REWORDING
+ * that keeps the backticked names stays green there).
+ *
+ * The README section is sliced from its heading to the next `### `; `**` emphasis is dropped and
+ * whitespace collapsed (the README wraps lines mid-sentence) so assertions are line-wrap-proof.
+ */
+describe("list_repository_api_keys — the operative prose is pinned on the description AND the README", () => {
+  const HEADING = "### `list_repository_api_keys`";
+  const collapse = (text: string): string => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(listRepositoryApiKeys.description);
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.match(section, /every row of the repository's own key set/);
+    assert.ok(section.length > 2500, "the README section is suspiciously short");
+  });
+
+  it("pins the rotation order and its cost: check the replacement's last_used_at BEFORE cutting the old key — null means it has not presented, and cutting then locks CI out", () => {
+    assert.match(d, /list HERE and check the replacement's `last_used_at` before revoking the old key/);
+    assert.match(
+      d,
+      /`null` means the new token has not presented itself yet, and cutting the old key then locks the repository's CI out until a human mints in a browser/,
+    );
+    assert.match(section, /the verify step of the mint-and-replace rotation/);
+    assert.match(section, /list here and check the replacement's `last_used_at` BEFORE revoking the old key/);
+    assert.match(
+      section,
+      /`null` means the new token has not presented itself yet, and cutting the old key then locks the repository's CI out until a human mints in a browser/,
+    );
+  });
+
+  it("pins the id-source rule: this listing names the key_id for every row the session's mint responses did not mint", () => {
+    assert.match(d, /THIS listing is the id source for every other row/);
+    assert.match(
+      d,
+      /keys minted in the web panel or in an earlier session have no other bridge-learnable id, so list here to name a `key_id` for `revoke_repository_api_key`/,
+    );
+    assert.match(section, /This is the id source for every row this session did not mint/);
+    assert.match(
+      section,
+      /a key minted in the web panel, or in an earlier session, has no other bridge-learnable id — list here to name a `key_id` for `revoke_repository_api_key`/,
+    );
+  });
+
+  it("pins the live-and-revoked population and its deliberate contrast with the sga_ listing", () => {
+    assert.match(d, /The population is LIVE AND REVOKED rows alike/);
+    assert.match(d, /a deliberate contrast with the `sga_` listing `list_repository_agent_keys`, which serves live rows only/);
+    assert.match(section, /live and revoked alike/);
+    assert.match(section, /unlike the `sga_` listing `list_repository_agent_keys`, which serves live rows only/);
+  });
+
+  it("pins the last_used_at null semantics: null means never presented, and the negative is served rather than omitted", () => {
+    assert.match(d, /`last_used_at` \(null meaning the key has never presented\)/);
+    assert.match(section, /`null` meaning the key has never presented, the negative served rather than omitted/);
+  });
+
+  it("pins token_hint is a hint, never the token — and the README's no-regenerate clause", () => {
+    assert.match(
+      d,
+      /`token_hint` is a hint, never the token — the plaintext existed for exactly one response at mint time and nothing persisted it/,
+    );
+    assert.match(
+      section,
+      /`token_hint` is a hint, never the token — the plaintext existed for exactly one response at mint time and nothing persisted it/,
+    );
+    // The "There is no regenerate" clause is stated on the README only — the
+    // description carries the rotation as flow, not as the absence.
+    assert.match(section, /There is no regenerate: rotation is mint-and-replace/);
+  });
+
+  it("pins the post-cut verify: a revoked row serves last_refused_at, null means offboarding took, a timestamp means the dead token is still arriving, live rows carry no such key", () => {
+    assert.match(d, /a REVOKED row also serves `last_refused_at`/);
+    assert.match(d, /`null` means offboarding took/);
+    assert.match(
+      d,
+      /a timestamp means the dead token is still arriving, and that row's `token_hint` is what to hunt in the secret stores that may still hold it/,
+    );
+    assert.match(d, /Live rows carry no `last_refused_at` key/);
+    assert.match(section, /A revoked row also serves `last_refused_at`/);
+    assert.match(section, /`null` means offboarding took \(nothing has presented the dead token since the cut\)/);
+    assert.match(
+      section,
+      /a timestamp means the dead token is still arriving and that row's `token_hint` is what to hunt in the secret stores that may still hold it/,
+    );
+    assert.match(section, /Live rows carry no `last_refused_at` key/);
+  });
+
+  it("pins the credential contrast: a different credential from the sgk_ key get_repository_overview uses, refused in the other's place", () => {
+    assert.match(
+      d,
+      /a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses; SpecGuard refuses each in the other's place/,
+    );
+    assert.match(section, /a different one from the `sgk_…` key `get_repository_overview` uses/);
   });
 });
