@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import revokeRepositoryApiKey from "../../src/tools/revoke-repository-api-key.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -197,5 +198,149 @@ describe("revoke_repository_api_key", () => {
     assert.match(error.message, /sga_… key/);
     assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+});
+
+/**
+ * The tool's whole agent-facing contract is prose: the `description`, the
+ * `key_id` argument description and the README section. The wire tests above pin
+ * requests, the 204/403/404 rendering and credential precedence, and
+ * `delete-204-text.test.ts` pins the runtime success sentence — but no operative
+ * clause an agent must hold BEFORE it commits the cut is asserted anywhere: the
+ * immediate cutoff and the surviving-key continuity, the never-cross-repository
+ * 404 scoping, the mint-then-revoke ordering and its locked-out cost,
+ * `keys_manage` with the 204 verdict, the two-part id source, the `sgk_`
+ * credential contrast. A clause-level edit to any of them leaves the suite
+ * green, so these pin each clause family on its own surface — the description
+ * examples below assert the served `description:`, the README examples assert
+ * the section's copy — because the README states them independently and
+ * `readme.test.ts` checks identifier presence only (any REWORDING that keeps the
+ * backticked names stays green there).
+ *
+ * The README section is sliced from its heading to the next `### `; `**` emphasis
+ * is dropped and whitespace collapsed (the README wraps lines mid-sentence) so
+ * assertions are line-wrap-proof.
+ */
+describe("revoke_repository_api_key — the operative prose it teaches", () => {
+  const HEADING = "### `revoke_repository_api_key`";
+  const collapse = (text: string): string => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(revokeRepositoryApiKey.description);
+  const keyIdArg = collapse(
+    (revokeRepositoryApiKey.inputSchema.properties as Record<
+      string,
+      { description?: string } | undefined
+    >)["key_id"]?.description ?? "",
+  );
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.ok(section.length > 800, "the README section is suspiciously short");
+  });
+
+  // -- The description's clause families -------------------------------------
+
+  it("description: the key stops authenticating immediately and every OTHER key keeps working, so CI keeps ingesting", () => {
+    assert.match(
+      d,
+      /The key stops authenticating immediately; every OTHER key on the repository keeps working, so CI keeps ingesting if it holds a surviving key/,
+    );
+  });
+
+  it("description: a key id belonging to a different repository is refused 404, never a cross-repository delete", () => {
+    assert.match(
+      d,
+      /a key id belonging to a different repository is refused 404, never a cross-repository delete/,
+    );
+  });
+
+  it("description: key rotation is mint-then-revoke, in that order, because the platform has no regenerate", () => {
+    assert.match(d, /Key rotation is mint-then-revoke, in that order: the platform has no regenerate/);
+  });
+
+  it("description: mint the replacement and deploy it BEFORE revoking — revoke first and the repository's CI is locked out until a human mints a new key in a browser", () => {
+    assert.match(
+      d,
+      /mint a replacement with `create_repository_api_key` and deploy it BEFORE revoking the old one/,
+    );
+    assert.match(
+      d,
+      /revoke first and the repository's CI is locked out until a human mints a new key in a browser/,
+    );
+  });
+
+  it("description: authorization is the keys_manage capability (a member without it is refused 403) and a 204 means the key is revoked", () => {
+    assert.match(
+      d,
+      /Authorization is the `keys_manage` capability — a member without it is refused 403 in SpecGuard's own words/,
+    );
+    assert.match(d, /A 204 means the key is revoked/);
+  });
+
+  it("description: the two-part id source — the mint response names the key IT minted, this listing names every other", () => {
+    assert.match(d, /the mint response carries the id of the key IT minted in its `api_key` block/);
+    assert.match(d, /every OTHER key's id comes from `list_repository_api_keys`/);
+  });
+
+  it("description: a DIFFERENT credential from the sgk_ repository key get_repository_overview uses, refused in the other's place", () => {
+    assert.match(
+      d,
+      /a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses; SpecGuard refuses each in the other's place/,
+    );
+  });
+
+  // -- The key_id argument description ---------------------------------------
+
+  it("key_id argument: keys minted in the web panel or an earlier session have no other bridge-learnable id, and the id is scoped to the repository", () => {
+    assert.match(
+      keyIdArg,
+      /keys minted in the web panel or in an earlier session have no other bridge-learnable id/,
+    );
+    assert.match(keyIdArg, /Scoped to `repository_id`: a foreign key id is refused 404/);
+  });
+
+  // -- The README section's copy ----------------------------------------------
+
+  it("README: the key stops authenticating immediately; every other key keeps working, so CI keeps ingesting", () => {
+    assert.match(
+      section,
+      /The key stops authenticating immediately; every other key on the repository keeps working, so CI keeps ingesting if it holds a surviving key/,
+    );
+  });
+
+  it("README: the 404 scoping (never a cross-repository delete) and the keys_manage 403 authorization", () => {
+    assert.match(
+      section,
+      /a key id belonging to a different repository is refused `404`, never a cross-repository delete/,
+    );
+    assert.match(
+      section,
+      /Authorization is the `keys_manage` capability; a member without it is refused `403` with SpecGuard's own sentence, verbatim/,
+    );
+  });
+
+  it("README: rotation is mint-then-revoke in that order, deploy the replacement BEFORE revoking, and the revoke-first CI-locked-out cost with the 204 verdict", () => {
+    assert.match(section, /Key rotation is mint-then-revoke, in that order\./);
+    assert.match(
+      section,
+      /The platform has no regenerate, so mint a replacement with `create_repository_api_key` and deploy it BEFORE revoking the old one/,
+    );
+    assert.match(
+      section,
+      /revoke first and the repository's CI is locked out until a human mints a new key in a browser/,
+    );
+    assert.match(section, /A `204` means the key is revoked/);
+  });
+
+  it("README: a different credential from the sgk_ key get_repository_overview uses, and the agent-wins precedence tail scoped to list_repositories' set", () => {
+    assert.match(section, /a different one from the `sgk_…` key `get_repository_overview` uses/);
+    assert.match(
+      section,
+      /With both set the agent key wins, so the revoke answers inside the same set `list_repositories` reports/,
+    );
   });
 });
