@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import createRepositoryApiKey from "../../src/tools/create-repository-api-key.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -189,5 +190,179 @@ describe("create_repository_api_key", () => {
     assert.match(error.message, /sga_… key/);
     assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+});
+
+/**
+ * The tool's whole agent-facing contract is prose: the `description`, the
+ * `name` argument description and the README section. The wire tests above pin
+ * requests, the unreshaped 201 body, the 403/404 rendering and credential
+ * precedence — but no operative clause an agent must hold BEFORE it acts on the
+ * minted token is asserted anywhere: the mint returns the new key ALONE (the
+ * full set is the listing's answer), the reveal-once token and its
+ * hand-to-the-user rule, the mint-then-revoke recovery with no regenerate, the
+ * two-part id source, minting does not disturb existing keys, `keys_manage` +
+ * the 403 refusal, the either-credential rule with its agent-side 404 bound and
+ * `attributed_user` attribution, and the `sgk_`-credential contrast. A
+ * clause-level edit to any of them leaves the suite green, so these pin each
+ * clause family on its own surface — the description examples below assert the
+ * served `description:`, the README examples assert the section's copy —
+ * because the README states them independently and `readme.test.ts` checks
+ * identifier presence only (any REWORDING that keeps the backticked names stays
+ * green there). The one mutation that IS caught today is a pure identifier
+ * rename (`attributed_user` → anything else), which the response-keys sync
+ * guard in `readme.test.ts` rejects; a semantic rewording that keeps the
+ * identifier passes, which is exactly the gap these examples close.
+ *
+ * The README section is sliced from its heading to the next `### `; `**`
+ * emphasis and `>` blockquote markers are dropped and whitespace collapsed (the
+ * README wraps lines mid-sentence and sets the reveal-once warning as a
+ * blockquote) so assertions are line-wrap-proof.
+ */
+describe("create_repository_api_key — the operative prose it teaches", () => {
+  const HEADING = "### `create_repository_api_key`";
+  const collapse = (text: string): string =>
+    text.replace(/\*\*/g, "").replace(/^>\s?/gm, " ").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(createRepositoryApiKey.description);
+  const nameArg = collapse(
+    (createRepositoryApiKey.inputSchema.properties as Record<
+      string,
+      { description?: string } | undefined
+    >)["name"]?.description ?? "",
+  );
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.ok(section.length > 2000, "the README section is suspiciously short");
+  });
+
+  // -- The description's clause families --------------------------------------
+
+  it("description: the mint returns the new key ALONE — the full key set is list_repository_api_keys' answer, never this response's", () => {
+    assert.match(d, /returning the new key ALONE in an `api_key` block/);
+    assert.match(
+      d,
+      /the repository's full key set \(keys minted in the web panel or in an earlier session included\) is `list_repository_api_keys`' answer, never this response's/,
+    );
+  });
+
+  it("description: the token is shown THIS ONCE AND NEVER AGAIN — nothing stores it, so hand it to the user in your reply", () => {
+    assert.match(
+      d,
+      /`api_key\.token` is shown THIS ONCE AND NEVER AGAIN — nothing stores it and no endpoint can re-serve it/,
+    );
+    assert.match(d, /hand it to the user in your reply rather than assuming it can be fetched later/);
+  });
+
+  it("description: a dropped token is recovered by minting another key with this same tool (no regenerate), THEN revoking the orphaned one", () => {
+    assert.match(
+      d,
+      /the recovery is minting another key with this same tool \(the platform has no regenerate\), then revoking the orphaned one/,
+    );
+  });
+
+  it("description: the minted id is the key's durable handle; every OTHER key's id comes from list_repository_api_keys", () => {
+    assert.match(d, /`id` is the key's durable handle \(the token is reveal-once\)/);
+    assert.match(d, /every OTHER key's id comes from `list_repository_api_keys`/);
+  });
+
+  it("description: minting does not disturb existing keys — each key authenticates independently until revoked", () => {
+    assert.match(
+      d,
+      /Minting does not disturb existing keys: each key on a repository authenticates independently until revoked/,
+    );
+  });
+
+  it("description: authorization is the keys_manage capability and a member without it is refused 403 in SpecGuard's own words", () => {
+    assert.match(
+      d,
+      /Authorization is the `keys_manage` capability — a member without it is refused 403 in SpecGuard's own words/,
+    );
+  });
+
+  it("description: the EITHER-credentials rule — the agent key is bounded by its keys.manage grants (404, never a probe), the user key is add_repository's", () => {
+    assert.match(d, /It authenticates with EITHER of this server's two key-administration credentials/);
+    assert.match(
+      d,
+      /only where the grant carries `keys\.manage`; a repository outside that set answers 404 in SpecGuard's own words, never a probe here/,
+    );
+    assert.match(d, /SPECGUARD_USER_API_KEY \(an sgu_… key, the same credential `add_repository` writes with\)/);
+  });
+
+  it("description: with both credentials set the agent key wins, so the mint answers inside the same set list_repositories reports", () => {
+    assert.match(
+      d,
+      /With both set the agent key wins, so the mint answers inside the same set `list_repositories` reports/,
+    );
+  });
+
+  it("description: minting under the agent credential attributes the key to the key's OWNER (the attributed_user rule)", () => {
+    assert.match(
+      d,
+      /Minting under the agent credential attributes the new key to the agent key's OWNER \(the server's `attributed_user` rule\), so minted-key counts keep naming a person rather than nobody/,
+    );
+  });
+
+  it("description: a DIFFERENT credential from the sgk_ repository key get_repository_overview uses, refused in the other's place", () => {
+    assert.match(
+      d,
+      /a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses; SpecGuard refuses each in the other's place/,
+    );
+  });
+
+  it("name argument: optional, omitted means the server's default name applies (description, argument description, README row)", () => {
+    assert.match(d, /an optional `name`, which the server defaults when omitted/);
+    assert.match(nameArg, /An optional label for the key\. Omit it to let SpecGuard use its default name\./);
+    assert.match(
+      section,
+      /\| `name` \| an optional label for the key; omit it to let SpecGuard use its default name \|/,
+    );
+  });
+
+  // -- The README section's copy ----------------------------------------------
+
+  it("README: the mint returns the new key alone, and minting does not disturb existing keys", () => {
+    assert.match(section, /returning the new key alone in an `api_key` block/);
+    assert.match(
+      section,
+      /Minting does not disturb existing keys — each key on a repository authenticates independently until revoked/,
+    );
+  });
+
+  it("README: the token is shown once and never again, and the recovery names mint-then-revoke with revoke_repository_api_key", () => {
+    assert.match(
+      section,
+      /`api_key\.token` is shown once and never again\. Nothing stores it and no endpoint can re-serve it/,
+    );
+    assert.match(section, /Hand it to the person you are working for in your reply/);
+    assert.match(
+      section,
+      /the recovery is minting another key with this same tool — the platform has no regenerate — then revoking the orphaned one with `revoke_repository_api_key`/,
+    );
+  });
+
+  it("README: the id source rule and the keys_manage 403 authorization, verbatim", () => {
+    assert.match(section, /`id` is the key's durable handle \(the token is reveal-once\); every other key's id comes from `list_repository_api_keys`/);
+    assert.match(
+      section,
+      /Authorization is the `keys_manage` capability; a member without it is refused `403` with SpecGuard's own sentence, verbatim/,
+    );
+  });
+
+  it("README: the credential pair, the agent-wins precedence and the attributed-to-owner tail", () => {
+    assert.match(section, /a different one from the `sgk_…` key `get_repository_overview` uses/);
+    assert.match(
+      section,
+      /the same person key `add_repository` reads\. With both set the agent key wins, so the mint answers inside the same set `list_repositories` reports/,
+    );
+    assert.match(
+      section,
+      /attributes the new key to the agent key's owner \(the server's `attributed_user` rule\), so minted-key counts keep naming a person rather than nobody/,
+    );
   });
 });
