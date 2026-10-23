@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import addRepositoryMember from "../../src/tools/add-repository-member.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -246,5 +247,220 @@ describe("add_repository_member", () => {
     assert.match(error.message, /sga_… key/);
     assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+});
+
+describe("add_repository_member — the operative prose it teaches", () => {
+  const HEADING = "### `add_repository_member`";
+  const collapse = (text: string): string => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(addRepositoryMember.description);
+  const props = addRepositoryMember.inputSchema.properties as Record<
+    string,
+    { description?: string } | undefined
+  >;
+  const repositoryIdArg = collapse(props["repository_id"]?.description ?? "");
+  const handleArg = collapse(props["handle"]?.description ?? "");
+  const permissionsArg = collapse(props["permissions"]?.description ?? "");
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.ok(section.length > 1500, "the README section is suspiciously short");
+  });
+
+  // -- The description's clause families --------------------------------------
+
+  it("description: grants a person access by GitHub handle, with an optional permissions list", () => {
+    assert.match(
+      d,
+      /^Grants a person access to a SpecGuard repository by their GitHub handle, with an optional list of permissions/,
+    );
+  });
+
+  it("description: the handle is the LOGIN itself — not a profile URL and not a display name", () => {
+    assert.match(
+      d,
+      /The `handle` is the LOGIN itself — `octocat`, not a profile URL and not a display name: SpecGuard refuses each of those with its own sentence/,
+    );
+  });
+
+  it("description: every other resolution failure (not signed in yet, archived, ambiguous) arrives as a distinguishable 400 naming the next move", () => {
+    assert.match(
+      d,
+      /every other resolution failure \(nobody has signed in as that handle yet, the account is archived, the handle is ambiguous\) arrives as a distinguishable 400 message naming the exact next move/,
+    );
+  });
+
+  it("description: the grantor is always the person behind the credential — an sgu_ key's person or the OWNER of the sga_ key — and no argument can name another", () => {
+    assert.match(
+      d,
+      /The grantor recorded on the membership is always the person behind the credential — the one an sgu_… key speaks for, or the OWNER of the sga_… agent key/,
+    );
+    assert.match(d, /The server stamps it, and no argument can name a different one/);
+  });
+
+  it("description: the 201 `member` block's `id` is the MEMBERSHIP id the update/remove tools name", () => {
+    assert.match(
+      d,
+      /On success \(201\) the response carries a `member` block whose `id` is the MEMBERSHIP id \(`handle`, `permissions`, `granted_by`, `created_at` alongside\)/,
+    );
+    assert.match(d, /the very identifier `update_repository_member_permissions` and `remove_repository_member` name/);
+  });
+
+  it("description: the membership id is not portable between repositories — a foreign id is refused 404 — so use it within this repository", () => {
+    assert.match(
+      d,
+      /The id is not portable between repositories \(a foreign id is refused 404\), so use it within this repository/,
+    );
+  });
+
+  it("description: permissions come from SpecGuard's own set, an unknown value is refused in its own words, and omitting the list grants no additional permissions", () => {
+    assert.match(
+      d,
+      /Permissions are strings from SpecGuard's own set \(`view`, `keys\.manage`, `members\.manage`, `repo\.delete`\); an unknown value is refused in SpecGuard's own words/,
+    );
+    assert.match(d, /omitting the list grants access with no additional permissions/);
+  });
+
+  it("description: the repository owner cannot be added — they hold everything by construction", () => {
+    assert.match(d, /The repository owner cannot be added \(they hold everything by construction\)/);
+  });
+
+  it("description: authorization is the members.manage capability — a member without it is refused 403 in SpecGuard's own words", () => {
+    assert.match(
+      d,
+      /Authorization is the `members\.manage` capability — a member without it is refused 403 in SpecGuard's own words/,
+    );
+  });
+
+  it("description: repository_id is the numeric id list_repositories reports, not the org/repo handle", () => {
+    assert.match(
+      d,
+      /Takes `repository_id` — the numeric id `list_repositories` reports, not the `org\/repo` handle/,
+    );
+  });
+
+  it("description: the EITHER-credential rule — the agent key is bounded by its members.manage grants (404, never a probe), the user key is add_repository's", () => {
+    assert.match(
+      d,
+      /It authenticates with EITHER of this server's two member-administration credentials, whichever is set/,
+    );
+    assert.match(
+      d,
+      /SPECGUARD_AGENT_API_KEY \(an sga_… key — the call then reaches only the repositories granted onto that key at mint time, and only where the grant carries `members\.manage`; a repository outside that set answers 404 in SpecGuard's own words, never a probe here\)/,
+    );
+    assert.match(
+      d,
+      /when that is not set, SPECGUARD_USER_API_KEY \(an sgu_… key, the same credential `add_repository` writes with\)/,
+    );
+  });
+
+  it("description: with both credentials set the agent key wins, so the grant answers inside the same set list_repositories reports", () => {
+    assert.match(
+      d,
+      /With both set the agent key wins, so the grant answers inside the same set `list_repositories` reports/,
+    );
+  });
+
+  it("description: under the agent credential the grant is bounded twice — no granting a permission the key lacks (400 naming the over-reach), and the membership is recorded against the key's owner", () => {
+    assert.match(d, /Under the agent credential the grant is bounded twice/);
+    assert.match(
+      d,
+      /the key cannot grant a permission it does not itself hold \(SpecGuard answers 400 naming the over-reach\)/,
+    );
+    assert.match(d, /and the membership is recorded against the key's owner/);
+  });
+
+  it("description: a DIFFERENT credential from the sgk_ repository key get_repository_overview uses", () => {
+    assert.match(
+      d,
+      /Either way it is a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses/,
+    );
+  });
+
+  // -- The argument descriptions ----------------------------------------------
+
+  it("repository_id argument: the numeric id add_repository returns and list_repositories reports, not the org/repo handle", () => {
+    assert.match(
+      repositoryIdArg,
+      /its numeric id, as `add_repository` returns and `list_repositories` reports, not the `org\/repo` handle/,
+    );
+  });
+
+  it("handle argument: the GitHub login — not a profile URL, not a display name — and the person must have signed in to SpecGuard at least once", () => {
+    assert.match(
+      handleArg,
+      /The GitHub login of the person to add, e\.g\. `octocat` — not a profile URL and not a display name; SpecGuard refuses both with its own sentence/,
+    );
+    assert.match(handleArg, /The person must have signed in to SpecGuard at least once/);
+  });
+
+  it("permissions argument: an optional list from SpecGuard's own set; omit it to grant no additional permissions; an unknown value is refused in its own words", () => {
+    assert.match(permissionsArg, /An optional list of permission strings from SpecGuard's own set/);
+    assert.match(permissionsArg, /Omit it to grant access with no additional permissions/);
+    assert.match(permissionsArg, /SpecGuard validates the values and refuses an unknown one in its own words/);
+  });
+
+  // -- The README section's copy ----------------------------------------------
+
+  it("README: argument table — the handle is the login, not a URL or display name; permissions omitted grants no additional permissions", () => {
+    assert.match(
+      section,
+      /\| `handle` \| the person's GitHub login — `octocat`, not a profile URL and not a display name; SpecGuard refuses both with its own sentence \|/,
+    );
+    assert.match(
+      section,
+      /\| `permissions` \| an optional list of permission strings \(`view`, `keys\.manage`, `members\.manage`, `repo\.delete`\); omit it to grant access with no additional permissions \|/,
+    );
+  });
+
+  it("README: resolution failures are distinguishable 400s, and the grantor is the credential's person (sga_ key's OWNER) — no argument names another", () => {
+    assert.match(
+      section,
+      /Each resolution failure — nobody has signed in as that handle yet, the account is archived, the handle is ambiguous, the handle is not a login — arrives as a distinguishable 400 message naming the exact next move/,
+    );
+    assert.match(
+      section,
+      /The grantor recorded on the membership is always the person behind the credential — the one an `sgu_…` key speaks for, or the owner of the `sga_…` agent key\. The server stamps it; no argument can name a different one/,
+    );
+  });
+
+  it("README: the 201 `member.id` is the membership id the update/remove tools name; members.manage is the capability and a member without it is refused 403", () => {
+    assert.match(
+      section,
+      /the response carries a `member` block whose `id` is the membership id \(alongside `handle`, `permissions`, `granted_by`, `created_at`\) — the identifier `update_repository_member_permissions` and `remove_repository_member` name/,
+    );
+    assert.match(
+      section,
+      /Authorization is the `members\.manage` capability; a member without it is refused `403` with SpecGuard's own sentence, verbatim/,
+    );
+  });
+
+  it("README: the EITHER-credential rule — agent key bounded by members.manage grants (404), user key is add_repository's, agent wins when both are set", () => {
+    assert.match(section, /It reads either of two credentials, whichever is set/);
+    assert.match(
+      section,
+      /`SPECGUARD_AGENT_API_KEY` \(`sga_…`\) when it is set: the call then reaches only the repositories granted onto that key at mint time, and only where the grant carries `members\.manage` — a repository outside that set is answered `404` in SpecGuard's own words/,
+    );
+    assert.match(
+      section,
+      /`SPECGUARD_USER_API_KEY` \(`sgu_…`\) when no agent key is set: the same person key `add_repository` reads/,
+    );
+    assert.match(
+      section,
+      /With both set the agent key wins, so the grant answers inside the same set `list_repositories` reports/,
+    );
+  });
+
+  it("README: under the agent credential the grant is bounded twice — over-grant answers 400 naming the over-reach, and the membership is recorded against the key's owner", () => {
+    assert.match(section, /Under the agent credential the grant is bounded twice/);
+    assert.match(
+      section,
+      /the key cannot grant a permission it does not itself hold — SpecGuard answers `400` naming the over-reach — and the membership is recorded against the key's owner/,
+    );
   });
 });
