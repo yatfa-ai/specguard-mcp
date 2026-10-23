@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import updateRepositoryMemberPermissions from "../../src/tools/update-repository-member-permissions.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -251,5 +252,205 @@ describe("update_repository_member_permissions", () => {
     assert.match(error.message, /sga_… key/);
     assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+});
+
+describe("update_repository_member_permissions — the operative prose it teaches", () => {
+  const HEADING = "### `update_repository_member_permissions`";
+  const collapse = (text: string): string => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(updateRepositoryMemberPermissions.description);
+  const props = updateRepositoryMemberPermissions.inputSchema.properties as Record<
+    string,
+    { description?: string } | undefined
+  >;
+  const memberIdArg = collapse(props["member_id"]?.description ?? "");
+  const permissionsArg = collapse(props["permissions"]?.description ?? "");
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.ok(section.length > 1500, "the README section is suspiciously short");
+  });
+
+  // -- The description's clause families --------------------------------------
+
+  it("description: it REPLACES a member's permission set", () => {
+    assert.match(d, /^Replaces one member's permission set on a SpecGuard repository/);
+  });
+
+  it("description: member_id is a MEMBERSHIP id, not a user id, scoped to repository_id — a foreign id is 404, never a cross-repository write", () => {
+    assert.match(d, /named by `member_id` — a MEMBERSHIP id, not a user id — and the id is SCOPED to `repository_id`/);
+    assert.match(
+      d,
+      /a membership id belonging to a different repository is refused 404, never a cross-repository write/,
+    );
+  });
+
+  it("description: `permissions` REPLACES the whole set — not merged — so name every permission the member should end with", () => {
+    assert.match(
+      d,
+      /`permissions` REPLACES the whole set — it is not merged with what the member holds today, so name every permission the member should end with/,
+    );
+  });
+
+  it("description: values come from SpecGuard's own set, and an unknown value is refused in SpecGuard's own words", () => {
+    assert.match(
+      d,
+      /Values are strings from SpecGuard's own set \(`view`, `keys\.manage`, `members\.manage`, `repo\.delete`\); an unknown value is refused in SpecGuard's own words/,
+    );
+  });
+
+  it("description: the membership id is served as `id` by list/add/update, as a JSON number, and must be passed as a string", () => {
+    assert.match(d, /every member response carries it as `id`/);
+    assert.match(
+      d,
+      /the rows `list_repository_members` serves, the `add_repository_member` 201 body, and this tool's own response/,
+    );
+    assert.match(d, /serves that `id` as a JSON number \(a bigint column\)/);
+    assert.match(
+      d,
+      /`member_id` is a string argument refused by name \("`member_id` must be a string\."\) before any request is made/,
+    );
+    assert.match(d, /pass a numeric-looking id such as `7` as a string, not as a number/);
+  });
+
+  it("description: authorization is the members.manage capability — a member without it is refused 403 in SpecGuard's own words", () => {
+    assert.match(
+      d,
+      /Authorization is the `members\.manage` capability — a member without it is refused 403 in SpecGuard's own words/,
+    );
+  });
+
+  it("description: repository_id is the numeric id list_repositories reports, not the org/repo handle", () => {
+    assert.match(
+      d,
+      /Takes `repository_id` — the numeric id `list_repositories` reports, not the `org\/repo` handle/,
+    );
+  });
+
+  it("description: the EITHER-credential rule — the agent key is bounded by its members.manage grants (404, never a probe), the user key is add_repository's", () => {
+    assert.match(
+      d,
+      /It authenticates with EITHER of this server's two member-administration credentials, whichever is set/,
+    );
+    assert.match(
+      d,
+      /SPECGUARD_AGENT_API_KEY \(an sga_… key — the call then reaches only the repositories granted onto that key at mint time, and only where the grant carries `members\.manage`; a repository outside that set answers 404 in SpecGuard's own words, never a probe here\)/,
+    );
+    assert.match(
+      d,
+      /when that is not set, SPECGUARD_USER_API_KEY \(an sgu_… key, the same credential `add_repository` writes with\)/,
+    );
+  });
+
+  it("description: with both credentials set the agent key wins, so the edit answers inside the same set list_repositories reports", () => {
+    assert.match(
+      d,
+      /With both set the agent key wins, so the edit answers inside the same set `list_repositories` reports/,
+    );
+  });
+
+  it("description: under the agent credential the set is bounded twice — no granting a permission the key lacks (400 naming the over-reach), and the re-stamped grantor is the key's owner", () => {
+    assert.match(d, /Under the agent credential the replacement set is bounded twice/);
+    assert.match(
+      d,
+      /the key cannot grant a permission it does not itself hold \(SpecGuard answers 400 naming the over-reach\)/,
+    );
+    assert.match(d, /and the re-stamped grantor is the key's owner/);
+  });
+
+  it("description: a DIFFERENT credential from the sgk_ repository key get_repository_overview uses", () => {
+    assert.match(
+      d,
+      /Either way it is a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses/,
+    );
+  });
+
+  // -- The argument descriptions ----------------------------------------------
+
+  it("member_id argument: a MEMBERSHIP id (not a user id, not the handle), a foreign id is 404, sourced from `id`, pass as a string not a number", () => {
+    assert.match(memberIdArg, /The id of the MEMBERSHIP row to edit — not a user id, and not the handle/);
+    assert.match(memberIdArg, /Scoped to `repository_id`: a foreign membership id is refused 404/);
+    assert.match(
+      memberIdArg,
+      /the `id` field of a member row served by `list_repository_members`, `add_repository_member` or this tool's own response/,
+    );
+    assert.match(
+      memberIdArg,
+      /the server serves that id as a JSON number, so pass it on as a string, not as a number \("7", not 7\)/,
+    );
+  });
+
+  it("permissions argument: the COMPLETE new set, replacing what they hold, not merged; an empty array removes every additional permission but keeps the membership", () => {
+    assert.match(permissionsArg, /The member's COMPLETE new permission set, replacing what they hold today/);
+    assert.match(permissionsArg, /Not merged\./);
+    assert.match(
+      permissionsArg,
+      /An empty array removes every additional permission while keeping the membership/,
+    );
+  });
+
+  // -- The README section's copy ----------------------------------------------
+
+  it("README: argument table — member_id is the MEMBERSHIP row id, not a user id, scoped to repository_id (foreign id 404)", () => {
+    assert.match(
+      section,
+      /\| `member_id` \| the id of the membership row to edit — not a user id, not the handle\. Scoped to `repository_id`: a foreign membership id is refused `404` \|/,
+    );
+  });
+
+  it("README: permissions is the member's complete new set — it replaces what they hold, it is not merged — and the whole set is replaced", () => {
+    assert.match(
+      section,
+      /\| `permissions` \| the member's complete new permission set \(`view`, `keys\.manage`, `members\.manage`, `repo\.delete`\) — it replaces what they hold today, it is not merged \|/,
+    );
+    assert.match(
+      section,
+      /`permissions` replaces the whole set — name every permission the member should end with/,
+    );
+    assert.match(section, /an unknown value is refused with its own sentence, verbatim/);
+  });
+
+  it("README: member_id is a JSON number on the wire — pass it as a string; there is no name lookup", () => {
+    assert.match(
+      section,
+      /serves that `id` as a JSON number \(the column is a bigint\), while `member_id` is a string argument refused by name before any request is made — pass a numeric-looking id such as `7` as a string, not as a number/,
+    );
+    assert.match(section, /There is no name-based lookup, and ids are scoped to the repository \(a foreign id is refused `404`\)/);
+  });
+
+  it("README: members.manage is the capability and a member without it is refused 403 with SpecGuard's own sentence", () => {
+    assert.match(
+      section,
+      /Authorization is the `members\.manage` capability; a member without it is refused `403` with SpecGuard's own sentence, verbatim/,
+    );
+  });
+
+  it("README: the EITHER-credential rule — agent key bounded by members.manage grants (404), user key is add_repository's, agent wins when both are set", () => {
+    assert.match(section, /It reads either of two credentials, whichever is set/);
+    assert.match(
+      section,
+      /`SPECGUARD_AGENT_API_KEY` \(`sga_…`\) when it is set: the call then reaches only the repositories granted onto that key at mint time, and only where the grant carries `members\.manage` — a repository outside that set is answered `404` in SpecGuard's own words/,
+    );
+    assert.match(
+      section,
+      /`SPECGUARD_USER_API_KEY` \(`sgu_…`\) when no agent key is set: the same person key `add_repository` reads/,
+    );
+    assert.match(
+      section,
+      /With both set the agent key wins, so the edit answers inside the same set `list_repositories` reports/,
+    );
+  });
+
+  it("README: under the agent credential the set is bounded twice — over-grant answers 400 naming the over-reach, and the re-stamped grantor is the key's owner", () => {
+    assert.match(section, /Under the agent credential the replacement set is bounded twice/);
+    assert.match(
+      section,
+      /the key cannot grant a permission it does not itself hold — SpecGuard answers `400` naming the over-reach — and the re-stamped grantor is the key's owner/,
+    );
   });
 });
