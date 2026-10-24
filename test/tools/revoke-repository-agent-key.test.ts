@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import revokeRepositoryAgentKey from "../../src/tools/revoke-repository-agent-key.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
@@ -226,5 +227,209 @@ describe("revoke_repository_agent_key", () => {
     assert.match(error.message, /sga_… key/);
     assert.doesNotMatch(error.message, /SPECGUARD_API_KEY is not set/);
     assert.equal(http.requests.length, 0, "no request should be made without the credential");
+  });
+});
+
+/**
+ * The tool's whole agent-facing safety contract is prose: the `description`, the
+ * `repository_id`/`key_id` argument descriptions and the README section. The wire
+ * tests above pin requests, the 200-with-disclosure pass-through, the 403/404
+ * rendering and credential precedence — but no operative clause an agent must
+ * hold BEFORE it commits the cut is asserted anywhere: the IRREVERSIBLE cut whose
+ * blast radius is the key's WHOLE stored set, the `repository_count` check that
+ * must happen BEFORE a multi-repository key is cut, the 200-with-body shape that
+ * is deliberately NOT the sgk_ sibling's empty 204, the repository-scoped 404
+ * (never a cross-repository cut), the list-first id source for a key with no
+ * mint tool, `keys_manage` with its 403, and the EITHER-credential rule with the
+ * agent set's own 404 bound. A clause-level edit to any of them leaves the suite
+ * green, so these pin each clause family on its own surface — the description
+ * examples below assert the served `description:`, the README examples assert
+ * the section's copy — because the README states them independently and
+ * `readme.test.ts` checks identifier presence only (any REWORDING that keeps the
+ * backticked names stays green there).
+ *
+ * The README section is sliced from its heading to the next `### `; `**` emphasis
+ * is dropped and whitespace collapsed (the README wraps lines mid-sentence) so
+ * assertions are line-wrap-proof.
+ */
+describe("revoke_repository_agent_key — the operative prose it teaches", () => {
+  const HEADING = "### `revoke_repository_agent_key`";
+  const collapse = (text: string): string => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+
+  const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+  const start = readme.indexOf(HEADING);
+  const end = start === -1 ? -1 : readme.indexOf("\n### ", start + HEADING.length);
+  const section = collapse(start === -1 ? "" : readme.slice(start, end === -1 ? undefined : end));
+  const d = collapse(revokeRepositoryAgentKey.description);
+  const argDescription = (name: string): string =>
+    collapse(
+      (revokeRepositoryAgentKey.inputSchema.properties as Record<
+        string,
+        { description?: string } | undefined
+      >)[name]?.description ?? "",
+    );
+  const repositoryIdArg = argDescription("repository_id");
+  const keyIdArg = argDescription("key_id");
+
+  it("positive control: the README section is located by its heading and is non-empty", () => {
+    assert.notEqual(start, -1, `README.md has no ${HEADING} heading`);
+    assert.ok(section.length > 800, "the README section is suspiciously short");
+  });
+
+  // -- The description's clause families -------------------------------------
+
+  it("description: IRREVERSIBLE, and the blast radius is the key's WHOLE stored set — the grant is stored once at mint time, so one call cuts the token on EVERY repository the key covers, not just repository_id", () => {
+    assert.match(
+      d,
+      /IRREVERSIBLE, and the blast radius is the key's WHOLE stored set: the grant \(repository set \+ permission set\) is stored once at mint time, so this one call cuts the token on EVERY repository the key covers, not just `repository_id`/,
+    );
+  });
+
+  it("description: check repository_count on list_repository_agent_keys BEFORE cutting a multi-repository key", () => {
+    assert.match(
+      d,
+      /check `repository_count` on `list_repository_agent_keys` BEFORE cutting a multi-repository key/,
+    );
+  });
+
+  it("description: answers 200 WITH the disclosure body — an agent_key block carrying revoked_at, repository_count and the still-existing repositories names, plus deleted_repository_count when some have been deleted since mint", () => {
+    assert.match(
+      d,
+      /Answers `200` WITH the disclosure body — an `agent_key` block carrying `revoked_at`, `repository_count` and the still-existing `repositories` names, plus `deleted_repository_count` when some have been deleted since mint/,
+    );
+  });
+
+  it("description: NOT the empty 204 the sgk_ sibling revoke_repository_api_key serves — the body itself is the confirmation", () => {
+    assert.match(
+      d,
+      /NOT the empty 204 the sgk_ sibling `revoke_repository_api_key` serves; the body itself is the confirmation/,
+    );
+  });
+
+  it("description: the key_id is scoped to repository_id — a key whose stored set does not cover this repository, or one already revoked, is refused 404, never a cross-repository cut", () => {
+    assert.match(
+      d,
+      /The `key_id` is scoped to `repository_id`: a key whose stored set does not cover this repository, or one already revoked, is refused 404, never a cross-repository cut/,
+    );
+  });
+
+  it("description: agent keys have NO mint tool on this bridge, so take key_id from list_repository_agent_keys — list first, then revoke", () => {
+    assert.match(
+      d,
+      /Agent keys have NO mint tool on this bridge \(minting is deliberately web-only\), so take `key_id` from `list_repository_agent_keys` — list first, then revoke/,
+    );
+  });
+
+  it("description: authorization is the keys_manage capability — a caller without it is refused 403 in SpecGuard's own words", () => {
+    assert.match(
+      d,
+      /Authorization is the `keys_manage` capability — a caller without it is refused 403 in SpecGuard's own words/,
+    );
+  });
+
+  it("description: the EITHER-credential rule — SPECGUARD_AGENT_API_KEY when set, SPECGUARD_USER_API_KEY when that is not set", () => {
+    assert.match(
+      d,
+      /It authenticates with EITHER of this server's two key-administration credentials, whichever is set: SPECGUARD_AGENT_API_KEY/,
+    );
+    assert.match(
+      d,
+      /and, when that is not set, SPECGUARD_USER_API_KEY \(an sgu_… key, the same credential the other key-administration tools read\)/,
+    );
+  });
+
+  it("description: a repository outside the agent set answers 404, never a probe here — an agent credential revoking one of its own kind needs no person's sgu_ key", () => {
+    assert.match(
+      d,
+      /a repository outside that set answers 404 in SpecGuard's own words, never a probe here — an agent credential revoking one of its own kind needs no person's `sgu_` key to do it/,
+    );
+  });
+
+  it("description: with both set the agent key wins, so the cut answers inside the same set list_repositories reports", () => {
+    assert.match(
+      d,
+      /With both set the agent key wins, so the cut answers inside the same set `list_repositories` reports/,
+    );
+  });
+
+  it("description: a DIFFERENT credential from the sgk_… repository key get_repository_overview uses; SpecGuard refuses each in the other's place", () => {
+    assert.match(
+      d,
+      /Either way it is a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses; SpecGuard refuses each in the other's place/,
+    );
+  });
+
+  // -- The argument descriptions ---------------------------------------------
+
+  it("repository_id argument: the numeric id from add_repository / list_repositories, not the org/repo handle — and the CUT lands on every repository in the key's stored set", () => {
+    assert.match(
+      repositoryIdArg,
+      /The repository whose key-administration scope the call is made under — its numeric id, as `add_repository` returns and `list_repositories` reports, not the `org\/repo` handle/,
+    );
+    assert.match(repositoryIdArg, /The CUT, however, lands on every repository in the key's stored set/);
+  });
+
+  it("key_id argument: served by list_repository_agent_keys — the only id source, because agent keys have no mint tool on this bridge — and scoped to repository_id, refused 404", () => {
+    assert.match(
+      keyIdArg,
+      /The id of the agent key to revoke, as served by `list_repository_agent_keys` — the only id source, because agent keys have no mint tool on this bridge/,
+    );
+    assert.match(
+      keyIdArg,
+      /Scoped to `repository_id`: a key whose stored set excludes this repository, or one already revoked, is refused 404/,
+    );
+  });
+
+  // -- The README section's copy ----------------------------------------------
+
+  it("README: Irreversible, and the blast radius is the key's whole stored set — the grant is stored once at mint time, so one call cuts the token on EVERY repository the key covers, not just repository_id", () => {
+    assert.match(
+      section,
+      /Irreversible, and the blast radius is the key's whole stored set: an agent key's grant \(repository set \+ permission set\) is stored once at mint time, so this one call cuts the token on EVERY repository the key covers, not just `repository_id`/,
+    );
+  });
+
+  it("README: check repository_count on list_repository_agent_keys before cutting, and the only id source — agent keys have no mint tool on this bridge", () => {
+    assert.match(
+      section,
+      /Check `repository_count` on `list_repository_agent_keys` before cutting a multi-repository key/,
+    );
+    assert.match(
+      section,
+      /the only id source, because agent keys have no mint tool on this bridge/,
+    );
+  });
+
+  it("README: answers 200 with the disclosure body, not the empty 204 the sgk_ sibling serves — the API's substitute for the web confirm dialog, so the body itself is the confirmation", () => {
+    assert.match(
+      section,
+      /This endpoint answers `200` with the disclosure body, not the empty `204` the sgk_ sibling `revoke_repository_api_key` serves/,
+    );
+    assert.match(
+      section,
+      /the API's substitute for the web confirm dialog, so the body itself is the confirmation/,
+    );
+  });
+
+  it("README: the key_id scoped 404 (never a cross-repository cut) and the keys_manage 403 authorization", () => {
+    assert.match(
+      section,
+      /The `key_id` is scoped to `repository_id`: a key whose stored set does not cover this repository, or one already revoked, is refused `404`, never a cross-repository cut/,
+    );
+    assert.match(
+      section,
+      /Authorization is the `keys_manage` capability; a caller without it is refused `403` with SpecGuard's own sentence, verbatim/,
+    );
+  });
+
+  it("README: the both-set winner — the agent key wins, the cut answers inside the same set list_repositories reports — and the sgk_… credential contrast", () => {
+    assert.match(
+      section,
+      /With both set the agent key wins, so the cut answers inside the same set `list_repositories` reports/,
+    );
+    assert.match(
+      section,
+      /a different one from the `sgk_…` key `get_repository_overview` uses/,
+    );
   });
 });
