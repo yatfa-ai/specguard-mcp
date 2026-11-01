@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import addRepositoryMember from "../../src/tools/add-repository-member.js";
+import { itStatesSharedMemberAdminClauses, itStatesMembersManageAuthorization } from "../support/member-admin-description.js";
 import { rejects, stubFetch, toolContext } from "../support/stubs.js";
 
 /** Only the USER key — the credential this tool reads. */
@@ -330,34 +331,8 @@ describe("add_repository_member — the operative prose it teaches", () => {
     assert.match(d, /The repository owner cannot be added \(they hold everything by construction\)/);
   });
 
-  it("description: authorization is the members.manage capability — a member without it is refused 403 in SpecGuard's own words", () => {
-    assert.match(
-      d,
-      /Authorization is the `members\.manage` capability — a member without it is refused 403 in SpecGuard's own words/,
-    );
-  });
-
-  it("description: repository_id is the numeric id list_repositories reports, not the org/repo handle", () => {
-    assert.match(
-      d,
-      /Takes `repository_id` — the numeric id `list_repositories` reports, not the `org\/repo` handle/,
-    );
-  });
-
-  it("description: the EITHER-credential rule — the agent key is bounded by its members.manage grants (404, never a probe), the user key is add_repository's", () => {
-    assert.match(
-      d,
-      /It authenticates with EITHER of this server's two member-administration credentials, whichever is set/,
-    );
-    assert.match(
-      d,
-      /SPECGUARD_AGENT_API_KEY \(an sga_… key — the call then reaches only the repositories granted onto that key at mint time, and only where the grant carries `members\.manage`; a repository outside that set answers 404 in SpecGuard's own words, never a probe here\)/,
-    );
-    assert.match(
-      d,
-      /when that is not set, SPECGUARD_USER_API_KEY \(an sgu_… key, the same credential `add_repository` writes with\)/,
-    );
-  });
+  itStatesSharedMemberAdminClauses(d);
+  itStatesMembersManageAuthorization(d);
 
   it("description: with both credentials set the agent key wins, so the grant answers inside the same set list_repositories reports", () => {
     assert.match(
@@ -373,13 +348,6 @@ describe("add_repository_member — the operative prose it teaches", () => {
       /the key cannot grant a permission it does not itself hold \(SpecGuard answers 400 naming the over-reach\)/,
     );
     assert.match(d, /and the membership is recorded against the key's owner/);
-  });
-
-  it("description: a DIFFERENT credential from the sgk_ repository key get_repository_overview uses", () => {
-    assert.match(
-      d,
-      /Either way it is a DIFFERENT credential from the sgk_… repository key `get_repository_overview` uses/,
-    );
   });
 
   // -- The argument descriptions ----------------------------------------------
