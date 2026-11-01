@@ -283,6 +283,18 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * over — one ask, several blocks, each in its own grain — so it is said here in
  * that form rather than in a new one.
  *
+ * ⭐ SPGD-2000 ADDED A THIRD UNDER A NARROWING. `latest_run.unannotated_files`
+ * is served on the SAME ask when `?spec_directory=` rides and `?spec_file=` does
+ * not — the console panel SPGD-1998 added, one grain down from the map: the
+ * files of the picked area carrying debt, ranked like the map, `file_count`
+ * disclosing the cut, and the same operands-only rule. Its gate is the
+ * narrowing's — a file ask keeps it `null` (the narrowed worklist IS the answer)
+ * — and its empty read is NEVER the map's `null`: an area-narrowed worklist has
+ * no ambiguous zero to discriminate, so an unknown area, a fully-annotated one
+ * and a run that recorded no rows all read a present block with `rows: []` and
+ * `file_count: 0`. Stated in the schema description below the map, not as a new
+ * parameter.
+ *
  * TWO CAPS UNDER ONE ASK, and the difference is the KIND of list rather than the
  * grain. `UNANNOTATED_EXAMPLES_LIMIT` is 100 and `UNANNOTATED_DIRECTORIES_LIMIT`
  * is 10, and the server's constant says why: the hundred caps a WORKLIST, sized
@@ -1096,7 +1108,8 @@ const getRepositoryOverview: ToolDefinition = {
           "population is routinely the entire run — a repository that has just installed the gem " +
           "has every test in it — so the cap is the normal case rather than the exotic one; a " +
           "narrowed ask is cut at the same 100. " +
-          "THE ONE ASK OPENS TWO BLOCKS, each in its own grain: `latest_run.unannotated_examples` " +
+          "THE ONE ASK OPENS TWO BLOCKS — three under a directory-only narrowing, see the FILES " +
+          "RUNG below — each in its own grain: `latest_run.unannotated_examples` " +
           "for WHICH TESTS to go and annotate, and `latest_run.unannotated_directories` for WHERE " +
           "THE DEBT IS — one run's annotation debt rolled up by code AREA, which is what you pick " +
           "the next `spec_directory` narrowing FROM. Both come from this ONE flag: there is no " +
@@ -1116,6 +1129,22 @@ const getRepositoryOverview: ToolDefinition = {
           "COLLECTIVELY, so on a run with more areas than the cap they are cut and never seen, " +
           "but on a run inside the cap they ARE LISTED and listed is correct. So `rows.size` is " +
           "not a count of areas WITH debt — read each row's `unannotated_count`. " +
+          "THE FILES RUNG, AND THE THIRD BLOCK THE ASK OPENS UNDER A DIRECTORY-ONLY NARROWING: " +
+          "when `spec_directory` is sent and `spec_file` is NOT, the same flag also serves " +
+          "`latest_run.unannotated_files` — the files of THAT AREA carrying the debt, the rung " +
+          "between the map above and the worklist above it. Each row carries the map row's own six " +
+          "operands (`path`, `unannotated_count`, `recorded_count`, `authored_count`, " +
+          "`derived_count`, `unreadable_count`), ranked like the map — `unreadable_count` DESC, " +
+          "then `unannotated_count` DESC, `path` ASC, the dark files leading — beside " +
+          "`file_count`, which counts the files of the area CARRYING DEBT (the read's " +
+          "post-HAVING window, not the area's every file — that figure is `spec_directory_files`'s), " +
+          "so `file_count > rows.length` is the truncation test, and its own `limit` of 10, with " +
+          "the ask echoed in `spec_directory`. A file ask keeps the key `null` — the narrowed " +
+          "worklist is already exactly the rows this list would name — and so does no directory " +
+          "ask; EVERY OTHER ANSWER IS A PRESENT BLOCK: an unknown area, a fully-annotated one and " +
+          "a run that recorded no rows all read `rows: []` with `file_count: 0`, never the map's " +
+          "`null`, which is reserved for \"no per-area grain to rank\" and has no equivalent on " +
+          "an area-narrowed worklist. It ignores `layer` like the other two. " +
           "THE TWO BLOCKS DISAGREE IN TWO PLACES, ON PURPOSE — do not reconcile them by " +
           "arithmetic. " +
           "(1) SCOPE: `spec_file`/`spec_directory` narrow the WORKLIST and its `recorded_count`, " +
@@ -1133,7 +1162,7 @@ const getRepositoryOverview: ToolDefinition = {
           "nothing\", and the map is how you tell them apart: a present map beside that zero means " +
           "the zero is the SUCCESS state, a `null` map means the run recorded nothing and the zero " +
           "is an ABSENCE of data. " +
-          "BOTH BLOCKS ARE AT RUN GRAIN, so each MOVES WITH `commit_sha` like everything else " +
+          "ALL THREE BLOCKS ARE AT RUN GRAIN, so each MOVES WITH `commit_sha` like everything else " +
           "under `latest_run`, unlike `unstable_test` which does not. " +
           "A FULLY-ANNOTATED RUN IS NOT AN ERROR AND NOT A `null`: the worklist answers 200 with " +
           "`rows: []` and `recorded_count: 0`, because that is the state the metric exists to " +
@@ -1193,7 +1222,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`unresolved_count` stay WHOLE-RUN. A layer the anchor run never declared answers " +
           "`state: \"ranked\"` with `rows: []`: that is NOT \"nothing is slow\", it is " +
           "\"nothing in that layer\". " +
-          "NOT narrowed: `unannotated_examples` and `unannotated_directories` ignore `layer`. " +
+          "NOT narrowed: the annotation blocks — `unannotated_examples`, `unannotated_directories` " +
+          "and `unannotated_files` — ignore `layer`. " +
           "Use it after `latest_run.layer_durations` shows one layer holding most of the machine " +
           "time (say `request`) and you need to know WHICH tests — in this run, or (with " +
           "`branch`) across the window. Values: `unit`, `integration`, `request`, `system` or " +
