@@ -210,12 +210,13 @@ run-grain block re-anchors together (`latest_run` and its rollups, the five run-
 `slowest_examples` — `shards`, both growth windows, `previous_test_run`); `history` does not, so the
 `history[0] == latest_run` identity holds
 on a default call and is **not** expected to hold under an explicit ask. Nor does `unstable_test_runs`,
-which is read over the branch window rather than off the anchored run. (`unannotated_directories`,
-below, re-anchors too and is *not* a fifth drill-in: this roster carries one representative key per
-drill-in **parameter**, not one entry per response key — `spec_directory` opens three blocks and only
-`spec_directory_files` is listed, with `directory_run_file_growth` and `directory_runtime_file_growth`
-absent for the same reason. `unannotated_directories` is a second block of an existing parameter's ask
-and adds no parameter, so it is covered above by *`latest_run` and its rollups* and the roster stays at
+which is read over the branch window rather than off the anchored run. (`unannotated_directories` and
+`unannotated_files`, below, re-anchor too and are *not* drill-ins on this roster: it carries one
+representative key per drill-in **parameter**, not one entry per response key — `spec_directory` opens
+three blocks and only `spec_directory_files` is listed, with `directory_run_file_growth` and
+`directory_runtime_file_growth` absent for the same reason. `unannotated_directories` and
+`unannotated_files` are further blocks of an existing parameter's ask and add no parameter, so they
+are covered above by *`latest_run` and its rollups* and the roster stays at
 four.) A sha with no run — a stale
 bookmark, a pruned run, a commit whose CI never reported — does not error: the endpoint
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
@@ -560,8 +561,23 @@ read lead, because a ten-row ranking led by debt on an unannotated suite is a ra
 and the dark corners never surface. A fully-annotated area is a real **row** with `unannotated_count: 0`, never an
 omission; those rows sort last *collectively*, so on a run with more areas than the cap they are cut
 and never seen, but on a run inside the cap they *are* listed and listed is correct. So `rows.size` is
-not a count of areas *with* debt — read each row's `unannotated_count`. Both blocks are at run grain,
-so both move with `commit_sha`.
+not a count of areas *with* debt — read each row's `unannotated_count`. All three blocks are at run
+grain, so all three move with `commit_sha`.
+
+**A third block rides the same ask under a directory-only narrowing.** Send `spec_directory`
+**without** `spec_file` and the same flag also serves `latest_run.unannotated_files` — the files of
+**that area** carrying the debt (the console panel SPGD-1998 added), one grain below the map. Each
+row carries the same six operands as a map row (`path`, `unannotated_count`, `recorded_count`,
+`authored_count`, `derived_count`, `unreadable_count`), ranked like the map — `unreadable_count`
+descending, `unannotated_count` descending, `path` ascending, so the dark files lead — beside
+`file_count` (the files of the area **carrying debt**, the read's post-`HAVING` window, not the
+area's every file — `file_count > rows.length` is the truncation test) and its own `limit` of **10**,
+with the ask echoed in `spec_directory`. A file ask keeps it **`null`** — the narrowed worklist is
+already exactly the rows this list would name — and so does no directory ask; every other answer is
+a **present block**: an unknown area, a fully-annotated one and a run that recorded no rows all read
+`rows: []` with `file_count: 0`, never the map's `null`, which is reserved for "no per-area grain to
+rank" and has no equivalent here. It is at run grain (moves with `commit_sha`) and ignores `layer`
+like the other two.
 
 **The two blocks disagree in two places, on purpose — do not reconcile them by arithmetic.**
 *Scope:* `spec_file`/`spec_directory` narrow the **worklist** and its `recorded_count`, and the
@@ -580,7 +596,7 @@ the success state, a `null` map means the run recorded nothing and the zero is a
 `false` means the same as omitting it and sends nothing at all. That matters more here than
 elsewhere: the server reads only whether the parameter was **named**, so `?unannotated_examples=false`
 on the wire would open the block for a caller who asked for it not to be — declining is not sending,
-which is how every other argument here is declined too. Omit the flag and **both** keys are `null`,
+which is how every other argument here is declined too. Omit the flag and **all three** keys are `null`,
 meaning you did not ask. A **fully-annotated run is not an error and not a `null`**: the worklist
 answers 200 with `rows: []` and `recorded_count: 0`, because that is the state the metric exists to
 reach — walk a repository to completion and the block goes empty rather than vanishing. A narrowing
