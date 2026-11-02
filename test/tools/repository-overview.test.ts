@@ -628,6 +628,157 @@ describe("get_repository_overview — the request it makes", () => {
     );
   });
 
+  it("passes ?compare_to= through when a branch is named", async () => {
+    // SPGD-2009 on the wire: the ask that re-points the six run-pair growth
+    // blocks at a named branch's newest run at or before the anchored run.
+    // Forwarded unvalidated like `layer`, because the server reads a
+    // same-branch value, a blank and every malformed shape as NO ASK (never a
+    // 400) — a client-side opinion here could only disagree with the one that
+    // decides.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { compare_to: "main" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?compare_to=main");
+  });
+
+  it("omits ?compare_to= entirely for a blank one, rather than sending an ask the server would absorb", async () => {
+    // Not merely tidy. The server reads the parameter as `.presence`, so a
+    // blank is "no ask" there too — but sending it would be asserting the ask
+    // travelled when it did not, and an agent reading its own request log
+    // could not tell a deliberate blank from a dropped ask. Nothing blank
+    // leaves here, the rule every argument on this tool keeps.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { compare_to: "   " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
+  it("composes ?compare_to= with ?commit_sha=", async () => {
+    // The composition the PR-branch reading actually needs: `commit_sha` picks
+    // the run this body describes and `compare_to` names the branch the
+    // run-pair figures measure it against — the baseline is the named branch
+    // AS OF that run, so a newer run on `main` landed after the anchored
+    // commit is excluded. The order is pinned the way the sibling composition
+    // tests are, because object insertion order in `run()` decides the wire
+    // order and a reordering here is byte-visible to a pinned client.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { compare_to: "main", commit_sha: "a1b2c3d" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?commit_sha=a1b2c3d&compare_to=main",
+    );
+  });
+
+  it("rides the PLURAL route unchanged under `repository`", async () => {
+    // The plural surface serves the same `RepositoryOverview` body with every
+    // parameter honoured identically, and the baseline re-pointing is a body
+    // property rather than a route property — `previous_test_run` is the same
+    // memo on either controller. Pinning it once here keeps the plural path
+    // from silently losing the ask the next time the credential branch moves.
+    const http = stubFetch({ body: PLURAL_BODY });
+
+    await getRepositoryOverview.run(
+      { repository: "42", compare_to: "main" },
+      toolContext({ env: AGENT_ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repositories/42?compare_to=main");
+    assert.equal(http.requests[0]?.headers["authorization"], "Bearer sga_test");
+  });
+
+  it("documents the compare_to contract's four wire tokens, so a client can read the baseline it got", () => {
+    // The server names every state of the ask on the wire, and the description
+    // is the only place an MCP agent learns those names: `basis` flips to
+    // `named_branch_baseline` under an honoured ask, `baseline_branch` names
+    // the branch the baseline run was drawn from, `requested_compare_to`
+    // echoes the raw ask, and a missed ask serves `state:
+    // "baseline_unavailable"`. An agent that cannot spell
+    // `baseline_unavailable` cannot tell a cross-branch miss from the
+    // same-branch `no_previous_run` it resembles — the exact confusion the
+    // token exists to prevent.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["compare_to"] as { description?: string })?.description ?? "";
+
+    for (const token of [
+      "named_branch_baseline",
+      "baseline_branch",
+      "requested_compare_to",
+      "baseline_unavailable",
+    ]) {
+      assert.ok(
+        description.includes(`\`${token}\``),
+        `the compare_to description must name the wire token \`${token}\` — the server answers ` +
+          "in these names, and an agent that cannot spell them cannot read which baseline it got",
+      );
+    }
+
+    // The miss is a STATE, not a null: the two figures a client branches on
+    // are `comparable` and `baseline_commit_sha`, and the no-fallback rule is
+    // the one behaviour that keeps a cross-branch ask honest.
+    assert.match(description, /`comparable: false`/);
+    assert.match(description, /`baseline_commit_sha: null`/);
+    assert.match(description, /NO FALLBACK/);
+    // Composition, absorption and the fence — what composing costs, what a
+    // same-branch ask buys, and which blocks the ask does NOT touch.
+    assert.match(description, /COMPOSES with `commit_sha`/);
+    assert.match(description, /SAME-BRANCH ask is identical to no ask/);
+    assert.match(description, /NOT RE-POINTED/);
+    assert.match(description, /`directory_growth`/);
+    assert.match(description, /`layer_growth`/);
+  });
+  it("documents the compare_to baseline rule in the description and the README", () => {
+    // The operative sentence, pinned in both places a consumer reads it. The
+    // description teaches the AGENT the ask; the README is the PUBLISHED
+    // documentation (`package.json` ships it beside `dist`) and teaches the
+    // consumer the same contract one surface over — and a parameter added to
+    // one without the other is the drift `test/readme.test.ts`'s header
+    // documents at length (`b87f8fa` dropped a whole parameter's README). One
+    // shared sentence, whitespace-normalised, so re-flowing either text keeps
+    // both honest rather than hiding behind a line break.
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+    const sentence =
+      /measure the six run-pair growth blocks against a branch you NAME, instead of the anchored run's same-branch predecessor/i;
+    const parameter = (getRepositoryOverview.inputSchema.properties ?? {})["compare_to"] as {
+      description?: string;
+    };
+    for (const [label, text] of [
+      ["compare_to description", parameter?.description ?? ""],
+      ["README", readme],
+    ] as const) {
+      assert.match(
+        text.replace(/\s+/g, " "),
+        sentence,
+        `${label} must state the compare_to baseline rule — the ask a first-run PR branch needs`,
+      );
+    }
+
+    // The four wire tokens in the README too: the parameter row is where a
+    // consumer learns what the server answers with, and `baseline_unavailable`
+    // is the one state a client cannot act on without being able to spell it.
+    for (const token of [
+      "named_branch_baseline",
+      "baseline_branch",
+      "requested_compare_to",
+      "baseline_unavailable",
+    ]) {
+      assert.ok(readme.includes(token), `the README must name the wire token \`${token}\` for compare_to`);
+    }
+  });
+
+
   it("documents `layer` as narrowing slowest_examples AND (with branch) slowest_tests, with the five values", () => {
     const properties = getRepositoryOverview.inputSchema.properties ?? {};
     const description = (properties["layer"] as { description?: string })?.description ?? "";
@@ -1357,8 +1508,12 @@ describe("get_repository_overview — failures an agent can act on", () => {
     // anchored run, and `repository` names WHICH REPOSITORY the answer is
     // about at all — it moves every block together and re-anchors nothing,
     // because anchoring is a question about which RUN within the subject, and
-    // this chooses the subject.
-    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test", "repository"]);
+    // this chooses the subject. `compare_to` re-points the BASELINE the six
+    // run-pair blocks measure against, and the anchored run does not move —
+    // the anchor stays what `commit_sha` picked (or the repository's newest),
+    // which its own description states ("THIS RE-POINTS THE BASELINE, NOT THE
+    // ANCHOR").
+    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test", "repository", "compare_to"]);
 
     // The response key each drill-in parameter opens. Keys, not parameter
     // names, because the description enumerates what MOVES — response blocks —

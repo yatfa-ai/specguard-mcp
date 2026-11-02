@@ -219,6 +219,45 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * actually served). Nothing else about the response looks unusual, which is why
  * the schema tells the agent to read `run_anchor.resolved`.
  *
+ * == `compare_to` re-points the BASELINE, the one thing `commit_sha` does not
+ *
+ * `commit_sha` picks the run this body DESCRIBES; `compare_to` names the branch
+ * the six run-pair growth blocks measure that run AGAINST. It lands in exactly
+ * one server place — `RepositoryOverview#previous_test_run`, the memo every
+ * run-pair block already flows through — so the baseline of `layer_run_growth`,
+ * `layer_runtime_growth`, `directory_run_growth`, `directory_runtime_growth`,
+ * `directory_run_file_growth`, `directory_runtime_file_growth` (and of the
+ * `previous_test_run` row itself) becomes the newest run on the NAMED branch at
+ * or before the anchored run, REPLACING the same-branch predecessor the ask
+ * would otherwise have drawn. SPGD-2009 (specguard PR #530). Without it, an
+ * agent reading its own PR branch's first run got `no_previous_run` on all six
+ * blocks and could not ask "vs main" — the one pair the pull-request shape
+ * makes it want, and the one a plain curl user could already send.
+ *
+ * The server absorbs a same-branch ask COMPLETELY — byte-for-byte the no-ask
+ * response — and it absorbs a blank one and every malformed shape the same way
+ * (`RequestedCompareToParam` reads `.presence` and refuses nothing), so the
+ * value is forwarded UNVALIDATED, exactly like `layer`: a second opinion here
+ * about what a branch name looks like would only ever disagree with the one
+ * that matters. A blank sends nothing, through the same omit-undefined path
+ * every argument here is declined by.
+ *
+ * THREE THINGS ARE STATED IN THE SCHEMA, because each is a silent misread
+ * otherwise. Under an HONOURED ask the six `*_window` contract blocks flip
+ * `basis` to `named_branch_baseline` and gain `baseline_branch` (the branch the
+ * baseline run was drawn from) and `requested_compare_to` (the raw ask,
+ * echoed) — the pair that tells a cross-branch comparison from a same-branch
+ * one, which `branch` alone cannot say because `branch` inside a window block
+ * still names the ANCHOR run's branch. A MISSED ask — no run on the named
+ * branch at or before the anchored run — serves `state:
+ * "baseline_unavailable"` with `comparable: false` and
+ * `baseline_commit_sha: null`, NEVER a fallback to the same-branch predecessor:
+ * silently measuring against a different branch than the URL names is the one
+ * falsehood the ask must never produce. And the `?branch=` window blocks
+ * (`directory_growth`, `layer_growth` and the other window pairs) are NOT
+ * re-pointed — they read the shared branch-window walk and compare the window's
+ * two endpoints, so the ask names a run-pair baseline and touches none of them.
+ *
  * == `unannotated_examples` is the one that is a FLAG rather than a name
  *
  *   `latest_run.total_specs` − `annotated_specs` → `latest_run.unannotated_examples`
@@ -495,7 +534,8 @@ const getRepositoryOverview: ToolDefinition = {
     "which descriptions are repeated across the suite (the overcoverage ranking: one description " +
     "carried by many examples, and which files it is spread over), " +
     "which areas of the suite grew or shrank and which got slower or faster since the previous run " +
-    "on the same branch (the per-area comparisons, at BOTH the example-count grain and the " +
+    "on the same branch — `compare_to` names another branch for that previous run to be drawn from, " +
+    "which is the ask a feature branch whose CI has reported once needs (the per-area comparisons, at BOTH the example-count grain and the " +
     "runtime grain — an area where an existing spec was made slow gains no examples and appears " +
     "only in the runtime one — and how the run-wide declared-layer mix moved, `layer_run_growth` at the count grain and `layer_runtime_growth` at the time grain since the previous run, and `layer_growth` across the `branch` window), " +
     "the recent run history for growth over time, and the branches that have runs. " +
@@ -586,7 +626,8 @@ const getRepositoryOverview: ToolDefinition = {
     "HOW THE DECLARED-LAYER MIX MOVED SINCE THE PREVIOUS RUN is `layer_run_growth`, with its contract " +
     "block `layer_run_growth_window` — both TOP-LEVEL siblings of `directory_run_growth`, NOT inside " +
     "`latest_run` (the delta is not in `latest_run.layer_counts`). They compare the latest run with the " +
-    "previous run ON THE LATEST RUN'S OWN BRANCH, so no `branch` is needed, and `commit_sha` re-anchors " +
+    "previous run ON THE LATEST RUN'S OWN BRANCH — `compare_to` names another branch for that previous " +
+    "run to be drawn from — so no `branch` is needed, and `commit_sha` re-anchors " +
     "them with the rest of the run-grain blocks exactly as it does the area pair. `layer_run_growth` is " +
     "`null` in EVERY non-comparable state — NEVER a block of zeros, so `null` is not \"no change\" — and " +
     "`layer_run_growth_window.state` names why: `latest_unmeasured`, `previous_unmeasured`, " +
@@ -606,7 +647,8 @@ const getRepositoryOverview: ToolDefinition = {
     "`directory_run_growth`, NOT inside `latest_run`, exactly as the count pair is. It answers \"did my " +
     "push make the request layer N seconds slower?\", which `layer_run_growth` (example counts) and " +
     "`directory_runtime_growth` (per path, not per declared layer) cannot. They compare the latest run " +
-    "with the previous run ON THE LATEST RUN'S OWN BRANCH, so no `branch` is needed, and `commit_sha` " +
+    "with the previous run ON THE LATEST RUN'S OWN BRANCH — `compare_to` names another branch for that " +
+    "previous run to be drawn from — so no `branch` is needed, and `commit_sha` " +
     "re-anchors them with the rest of the run-grain blocks. `layer_runtime_growth` is `null` in EVERY " +
     "non-comparable state — NEVER a block of zeros, so `null` is not \"no change\" — and " +
     "`layer_runtime_growth_window.state` names why: the `layer_run_growth` states `latest_unmeasured`, " +
@@ -892,7 +934,8 @@ const getRepositoryOverview: ToolDefinition = {
           "and `directory_runtime_growth`, the declared-layer mix pair `layer_run_growth` / " +
           "`layer_run_growth_window`, and the declared-layer time pair `layer_runtime_growth` / " +
           "`layer_runtime_growth_window` — need no branch and take none; they scope to the latest " +
-          "run's own branch by construction, so a plain call already carries them. " +
+          "run's own branch by construction — `compare_to` names another branch for that previous " +
+          "run to be drawn from — so a plain call already carries them. " +
           "The declared-layer mix over that same window — `layer_growth` with its contract block " +
           "`layer_growth_window` (the two ENDPOINTS of the window, like `directory_growth`) — is " +
           "UNLOCKED by `branch` in the same way and is `null` without it; it is NOT one of the " +
@@ -1062,6 +1105,53 @@ const getRepositoryOverview: ToolDefinition = {
           "CI reported, so short and long forms both work — pass the sha back exactly as it was " +
           "served.",
       },
+      compare_to: {
+        type: "string",
+        description:
+          "Measure the six run-pair growth blocks against a branch you NAME, instead of the anchored " +
+          "run's same-branch predecessor. THIS RE-POINTS THE BASELINE, NOT THE ANCHOR: `commit_sha` " +
+          "picks the run this body DESCRIBES, and this one names the branch the run-pair figures " +
+          "measure that run AGAINST — with `compare_to=main`, each of the blocks below compares " +
+          "against the newest run on `main` AT OR BEFORE the anchored run. This is what a PR branch " +
+          "whose CI has reported once needs: it has no same-branch predecessor, so every " +
+          "\"since the previous run\" figure would otherwise read `no_previous_run` on a first run, " +
+          "and this is the explicit \"vs main\" ask that fixes it — the newest run on the named " +
+          "branch at or before the anchored run REPLACES the predecessor the ask would otherwise " +
+          "have drawn. " +
+          "It re-points ALL SIX at once, and `previous_test_run` with them — `layer_run_growth`, " +
+          "`layer_runtime_growth`, `directory_run_growth`, `directory_runtime_growth`, " +
+          "`directory_run_file_growth`, `directory_runtime_file_growth`, and the `*_window` contract " +
+          "block beside each. " +
+          "It COMPOSES with `commit_sha`: the anchored run stays exactly what that parameter picked " +
+          "(or the repository's newest), and the baseline is the named branch AS OF THAT RUN — a " +
+          "newer run on the named branch is excluded, so a `main` run landed after your PR commit " +
+          "does not contaminate the pair. " +
+          "Under an HONOURED ask the six `*_window` blocks flip `basis` to `named_branch_baseline` " +
+          "and gain two keys, appended last: `baseline_branch` names the branch the baseline run " +
+          "was drawn from — the ask verbatim, since the lookup resolves only ON that branch or " +
+          "finds nothing — and `requested_compare_to` echoes the raw ask, so you can see the " +
+          "parameter you sent was seen, honoured or missed. READ THE PAIR, because `branch` inside " +
+          "a window block still names the ANCHOR run's branch: under an honoured ask the two shas " +
+          "name runs of DIFFERENT branches, and `basis` is the one token that separates a " +
+          "cross-branch figure from a same-branch one — never mistake a cross-branch comparison " +
+          "for a same-branch one by reading `branch` alone. " +
+          "A MISSED ask — the named branch has no run at or before the anchored run — serves " +
+          "`baseline_unavailable` as the `state` of those same window blocks, with `comparable: false`, " +
+          "`baseline_commit_sha: null` and the raw ask still echoed. There is NO FALLBACK to the " +
+          "same-branch predecessor, even when one exists and would have been comparable: silently " +
+          "measuring against a different branch than the ask names is the one falsehood this " +
+          "parameter must never produce — the miss is stated, and `requested_compare_to` is what " +
+          "distinguishes it from the same-branch `no_previous_run` it resembles. " +
+          "A SAME-BRANCH ask is identical to no ask — absorbed completely, byte-for-byte the " +
+          "un-asked response — which is why the value is forwarded unvalidated, exactly like " +
+          "`layer`: the server reads every malformed shape and every same-branch value as no ask " +
+          "and never answers 400, so a check here would only add a second, divergent opinion about " +
+          "what a branch name looks like. A blank value sends nothing, like every other argument " +
+          "here. " +
+          "NOT RE-POINTED: the `?branch=` window blocks — `directory_growth`, `layer_growth` and " +
+          "the other window pairs — read the shared branch-window walk and compare the window's " +
+          "two ENDPOINTS; this ask names a run-pair baseline and touches none of them.",
+      },
       unannotated_examples: {
         type: "boolean",
         description:
@@ -1194,7 +1284,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`directory_runtime_file_growth` (`directory_runtime_file_growth.layer` / " +
           "`directory_runtime_file_growth_window.layer`). " +
           "The four growth blocks need no `branch` (they compare the latest run with the previous " +
-          "run on its own branch) and move with `commit_sha`; every area count and every time sum " +
+          "run on its own branch — `compare_to` re-points that previous run at a named branch) and move " +
+          "with `commit_sha`; every area count and every time sum " +
           "in them is THAT layer's, not the area's whole population. A layer empty in both runs " +
           "stays comparable with no rows; a layer empty in only one run reads as a new or removed " +
           "area. A layer with no rows answers `rows: []` with the block still present. " +
@@ -1263,6 +1354,13 @@ const getRepositoryOverview: ToolDefinition = {
     );
     const unstableTest = optionalString(args["unstable_test"], "unstable_test");
     const commitSha = optionalString(args["commit_sha"], "commit_sha");
+    // Forwarded UNVALIDATED, deliberately, exactly like `layer`: a same-branch
+    // ask, a blank one and every malformed shape (`?compare_to[]=…`, hash
+    // shapes, NUL) are absorbed by the server as no ask — never a 400/404 — so
+    // any client-side opinion here would only be a second, divergent answer to
+    // "what does a branch name look like". SPGD-2009 names this the baseline of
+    // every run-pair growth block; see this file's header.
+    const compareTo = optionalString(args["compare_to"], "compare_to");
     // Forwarded UNVALIDATED, deliberately: the server reads any value outside
     // the five declared layers as no ask (never a 400/404), so an enum check
     // here would only add a second, divergent opinion about what is valid.
@@ -1298,6 +1396,7 @@ const getRepositoryOverview: ToolDefinition = {
         repeated_description: repeatedDescription,
         unstable_test: unstableTest,
         commit_sha: commitSha,
+        compare_to: compareTo,
         layer,
         unannotated_examples: unannotatedExamples === true ? "true" : undefined,
       },
