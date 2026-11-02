@@ -162,7 +162,8 @@ per-shard cost), where that run spent its time (heaviest files, heaviest directo
 individual examples with file and line), which descriptions are repeated across the suite (the
 overcoverage ranking — one description carried by many examples, and which files it is spread over),
 which areas grew or shrank and which got slower or faster since the previous run on the same branch
-(the per-area comparisons, at both the example-count grain and the runtime grain), the recent run
+(`compare_to` names another branch for that previous run to be drawn from — the ask a first-run PR
+branch needs) (the per-area comparisons, at both the example-count grain and the runtime grain), the recent run
 history, and the branches that have runs. Pass `branch` for two more: which tests fail intermittently
 rather than consistently (the cross-run flakiness ranking) and how the areas moved across the whole
 branch window rather than between the last two runs.
@@ -199,6 +200,7 @@ before any request is made.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
+| `compare_to` | measure the six run-pair growth blocks against a branch you NAME, instead of the anchored run's same-branch predecessor — the newest run on the named branch at or before the anchored run replaces it, and `previous_test_run` moves with them; the six `*_window` blocks flip `basis` to `named_branch_baseline` and gain `baseline_branch` + `requested_compare_to`; a missed ask serves `baseline_unavailable` (`comparable: false`, `baseline_commit_sha: null`) with **no fallback** to the same-branch predecessor; a same-branch or blank ask is no ask; composes with `commit_sha`; the `?branch=` window blocks (`directory_growth`, `layer_growth`, …) are **not** re-pointed |
 | `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` (plus, with `spec_directory`, `directory_file_growth` and `directory_runtime_window_file_growth`) to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
@@ -222,6 +224,27 @@ bookmark, a pruned run, a commit whose CI never reported — does not error: the
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
 successful response is about the commit you named.
 
+`compare_to` is the other half of the run-pair question: `commit_sha` names WHICH run to describe,
+this names the branch the six run-pair blocks measure that run AGAINST. With it, the baseline of
+`layer_run_growth`, `layer_runtime_growth`, `directory_run_growth`, `directory_runtime_growth`,
+`directory_run_file_growth`, `directory_runtime_file_growth` (and of `previous_test_run` itself)
+becomes the newest run on the named branch at or before the anchored run — the explicit "vs main"
+ask a PR branch whose CI has reported once needs, since it has no same-branch predecessor and every
+"since the previous run" figure would otherwise read `no_previous_run`. The six `*_window` contract
+blocks flip `basis` to `named_branch_baseline` and gain `baseline_branch` (the branch the baseline
+was drawn from) and `requested_compare_to` (the raw ask, echoed), so a cross-branch figure is
+always labelled as one — `branch` inside a window block still names the ANCHOR run's branch. A
+missed ask — no run on the named branch at or before the anchored run — serves
+`state: "baseline_unavailable"` with `comparable: false` and `baseline_commit_sha: null`, and
+**never** falls back to the same-branch predecessor even when one exists and would have been
+comparable: silently measuring against a different branch than the ask names is the one falsehood
+the parameter must never produce. A same-branch ask is identical to no ask (the server absorbs it
+completely, which is why the bridge forwards the value unvalidated, the way `layer` is forwarded),
+a blank sends nothing, and it composes with `commit_sha` — the baseline is the named branch AS OF
+the anchored run, so a newer run on `main` landed after your PR commit is excluded. The `?branch=`
+window blocks (`directory_growth`, `layer_growth` and the other window pairs) are **not**
+re-pointed: they compare the window's two endpoints and stay `branch`'s.
+
 `branch` is also the gate on the three blocks read over that same window, and they are `null` without
 it: `unstable_tests` (which tests failed intermittently across the window rather than consistently),
 `slowest_tests` with its `slowest_tests_window` (which durable tests cost the most wall clock across
@@ -230,7 +253,8 @@ the window) and `directory_growth` (how each area moved between the two **endpoi
 same two endpoints), is gated by `branch` in the same way and is `null` without it. The
 per-area comparisons against the **previous run** — `directory_run_growth` at the example-count
 grain, `directory_runtime_growth` at the runtime grain, and `layer_run_growth` for the declared-layer
-mix, and `layer_runtime_growth` for the time each declared layer accounts for — are a different question and take no branch at all: they scope to the latest run's own branch by construction, so a plain unparameterised
+mix, and `layer_runtime_growth` for the time each declared layer accounts for — are a different question and take no branch at all: they scope to the latest run's own branch by construction (`compare_to` re-points
+that previous run at a named branch — see its row above), so a plain unparameterised
 call already carries them. The two grains are independent, which is why both ship: making an
 existing spec slow adds zero examples and shows up only in the runtime pair, and splitting one slow
 spec into four fast ones is `+3` examples and *less* time.
@@ -414,7 +438,7 @@ recorded nothing. **How the declared-layer mix moved since the previous
 run** is `layer_run_growth`, with its contract block `layer_run_growth_window` — both **top-level
 siblings of `directory_run_growth`**, not inside `latest_run` (the delta is not in
 `latest_run.layer_counts`). They compare the latest run with the previous run **on the latest run's own
-branch**, so no `branch` is needed, and `commit_sha` re-anchors them with the rest of the run-grain
+branch** — `compare_to` re-points that previous run at a named branch — so no `branch` is needed, and `commit_sha` re-anchors them with the rest of the run-grain
 blocks. `layer_run_growth` is `null` in **every** non-comparable state — **never a block of zeros**, so
 `null` is not "no change" — and `layer_run_growth_window.state` names why: `latest_unmeasured`,
 `previous_unmeasured`, `assembled_differently`, `neither_recorded`, `previous_unrecorded`,
@@ -432,7 +456,7 @@ with its contract block `layer_runtime_growth_window` — both **top-level sibli
 `directory_run_growth`**, not inside `latest_run`, exactly as the count pair is. It answers "did my push
 make the request layer N seconds slower?", which `layer_run_growth` (counts) and
 `directory_runtime_growth` (per path) cannot. They compare the latest run with the previous run **on the
-latest run's own branch**, so no `branch` is needed, and `commit_sha` re-anchors them.
+latest run's own branch** — `compare_to` re-points that previous run at a named branch — so no `branch` is needed, and `commit_sha` re-anchors them.
 `layer_runtime_growth` is `null` in **every** non-comparable state — **never a block of zeros** — and
 `layer_runtime_growth_window.state` names why: the `layer_run_growth` states (`latest_unmeasured`,
 `previous_unmeasured`, `assembled_differently`, `neither_recorded`, `previous_unrecorded`,
