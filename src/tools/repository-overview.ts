@@ -221,6 +221,24 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * actually served). Nothing else about the response looks unusual, which is why
  * the schema tells the agent to read `run_anchor.resolved`.
  *
+ * == `run_id` names ONE ROW, the handle `commit_sha` cannot give
+ *
+ * A sha is not unique in `test_runs`: a CI re-run of one commit is a SECOND
+ * row, and the sha ask always answers the NEWEST of them — which is precisely
+ * the row `run_id` (SPGD-2018, the console's `?run=<id>` of SPGD-1927/1928)
+ * exists to get past. The id is served on `latest_run.id` and every
+ * `history[].id` (SPGD-2014), the same number `remove_repository_run` deletes
+ * — before this argument existed an agent could DELETE a run it could not
+ * first INSPECT. The two asks compose at the read site exactly as the console
+ * resolves them: a run ask resolves FIRST, the sha ask is consulted only when
+ * there is no run ask, and `run_anchor` echoes both (`requested_run_id`
+ * appended last, nil when not asked) so a client can see which ask was
+ * honoured. A missed id — unknown, deleted, or another repository's, which the
+ * scoped lookup cannot serve — falls back to the newest run with
+ * `resolved: false` and the raw ask echoed, never a 404; a malformed shape
+ * (`run[]=`, `0`, `abc`, NUL, over-bigint) is the server's no ask and the
+ * response is byte-identical to the un-asked body.
+ *
  * == `compare_to` re-points the BASELINE, the one thing `commit_sha` does not
  *
  * `commit_sha` picks the run this body DESCRIBES; `compare_to` names the branch
@@ -1076,6 +1094,10 @@ const getRepositoryOverview: ToolDefinition = {
           "SERIES; this asks WHICH RUN. Use a sha exactly as served in " +
           "`latest_run.commit_sha`, `history[].commit_sha` or " +
           "`unstable_tests.unstable_test_runs.rows[].commit_sha`. " +
+          "A SHA NAMES ONLY THE NEWEST RUN OF ITSELF: `test_runs` carries no uniqueness on " +
+          "`commit_sha`, so a CI re-run of one commit is a SECOND row and this ask always " +
+          "answers that newest row — the older row of a re-run pair is reachable only by id, " +
+          "through `run_id` (SPGD-2018), fed from `latest_run.id` or `history[].id`. " +
           "Everything at run grain re-anchors together: `latest_run` and its five rollups, the " +
           "five RUN-GRAIN drill-ins (`spec_directory_files`, `spec_file_examples`, " +
           "`repeated_description_examples`, `unannotated_examples` and `slowest_examples` — the " +
@@ -1114,6 +1136,44 @@ const getRepositoryOverview: ToolDefinition = {
           "CI reported, so short and long forms both work — pass the sha back exactly as it was " +
           "served.",
       },
+      run_id: {
+        type: "string",
+        description:
+          "Anchor the whole answer on ONE run, naming it by its id — the handle `commit_sha` " +
+          "cannot give you on a repository that RE-RAN a commit. THE ID IS THE DURABLE HANDLE: " +
+          "take it from `latest_run.id`, from `history[].id`, or from the `test_run_id` the " +
+          "ingest answered — the same number `remove_repository_run` deletes. " +
+          "`commit_sha` NAMES ONLY THE NEWEST RUN OF A SHA: `test_runs` carries no uniqueness " +
+          "on `commit_sha`, so a CI re-run of one commit is a SECOND row, and every " +
+          "sha-asked body describes that newest row. The older row of a re-run pair is " +
+          "readable by id alone — pass THIS when you need the run `run_anchor` resolved to " +
+          "but `latest_run.id` does not name it, and before deciding a run is junk enough " +
+          "for `remove_repository_run`, read it first: inspect by id, then delete by id. " +
+          "Everything at run grain re-anchors exactly as it does under `commit_sha`: " +
+          "`latest_run` and its five rollups, the five RUN-GRAIN drill-ins " +
+          "(`spec_directory_files`, `spec_file_examples`, `repeated_description_examples`, " +
+          "`unannotated_examples` and `slowest_examples` — the block `layer` narrows), " +
+          "`shards`, both per-area growth windows and `previous_test_run`. " +
+          "`history` DOES NOT MOVE WITH IT — it stays the recent runs, newest first, so the " +
+          "`history[0] == latest_run` identity that holds on a default call is NOT expected " +
+          "to hold here either — and `unstable_test_runs` stays read over the branch window, " +
+          "not off the anchored run, exactly as under `commit_sha`. " +
+          "A MISSED ID DOES NOT ERROR — IT FALLS BACK AND SAYS SO. An unknown id, a deleted " +
+          "run, an id from before a re-ingest and ANOTHER REPOSITORY'S id (the lookup is " +
+          "scoped to the repository, so a foreign id behaves like an unknown one and leaks " +
+          "nothing) are all served the repository's newest run with " +
+          "`run_anchor.source: \"requested\"`, `resolved: false` and the raw ask echoed in " +
+          "`run_anchor.requested_run_id` (a key appended last, null when not asked), beside " +
+          "`requested_commit_sha`. Check `run_anchor.resolved` before believing the run-grain " +
+          "blocks are about your run. " +
+          "RUN BEATS SHA when both are sent: the id wins and the sha ask is not consulted — " +
+          "read both echoes on `run_anchor` to see which ask was honoured. " +
+          "Send the id as a STRING (\"42\", not 42): a wrong-typed value is refused by name " +
+          "before any request is made, and a blank one is treated as no ask. Like " +
+          "`commit_sha`, the value is forwarded unvalidated — digits, zero, a sign, a NUL and " +
+          "an over-bigint value are the SERVER's no ask, answered byte-identical to the " +
+          "un-asked body, never this bridge's opinion to pre-empt.",
+      },
       compare_to: {
         type: "string",
         description:
@@ -1131,8 +1191,8 @@ const getRepositoryOverview: ToolDefinition = {
           "`layer_runtime_growth`, `directory_run_growth`, `directory_runtime_growth`, " +
           "`directory_run_file_growth`, `directory_runtime_file_growth`, and the `*_window` contract " +
           "block beside each. " +
-          "It COMPOSES with `commit_sha`: the anchored run stays exactly what that parameter picked " +
-          "(or the repository's newest), and the baseline is the named branch AS OF THAT RUN — a " +
+          "It COMPOSES with the run pickers: the anchored run stays exactly what `commit_sha` or " +
+          "`run_id` picked (or the repository's newest), and the baseline is the named branch AS OF THAT RUN — a " +
           "newer run on the named branch is excluded, so a `main` run landed after your PR commit " +
           "does not contaminate the pair. " +
           "Under an HONOURED ask the six `*_window` blocks flip `basis` to `named_branch_baseline` " +
@@ -1363,6 +1423,13 @@ const getRepositoryOverview: ToolDefinition = {
     );
     const unstableTest = optionalString(args["unstable_test"], "unstable_test");
     const commitSha = optionalString(args["commit_sha"], "commit_sha");
+    // Forwarded UNVALIDATED, deliberately, exactly like `compare_to` and
+    // `layer`: digits-only IS the honest shape server-side and every other
+    // shape (`?run[]=…`, `0`, `abc`, NUL, over-bigint) is absorbed as no ask —
+    // never a 400/404 — so a client-side opinion here could only be a second,
+    // divergent answer to "what does a run id look like". SPGD-2018 names this
+    // the row-level run ask; see this file's header.
+    const runId = optionalString(args["run_id"], "run_id");
     // Forwarded UNVALIDATED, deliberately, exactly like `layer`: a same-branch
     // ask, a blank one and every malformed shape (`?compare_to[]=…`, hash
     // shapes, NUL) are absorbed by the server as no ask — never a 400/404 — so
@@ -1405,6 +1472,7 @@ const getRepositoryOverview: ToolDefinition = {
         repeated_description: repeatedDescription,
         unstable_test: unstableTest,
         commit_sha: commitSha,
+        run: runId,
         compare_to: compareTo,
         layer,
         unannotated_examples: unannotatedExamples === true ? "true" : undefined,

@@ -601,6 +601,90 @@ describe("get_repository_overview — the request it makes", () => {
     assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
   });
 
+  it("passes ?run= through when one run is named by id", async () => {
+    // SPGD-2018 on the wire: the row-level run ask, forwarded as `?run=` — the
+    // console's own parameter name, not the tool argument's. An id is
+    // unvalidated here for the same reason a sha is: digits-only is the
+    // server's honest shape and every other shape (`0`, `abc`, NUL,
+    // over-bigint) is the server's no ask, absorbed byte-identically to the
+    // un-asked body — never a 400 — so a client-side opinion could only
+    // pre-empt the one answer that decides.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { run_id: "4173" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?run=4173");
+  });
+
+  it("omits ?run= entirely for a blank one, rather than sending a run ask that is no ask", async () => {
+    // The blank-is-no-ask rule every argument on this tool keeps: `?run=` blank
+    // is "no ask" server-side too, but forwarding the empty key would be
+    // asserting the ask travelled when it did not.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { run_id: "   " },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+  });
+
+  it("composes ?run= with ?commit_sha=, with the run ask riding after the sha", async () => {
+    // The composition the re-run pair actually needs — and the one where the
+    // two asks MEAN two different runs: the sha names the pair's NEWEST row
+    // while the id names the older one, so both keys have to survive onto the
+    // URL together and the server decides (run wins). The order is pinned the
+    // way the sibling composition tests are, because object insertion order in
+    // `run()` decides the wire order and a reordering here is byte-visible to
+    // a pinned client.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { commit_sha: "a1b2c3d", run_id: "4173" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?commit_sha=a1b2c3d&run=4173",
+    );
+  });
+
+  it("documents the run_id contract's stated tokens, so a client can read the anchor it got", () => {
+    // The description is the only place an MCP agent learns where the id comes
+    // from and what a missed ask looks like on the wire. Each pinned phrase is
+    // a fact a client acts on: the id's sources (`latest_run.id`,
+    // `history[].id`, `test_run_id`), the one thing a sha cannot name (the
+    // NEWEST-run rule), the fallback disclosure (`run_anchor.resolved` +
+    // `requested_run_id`), the precedence over `commit_sha`, and the
+    // delete-route pairing that makes inspect-before-delete possible.
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["run_id"] as { description?: string })?.description ?? "";
+
+    for (const token of [
+      "latest_run.id",
+      "history[].id",
+      "test_run_id",
+      "run_anchor.resolved",
+      "run_anchor.requested_run_id",
+    ]) {
+      assert.ok(
+        description.includes(`\`${token}\``),
+        `the run_id description must name the token \`${token}\` — the id's sources and ` +
+          "the fallback's disclosure are the contract an agent cannot guess",
+      );
+    }
+
+    assert.match(description, /NAMES ONLY THE NEWEST RUN OF A SHA/);
+    assert.match(description, /RUN BEATS SHA/);
+    assert.match(description, /`remove_repository_run`/);
+    assert.match(description, /FALLS BACK AND SAYS SO/);
+  });
+
   it("passes ?layer= through unvalidated and omits it when blank", async () => {
     const http = stubFetch({ body: BODY });
     await getRepositoryOverview.run({ layer: "request" }, toolContext({ env: ENV, fetch: http.fetch }));
@@ -732,8 +816,11 @@ describe("get_repository_overview — the request it makes", () => {
     assert.match(description, /`baseline_commit_sha: null`/);
     assert.match(description, /NO FALLBACK/);
     // Composition, absorption and the fence — what composing costs, what a
-    // same-branch ask buys, and which blocks the ask does NOT touch.
-    assert.match(description, /COMPOSES with `commit_sha`/);
+    // same-branch ask buys, and which blocks the ask does NOT touch. The
+    // composition names both run pickers, since `run_id` (SPGD-2018) picks the
+    // anchored run too and the baseline is drawn AS OF whichever row won.
+    assert.match(description, /COMPOSES with the run pickers/);
+    assert.match(description, /what `commit_sha` or\s+`run_id` picked/);
     assert.match(description, /SAME-BRANCH ask is identical to no ask/);
     assert.match(description, /NOT RE-POINTED/);
     assert.match(description, /`directory_growth`/);
@@ -1504,16 +1591,25 @@ describe("get_repository_overview — failures an agent can act on", () => {
     // The properties that are NOT run-grain drill-ins, each for a reason
     // stated in its own description: `branch` narrows `history` (a series, not
     // a run), `commit_sha` IS the anchor rather than something anchored,
-    // `unstable_test` reads the branch window (`history_runs`) rather than the
-    // anchored run, and `repository` names WHICH REPOSITORY the answer is
-    // about at all — it moves every block together and re-anchors nothing,
-    // because anchoring is a question about which RUN within the subject, and
-    // this chooses the subject. `compare_to` re-points the BASELINE the six
-    // run-pair blocks measure against, and the anchored run does not move —
-    // the anchor stays what `commit_sha` picked (or the repository's newest),
-    // which its own description states ("THIS RE-POINTS THE BASELINE, NOT THE
-    // ANCHOR").
-    const NOT_RUN_GRAIN_DRILL_INS = new Set(["branch", "commit_sha", "unstable_test", "repository", "compare_to"]);
+    // `run_id` IS the anchor too — its SPGD-2018 ask CHOOSES the row the same
+    // memo `commit_sha` feeds, which its own description states ("Anchor the
+    // whole answer on ONE run"), and `unstable_test` reads the branch window
+    // (`history_runs`) rather than the anchored run, and `repository` names
+    // WHICH REPOSITORY the answer is about at all — it moves every block
+    // together and re-anchors nothing, because anchoring is a question about
+    // which RUN within the subject, and this chooses the subject.
+    // `compare_to` re-points the BASELINE the six run-pair blocks measure
+    // against, and the anchored run does not move — the anchor stays what
+    // `commit_sha` picked (or the repository's newest), which its own
+    // description states ("THIS RE-POINTS THE BASELINE, NOT THE ANCHOR").
+    const NOT_RUN_GRAIN_DRILL_INS = new Set([
+      "branch",
+      "commit_sha",
+      "run_id",
+      "unstable_test",
+      "repository",
+      "compare_to",
+    ]);
 
     // The response key each drill-in parameter opens. Keys, not parameter
     // names, because the description enumerates what MOVES — response blocks —
