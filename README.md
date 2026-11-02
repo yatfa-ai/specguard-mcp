@@ -200,7 +200,8 @@ before any request is made.
 | `repeated_description` | open ONE repeated description and list the examples that all share it |
 | `unstable_test` | open ONE flaky test and list its outcome run by run across the window, newest run first (needs `branch`) |
 | `commit_sha` | anchor the answer on ONE named run instead of the repository's newest one — every run-grain block moves with it, `history` does not |
-| `compare_to` | measure the six run-pair growth blocks against a branch you NAME, instead of the anchored run's same-branch predecessor — the newest run on the named branch at or before the anchored run replaces it, and `previous_test_run` moves with them; the six `*_window` blocks flip `basis` to `named_branch_baseline` and gain `baseline_branch` + `requested_compare_to`; a missed ask serves `baseline_unavailable` (`comparable: false`, `baseline_commit_sha: null`) with **no fallback** to the same-branch predecessor; a same-branch or blank ask is no ask; composes with `commit_sha`; the `?branch=` window blocks (`directory_growth`, `layer_growth`, …) are **not** re-pointed |
+| `run_id` | anchor the answer on ONE run named by its **id** — the handle `commit_sha` cannot give on a re-run: a sha names only the NEWEST run of its sha (`test_runs` carries no uniqueness on `commit_sha`, so a CI re-run is a second row), and the older row is readable by id alone. The id comes from `latest_run.id`, `history[].id` or the `test_run_id` the ingest answered — the same number `remove_repository_run` deletes, so read a run before deleting it. Every run-grain block re-anchors exactly as under `commit_sha`, `history` does not move; run beats sha when both are sent; a missed id (unknown, deleted, or another repository's — the lookup is repository-scoped) falls back to the newest run with `run_anchor.resolved: false` and the raw ask echoed in `run_anchor.requested_run_id`; a malformed shape is the server's no ask, byte-identical to the un-asked body |
+| `compare_to` | measure the six run-pair growth blocks against a branch you NAME, instead of the anchored run's same-branch predecessor — the newest run on the named branch at or before the anchored run replaces it, and `previous_test_run` moves with them; the six `*_window` blocks flip `basis` to `named_branch_baseline` and gain `baseline_branch` + `requested_compare_to`; a missed ask serves `baseline_unavailable` (`comparable: false`, `baseline_commit_sha: null`) with **no fallback** to the same-branch predecessor; a same-branch or blank ask is no ask; composes with the run pickers (`commit_sha` / `run_id`); the `?branch=` window blocks (`directory_growth`, `layer_growth`, …) are **not** re-pointed |
 | `layer` | narrow the run-grain blocks (`slowest_examples`, `spec_files`, `spec_directories`, `repeated_descriptions`, `repeated_description_examples`, `spec_file_examples`, `spec_directory_files`, the previous-run area-growth blocks `directory_run_growth` and `directory_runtime_growth`, and — with `spec_directory` — `directory_run_file_growth` and `directory_runtime_file_growth`) and — when `branch` is also asked — the window-grain `slowest_tests`, `unstable_tests`, `directory_growth` and `directory_runtime_window_growth` (plus, with `spec_directory`, `directory_file_growth` and `directory_runtime_window_file_growth`) to one declared layer (`unit`, `integration`, `request`, `system` or `undeclared`); `unannotated_examples` is not narrowed — see below |
 | `unannotated_examples` | `true` to list the individual tests carrying no `@intent` — the examples behind the annotated ratio, each labelled with what SpecGuard reads of it — and, in the same answer, which areas carry the most of them |
 
@@ -224,6 +225,17 @@ bookmark, a pruned run, a commit whose CI never reported — does not error: the
 falls back to the newest run and says so, so read `run_anchor.resolved` rather than trusting that a
 successful response is about the commit you named.
 
+`run_id` is the same ask one level finer: a sha is not unique in `test_runs`, so `commit_sha` names
+only the NEWEST run of its sha and the older row of a re-run pair was unreachable here until the id
+ask existed — while `remove_repository_run` could already delete it, which is why the read halves
+the risk of that verb: inspect by id, then delete by id. The precedence matches the console's: run
+beats sha when both are sent, and the sha ask is consulted only when there is no run ask. `run_anchor`
+echoes both asks (`requested_run_id` appended last, null when not asked), so the response itself says
+which one was honoured. A missed id — unknown, deleted, or another repository's id, which the
+repository-scoped lookup cannot serve — falls back to the newest run with `resolved: false`, never a
+404; a malformed shape (`run[]=`, `0`, `abc`, a NUL, over-bigint) is the server's no ask and the
+body is byte-identical to the un-asked one.
+
 `compare_to` is the other half of the run-pair question: `commit_sha` names WHICH run to describe,
 this names the branch the six run-pair blocks measure that run AGAINST. With it, the baseline of
 `layer_run_growth`, `layer_runtime_growth`, `directory_run_growth`, `directory_runtime_growth`,
@@ -240,7 +252,8 @@ missed ask — no run on the named branch at or before the anchored run — serv
 comparable: silently measuring against a different branch than the ask names is the one falsehood
 the parameter must never produce. A same-branch ask is identical to no ask (the server absorbs it
 completely, which is why the bridge forwards the value unvalidated, the way `layer` is forwarded),
-a blank sends nothing, and it composes with `commit_sha` — the baseline is the named branch AS OF
+a blank sends nothing, and it composes with the run pickers — `commit_sha` or `run_id` names the
+anchored run either way — the baseline is the named branch AS OF
 the anchored run, so a newer run on `main` landed after your PR commit is excluded. The `?branch=`
 window blocks (`directory_growth`, `layer_growth` and the other window pairs) are **not**
 re-pointed: they compare the window's two endpoints and stay `branch`'s.
