@@ -34,8 +34,8 @@ refuses to boot and takes the tools that needed no configuration down with it.
 | --- | --- | --- | --- |
 | `SPECGUARD_ENDPOINT` | `get_repository_overview`, `get_intent_schema`, `get_server_version`, `list_repositories`, `add_repository`, `registrable_repositories` | — | your SpecGuard instance's root URL, **including the scheme** — e.g. `https://specguard.example.com`, or `http://localhost:3000`. A value with no scheme is refused by name (`SPECGUARD_ENDPOINT is not a usable URL: "sg.example.com"`) rather than surfacing later as an opaque failure. `SPECGUARD_URL` is accepted as an alias, and is the name every message uses when it is the one you set. A blank value counts as unset, so leaving `SPECGUARD_ENDPOINT` empty in a templated config falls through to `SPECGUARD_URL` instead of suppressing it. `get_server_version` and `get_intent_schema` need only this variable — they send no API key, because the routes they read are unauthenticated by design |
 | `SPECGUARD_API_KEY` | `get_repository_overview`, `near_duplicate_clusters`, `find_tests_near_behavior` (default calls) | — | an agent/CI API key (`sgk_…`) issued by that deployment — a **per-repository** key, which is the single repository those tools answer about by default |
-| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
-| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, and `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
+| `SPECGUARD_USER_API_KEY` | `list_repositories` (fallback), `add_repository`, `registrable_repositories`, `remove_repository` (fallback), `create_repository_api_key` (fallback), `revoke_repository_api_key` (fallback), `list_repository_api_keys` (fallback), `list_repository_agent_keys` (fallback), `revoke_repository_agent_key` (fallback), `list_repository_agent_keys_presented_revoked` (fallback), `list_repository_members` (fallback), `add_repository_member` (fallback), `update_repository_member_permissions` (fallback), `remove_repository_member` (fallback), `remove_repository_run` (fallback), `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` (fallback), `rename_repository` | — | a **user** API key (`sgu_…`), minted from that deployment's account page. A different credential from the one above, not a second place to put the same value: SpecGuard decides which of them a request may use from the token's prefix, before it reads anything, and answers `401` for the other one. Set whichever your tools need — both, if you use both |
+| `SPECGUARD_AGENT_API_KEY` | `list_repositories` (preferred), `remove_repository` (preferred), `create_repository_api_key` (preferred), `revoke_repository_api_key` (preferred), `list_repository_api_keys` (preferred), `list_repository_agent_keys` (preferred), `revoke_repository_agent_key` (preferred), `list_repository_agent_keys_presented_revoked` (preferred), `list_repository_members` (preferred), `add_repository_member` (preferred), `update_repository_member_permissions` (preferred), `remove_repository_member` (preferred), `remove_repository_run` (preferred), `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` (preferred) | — | an **agent** API key (`sga_…`), minted from that deployment's account page (Agent keys panel) with an explicit set of repositories and permissions. It speaks for nobody: its reach is exactly the set granted onto it, fixed at mint time, and every read is bounded by that set server-side. This is the credential to give an automated agent — one key, many repositories, none of a person's rights. When it and `SPECGUARD_USER_API_KEY` are both set, every tool that answers either key — `list_repositories`, `remove_repository`, the members tools, the key-lifecycle tools, `remove_repository_run`, and `get_repository_overview` / `near_duplicate_clusters` / `find_tests_near_behavior` **with** `repository` — uses **this** one, so discovery stays inside the set the other tools can reach |
 | `SPECGUARD_LINT_COMMAND` | `lint_intent_annotations` | `specguard-lint` | the command that runs the linter — the one switch between the Ruby and the JS/TS client. Most Ruby projects need `bundle exec specguard-lint`; a JS/TS project sets `npx -p @yatfa/specguard specguard lint` (and needs the validator backend: a `validate-intent` binary whose path `SPECGUARD_VALIDATE_INTENT` names — today the only way to supply it) |
 | `SPECGUARD_TIMEOUT_MS` | HTTP tools | `30000` | how long a call to SpecGuard may take |
 
@@ -702,7 +702,7 @@ per-example rows — so the history is a per-run *series* of the declared-layer 
 is that one branch's series. It is a sum over the shards recorded, so difference it only across rows of
 *equal* `shard_count`; the operands carry no verdict.
 
-Every `history[]` row also carries `layer_durations` as its **last** key — the same five layers as
+Every `history[]` row also carries `layer_durations` — the same five layers as
 `latest_run.layer_durations`, each `{total_seconds, timed_count}`, where `total_seconds` is `null`
 (**not** 0) for a layer with no timed example and the whole key is `null` when that run stored no
 per-example rows — so the history is also a per-run *series* of machine time by declared layer, which
@@ -710,6 +710,14 @@ per-example rows — so the history is also a per-run *series* of machine time b
 give. Pass `branch` and it is that one branch's series. It is a sum of example durations — machine
 time and **not** wall clock — so difference it only across rows of *equal* `shard_count` **and** *equal*
 `timed_shard_count`; the operands carry no verdict.
+
+Every `history[]` row — and `latest_run` — also carries `id` (SPGD-2014): the run's numeric primary
+key, the handle `remove_repository_run` consumes and the same number `POST /ingest` answers as
+`test_run_id`. A commit_sha deliberately is **not** this handle: one sha can name several runs of one
+repository, which is why the console anchors pages on `?run=<id>` too. Serving it also makes
+`history_window.tie_break_served` honest at `true` — the history order is `(ingested_at, id)` DESC,
+and both terms now ride every row, so the array order is reproducible from the fields the client
+holds instead of being the only answer.
 
 ### `get_server_version`
 
@@ -1095,6 +1103,47 @@ reaches only the repositories granted onto that key at mint time, and only where
 `repo.delete` — a repository outside that set is answered `404` in SpecGuard's own words.
 `SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
 reads. With both set the **agent** key wins, so the removal answers inside the same set
+`list_repositories` reports.
+
+### `remove_repository_run`
+
+Deletes **one** test run from a SpecGuard repository — the junk-run lever beside
+`remove_repository`, which deletes every run, key and intent at once. Irreversible: the run, its
+per-shard rows and its per-example observations are gone, with no undo and no bulk or by-branch
+delete anywhere on the surface. A `204` means the run is deleted.
+
+| argument | |
+| --- | --- |
+| `repository_id` | the repository the run belongs to — its numeric `id`, as `add_repository` returns and `list_repositories` reports, not the `org/repo` handle |
+| `run_id` | the id of the run to delete — the numeric id served on `latest_run.id` and on every `history[]` row of `get_repository_overview` (SPGD-2014), the same number `POST /ingest` answers as `test_run_id`; a commit_sha deliberately is not this handle, because one sha can name several runs of one repository |
+
+The id is scoped to `repository_id`: a run id belonging to a different repository answers the **same
+`404` an unknown id answers** ("No run with that id belongs to this repository.", SpecGuard's own
+sentence), never a cross-repository delete — and the two refusals are indistinguishable on purpose,
+so probing ids learns nothing.
+
+**Read the id off the overview first.** Until SPGD-2014 no API body served a run id, so this route
+had no usable handle from an agent's side; now `latest_run.id` and every `history[]` row's `id`
+carry it, and the read that identifies the junk run (`suite_size_measured: false`, a
+`timed_shard_count` short of `shard_count`, a cancelled job's half-sized row that became the
+headline `latest_run`) and the write that removes it are one round trip.
+
+**After a delete, the overview re-anchors.** Deleting the newest run moves the repository's
+`latest_test_run` to the next-newest row, so `get_repository_overview`'s `latest_run` and the
+growth blocks may now anchor on an **older** run — re-read it before trusting any figure that was
+anchored on the run you just removed. SpecGuard enqueues a near-duplicates census refresh for
+exactly that reason (deleting a run can move the run the stored weights are weighed on).
+
+Authorization is the `repo.delete` capability — the **same gate `remove_repository` answers**,
+because a run is repository history and the price of removing one is bounded above by removing the
+repository; a member without it is refused `403` with SpecGuard's own sentence, verbatim.
+
+It reads either of two credentials, whichever is set — and a different one from the `sgk_…` key
+`get_repository_overview` uses. `SPECGUARD_AGENT_API_KEY` (`sga_…`) when it is set: the call then
+reaches only the repositories granted onto that key at mint time, and only where the grant carries
+`repo.delete` — a repository outside that set is answered `404` in SpecGuard's own words.
+`SPECGUARD_USER_API_KEY` (`sgu_…`) when no agent key is set: the same **person** key `add_repository`
+reads. With both set the **agent** key wins, so the deletion answers inside the same set
 `list_repositories` reports.
 
 ### `create_repository_api_key`

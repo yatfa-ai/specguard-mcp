@@ -67,10 +67,12 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * its exact shape, and several of those reasons are about honesty rather than
  * convenience: `null` where a value was not measured (never a zero that would
  * read as a measurement), counts served beside the figures they are the
- * denominator of, `tie_break_served: false` admitting the array's order is not
- * reproducible from the fields served. Any reshaping here — flattening,
- * defaulting a null to 0, re-sorting a list — would discard the distinction the
- * controller spent that care preserving. So the body goes back as it arrived.
+ * denominator of, `tie_break_served: true` stating the window order IS
+ * reproducible from the fields served — every ordering block serves it true
+ * since SPGD-2014, when the history rows gained the `id` their order
+ * tie-breaks on. Any reshaping here — flattening, defaulting a null to 0,
+ * re-sorting a list — would discard the distinction the controller spent that
+ * care preserving. So the body goes back as it arrived.
  *
  * == `branch` narrows the history, and only the history
  *
@@ -844,7 +846,7 @@ const getRepositoryOverview: ToolDefinition = {
     "declared-layer mix, which `layer_run_growth` (latest vs previous) and `layer_growth` (two " +
     "endpoints) cannot give. It is a SUM over the shards RECORDED, so difference it only across " +
     "rows of EQUAL `shard_count`; the operands carry no verdict. " +
-    "Every `history[]` row ALSO carries `layer_durations` as its LAST key — the same five layers as " +
+    "Every `history[]` row ALSO carries `layer_durations` — the same five layers as " +
     "`latest_run.layer_durations`, each `{total_seconds, timed_count}`, where `total_seconds` is `null`, " +
     "NOT 0, for a layer with no timed example and the whole key is `null` when that run stored no " +
     "per-example rows — so the history is also a per-run SERIES of machine time by declared layer, " +
@@ -852,6 +854,13 @@ const getRepositoryOverview: ToolDefinition = {
     "endpoints) cannot give. It is a SUM of example durations — machine time and NOT wall clock — so " +
     "difference it only across rows of EQUAL `shard_count` AND EQUAL `timed_shard_count`; the " +
     "operands carry no verdict. " +
+    "Every `history[]` row — and `latest_run` — ALSO carries `id` (SPGD-2014): the run's numeric " +
+    "primary key, the handle `remove_repository_run` consumes and the same number `POST /ingest` " +
+    "answers as `test_run_id`. A commit_sha deliberately is NOT this handle: one sha can name " +
+    "several runs of one repository, which is why the console anchors pages on `?run=<id>` too. " +
+    "Serving it also makes `history_window.tie_break_served` honest at TRUE — the history order is " +
+    "`(ingested_at, id)` DESC, and both terms now ride every row, so the array order is " +
+    "reproducible from the fields the client holds instead of being the only answer. " +
     "Use it to orient in an unfamiliar suite, to find what is slow before optimising, to find " +
     "what got slower or bigger since last time, to find which tests are flaky, to find " +
     "duplicated coverage before refactoring, to see annotation coverage, or to check that what " +
