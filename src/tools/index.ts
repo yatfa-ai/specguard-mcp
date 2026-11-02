@@ -15,6 +15,7 @@ import getRepositoryOverview from "./repository-overview.js";
 import registrableRepositories from "./registrable-repositories.js";
 import removeRepository from "./remove-repository.js";
 import removeRepositoryMember from "./remove-repository-member.js";
+import removeRepositoryRun from "./remove-repository-run.js";
 import renameRepository from "./rename-repository.js";
 import revokeRepositoryAgentKey from "./revoke-repository-agent-key.js";
 import revokeRepositoryApiKey from "./revoke-repository-api-key.js";
@@ -203,6 +204,27 @@ import type { ToolDefinition } from "./types.js";
  * there is no create response to read an id from — the list and revoke
  * descriptions say so rather than leaving it implicit.
  *
+ * == Deleting one run
+ *
+ *   - `remove_repository_run` wraps `DELETE
+ *     /api/v1/repositories/:repository_id/runs/:id` (shipped: SPGD-2014,
+ *     specguard `Api::V1::UserRepositoryRunsController#destroy`).
+ *
+ * The surgical lever beside `remove_repository`, which was until now the only
+ * destructive verb on runs — and which destroys every run, key and intent to
+ * remove one. The same `:repo_delete` capability answers both, so the API
+ * cannot be cheaper than the browser the run-delete shipped in (SPGD-812).
+ * What made this wrappable at all is the same slice's read half: the overview
+ * body now serves the run's id on `latest_run` and on every `history[]` row,
+ * so the handle the route consumes was previously served NOWHERE — a commit
+ * sha is not one, because one sha can name several runs of one repository.
+ * The empty-body `204` is the transport's first shape, not a new one: it is
+ * the same `deleteJson` the other empty-204 deletes keep. And the one
+ * consequence the bare 204 cannot carry — deleting the newest run moves
+ * `latest_test_run`, so every anchored block re-anchors on an older run —
+ * is stated in the tool's success text, because the deployment's whole answer
+ * was "no content".
+ *
  * == The first tool that needs NO credential
  *
  *   - `get_server_version` wraps the server's root-level `GET /version`
@@ -289,6 +311,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   addRepositoryMember,
   updateRepositoryMemberPermissions,
   removeRepositoryMember,
+  removeRepositoryRun,
   renameRepository,
   listRepositoryAgentKeys,
   listRepositoryAgentKeysPresentedRevoked,

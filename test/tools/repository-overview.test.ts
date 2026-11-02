@@ -1786,10 +1786,14 @@ describe("get_repository_overview — failures an agent can act on", () => {
     }
   });
 
-  it("ties layer_durations to every history[] row as its last key, a per-run machine-time series, null-not-zero, not wall clock, differenced only across equal shard_count AND timed_shard_count, in the description and the README", () => {
+  it("ties layer_durations to every history[] row as a per-run machine-time series (followed by the SPGD-2014 id, no longer the last key), null-not-zero, not wall clock, differenced only across equal shard_count AND timed_shard_count, in the description and the README", () => {
     const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
     const pins: Array<[RegExp, string]> = [
-      [/Every `history\[\]` row (?:ALSO|also) carries `layer_durations` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, "tie layer_durations to history[] rows as the last key"],
+      // SPGD-2014 appended `id` after `layer_durations` on every history[] row,
+      // so the "as its LAST key" claim this pin used to demand became a lie.
+      // The pin now demands the tie WITHOUT the position claim, and asserts
+      // below that neither surface still calls it the last key.
+      [/Every `history\[\]` row (?:ALSO|also) carries `layer_durations`(?!\s+as its (?:\*\*)?(?:LAST|last))/, "tie layer_durations to history[] rows without a last-key claim"],
       [/each `\{total_seconds, timed_count\}`/, "name the per-layer shape"],
       [/`total_seconds` is `null`,? \(?(?:NOT|\*\*not\*\*) 0\)?,? for a layer with no timed example/, "state null-not-zero for history rows"],
       [/(?:machine time and NOT wall clock|machine\s+time and \*\*not\*\* wall clock)/, "state machine time, not wall clock"],
@@ -1805,6 +1809,31 @@ describe("get_repository_overview — failures an agent can act on", () => {
         assert.match(flat, re, `${label} must ${what}`);
       }
       assert.doesNotMatch(flat, /`layer_counts` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, `${label} must not call layer_counts the last history[] key`);
+      assert.doesNotMatch(flat, /`layer_durations` as its (?:\*\*)?(?:LAST|last)(?:\*\*)? key/, `${label} must not call layer_durations the last history[] key — SPGD-2014 appends id after it`);
+    }
+  });
+
+  it("advertises the run id on latest_run and every history[] row as the delete handle", () => {
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+    const pins: Array<[RegExp, string]> = [
+      // SPGD-2014: the run's primary key is now served, and it is the handle
+      // `remove_repository_run` consumes. The sha-is-not-the-handle rule and
+      // the console's `?run=<id>` precedent are part of the claim, and so is
+      // the tie-break flip it makes honest.
+      [/Every `history\[\]` row — and `latest_run` — (?:ALSO|also) carries `id`/, "tie id to latest_run AND history rows"],
+      [/the handle `remove_repository_run` consumes/, "name remove_repository_run as the consumer"],
+      [/`POST \/ingest` answers as `test_run_id`/, "tie it to the ingest response's handle"],
+      [/A commit_sha deliberately is (?:NOT|\*\*not\*\*) this handle/, "state the sha-is-not-the-handle rule"],
+      [/`history_window\.tie_break_served` honest at (?:TRUE|`true`)/, "state the tie_break_served flip"],
+    ];
+    for (const [label, text] of [
+      ["tool description", getRepositoryOverview.description],
+      ["README", readme],
+    ] as const) {
+      const flat = text.replace(/\s+/g, " ");
+      for (const [re, what] of pins) {
+        assert.match(flat, re, `${label} must ${what}`);
+      }
     }
   });
 

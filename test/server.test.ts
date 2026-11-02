@@ -45,10 +45,12 @@ describe("an MCP client against the server", () => {
     // SPGD-885 (member management), to fourteen by SPGD-887 (rename), to
     // seventeen by SPGD-1039 (the agent-key family), to eighteen by
     // SPGD-1130 (the sgk_ inventory read), to nineteen by SPGD-1200 (the
-    // server's own version read — the first credential-free tool), and by
+    // server's own version read — the first credential-free tool), by
     // SPGD-1331 (the OpenTestIntent schema mirror — the contract this
-    // toolset judges against, finally readable rather than only enforceable) —
-    // grown rather than
+    // toolset judges against, finally readable rather than only enforceable),
+    // and to twenty-two by SPGD-2014 (`remove_repository_run` — the surgical
+    // run delete, whose handle is the run id this slice's specguard half
+    // started serving) — grown rather than
     // loosened to a subset check on purpose: this `deepEqual` is the pin that
     // makes what the server promises an agent change only by a conscious
     // decision (`src/tools/types.ts` says so, and `src/tools/index.ts` says why
@@ -78,6 +80,7 @@ describe("an MCP client against the server", () => {
       "registrable_repositories",
       "remove_repository",
       "remove_repository_member",
+      "remove_repository_run",
       "rename_repository",
       "revoke_repository_agent_key",
       "revoke_repository_api_key",
