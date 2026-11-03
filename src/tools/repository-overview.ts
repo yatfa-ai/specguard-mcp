@@ -838,6 +838,16 @@ const getRepositoryOverview: ToolDefinition = {
     "Read a quiet answer as a FINDING rather than a gap: `refusing: false` is 'nothing was refused' " +
     "and `rotated_and_unused: false` is 'no key is stranded', and neither is 'SpecGuard does not " +
     "track that'. " +
+    "`credential_health.connection` answers the question a view-only caller (no `keys.manage`) " +
+    "otherwise cannot: `state` is `connected` (some other key has authenticated with a token it " +
+    "still carries), `rotated_unused` (something authenticated, but every token that did has since " +
+    "been rotated away) or `not_connected` (no other live key has authenticated), with " +
+    "`last_request_at` / `last_live_request_at` beside it — the same verdict the repository page's " +
+    "connection indicator shows. The REQUESTING credential is excluded " +
+    "(`excludes_requesting_credential: true`), because it stamped its own `last_used_at` on the way " +
+    "in: a repository whose only authenticating key is yours reads `not_connected` — no OTHER " +
+    "request — never `connected`. It means 'did anything authenticate', never 'was anything " +
+    "accepted': `acceptance_reported_by: \"delivery_health\"` names the block that answers that. " +
     "Do NOT read `api_key.last_used_at` as evidence anything was ACCEPTED — it is stamped on the " +
     "way in, before the payload is looked at, so a repository having every run thrown away still " +
     "reports it seconds ago; `delivery_health` answers acceptance and `credential_health` answers " +

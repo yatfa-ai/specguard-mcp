@@ -2458,4 +2458,17 @@ describe("get_repository_overview — diagnostics name the variable the operator
       /Check SPECGUARD_ENDPOINT and that the deployment is reachable/,
     );
   });
+
+  it("documents credential_health.connection, its excluded requester and its acceptance pointer", () => {
+    const text = getRepositoryOverview.description;
+    for (const needle of [
+      "credential_health.connection",
+      "rotated_unused",
+      "not_connected",
+      "excludes_requesting_credential",
+      'acceptance_reported_by: "delivery_health"',
+    ]) {
+      assert.ok(text.includes(needle), `description names ${needle}`);
+    }
+  });
 });

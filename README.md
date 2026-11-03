@@ -682,7 +682,15 @@ authentication-broken pipeline is invisible to every rejection figure — it nam
 **rotated** and has not authenticated since, a secret some pipeline has not picked up.
 A quiet answer is a **finding, not a gap**: `refusing: false` is "nothing was refused" and
 `rotated_and_unused: false` is "no key is stranded", and neither means "SpecGuard does not track
-that". Do **not** read `api_key.last_used_at` as evidence anything was *accepted* — it is stamped on
+that". `credential_health.connection` answers what a view-only caller (no `keys.manage`) otherwise
+cannot: `state` is `connected` (another key has authenticated with a token it still carries),
+`rotated_unused` (something authenticated, but every token that did has since been rotated away) or
+`not_connected`, with `last_request_at` / `last_live_request_at` — the verdict the repository page's
+connection indicator shows. The **requesting credential is excluded**
+(`excludes_requesting_credential: true`; it stamped its own `last_used_at` on the way in), so a
+repository whose only authenticating key is yours reads `not_connected` ("no other request"), never
+`connected`. It means "did anything authenticate", never "was anything accepted" —
+`acceptance_reported_by: "delivery_health"` names the block that answers that. Do **not** read `api_key.last_used_at` as evidence anything was *accepted* — it is stamped on
 the way in, before the payload is looked at, so a repository having every run thrown away still
 reports it seconds ago; the endpoint says so itself in `acceptance_reported_by` and
 `rotation_reported_by`, which name these two blocks. Where a bound sits beside a list, the list is
