@@ -685,6 +685,76 @@ describe("get_repository_overview — the request it makes", () => {
     assert.match(description, /FALLS BACK AND SAYS SO/);
   });
 
+  it("passes ?runs_before= through when a history cursor is named", async () => {
+    // SPGD-2020 on the wire: the keyset cursor of the `history` array, forwarded
+    // under the console's own parameter name. Unvalidated, like `run`: digits-only
+    // is the server's honest shape and every other shape is its no ask.
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { runs_before: "4173" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(http.requests[0]?.url, "https://sg.example.com/api/v1/repository?runs_before=4173");
+  });
+
+  it("omits ?runs_before= for a blank one, and refuses a non-string by name", async () => {
+    const blank = stubFetch({ body: BODY });
+    await getRepositoryOverview.run(
+      { runs_before: "   " },
+      toolContext({ env: ENV, fetch: blank.fetch }),
+    );
+    assert.equal(blank.requests[0]?.url, "https://sg.example.com/api/v1/repository");
+
+    const numeric = stubFetch({ body: BODY });
+    await assert.rejects(
+      getRepositoryOverview.run(
+        { runs_before: 4173 },
+        toolContext({ env: ENV, fetch: numeric.fetch }),
+      ),
+      /runs_before/,
+    );
+    assert.equal(numeric.requests.length, 0);
+  });
+
+  it("composes ?runs_before= with ?branch= so one branch's series pages past its cap", async () => {
+    const http = stubFetch({ body: BODY });
+
+    await getRepositoryOverview.run(
+      { branch: "main", runs_before: "4173" },
+      toolContext({ env: ENV, fetch: http.fetch }),
+    );
+
+    assert.equal(
+      http.requests[0]?.url,
+      "https://sg.example.com/api/v1/repository?branch=main&runs_before=4173",
+    );
+  });
+
+  it("documents the runs_before contract: the continuation key, the miss disclosure and what it does not move", () => {
+    const properties = getRepositoryOverview.inputSchema.properties ?? {};
+    const description = (properties["runs_before"] as { description?: string })?.description ?? "";
+
+    for (const token of [
+      "history_window.next_runs_before",
+      "history_window.total_count",
+      "history[].id",
+      "history_window.runs_before_resolved",
+      "history_window.requested_runs_before",
+      "history_window.window_blocks_anchor",
+      "run_id",
+      "remove_repository_run",
+    ]) {
+      assert.ok(
+        description.includes(`\`${token}\``),
+        `the runs_before description must name the token \`${token}\``,
+      );
+    }
+    assert.match(description, /THE CURSOR MOVES `history` ONLY/);
+    assert.match(description, /FALLS BACK AND SAYS SO/);
+  });
+
   it("passes ?layer= through unvalidated and omits it when blank", async () => {
     const http = stubFetch({ body: BODY });
     await getRepositoryOverview.run({ layer: "request" }, toolContext({ env: ENV, fetch: http.fetch }));
@@ -1598,6 +1668,8 @@ describe("get_repository_overview — failures an agent can act on", () => {
     // WHICH REPOSITORY the answer is about at all — it moves every block
     // together and re-anchors nothing, because anchoring is a question about
     // which RUN within the subject, and this chooses the subject.
+    // `runs_before` pages the `history` array only (SPGD-2020) and re-anchors
+    // nothing: its own description states "THE CURSOR MOVES `history` ONLY".
     // `compare_to` re-points the BASELINE the six run-pair blocks measure
     // against, and the anchored run does not move — the anchor stays what
     // `commit_sha` picked (or the repository's newest), which its own
@@ -1606,6 +1678,7 @@ describe("get_repository_overview — failures an agent can act on", () => {
       "branch",
       "commit_sha",
       "run_id",
+      "runs_before",
       "unstable_test",
       "repository",
       "compare_to",

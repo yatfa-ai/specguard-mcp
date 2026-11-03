@@ -239,6 +239,20 @@ import type { ToolDefinition, ToolResult } from "./types.js";
  * (`run[]=`, `0`, `abc`, NUL, over-bigint) is the server's no ask and the
  * response is byte-identical to the un-asked body.
  *
+ * == `runs_before` pages `history` past its cap, and moves nothing else
+ *
+ * `history` is a hard-capped window (10 rows, 30 under `branch`), and
+ * `history_window` used to serve only `limit`/`returned`, so a run older than
+ * the newest page was unnameable — and therefore unreachable by `run_id` and by
+ * `remove_repository_run`, which both take an id. `runs_before` (SPGD-2020, the
+ * console's keyset cursor of SPGD-1984) is forwarded as `?runs_before=`; the
+ * cursor to send next is `history_window.next_runs_before`, and
+ * `history_window.total_count` sizes the walk. The server moves the `history`
+ * PAGE only — `latest_run` and the window-grain blocks stay on the newest runs,
+ * and `history_window.window_blocks_anchor` says so. A missed id is disclosed
+ * (`runs_before_resolved: false`), a malformed shape is the server's no ask.
+ * Forwarded unvalidated, exactly like `run_id`.
+ *
  * == `compare_to` re-points the BASELINE, the one thing `commit_sha` does not
  *
  * `commit_sha` picks the run this body DESCRIBES; `compare_to` names the branch
@@ -1174,6 +1188,38 @@ const getRepositoryOverview: ToolDefinition = {
           "an over-bigint value are the SERVER's no ask, answered byte-identical to the " +
           "un-asked body, never this bridge's opinion to pre-empt.",
       },
+      runs_before: {
+        type: "string",
+        description:
+          "Page `history` PAST its cap with a keyset cursor (SPGD-2020). `history` is a hard-capped " +
+          "window — the newest 10 runs, or the newest 30 of ONE branch under `branch` — so a run " +
+          "older than that is unnameable without this: you cannot pass its id to `run_id` to " +
+          "inspect it or to `remove_repository_run` to delete it. TO CONTINUE, pass " +
+          "`history_window.next_runs_before` back here: it is the id of the OLDEST row of the page " +
+          "you just read (`null` when that page was not full, i.e. the series is exhausted), and " +
+          "the answer is the runs STRICTLY OLDER than it on the same order, none repeated and " +
+          "none skipped even when two runs share an ingest instant. Walking `next_runs_before` " +
+          "until it is `null` lists every run exactly once; `history_window.total_count` is the " +
+          "number of runs in the same scope (the repository, or the branch under `branch`) so you " +
+          "can size the walk first. `history[].id` is the handle `run_id` and " +
+          "`remove_repository_run` take. It composes with `branch`: `branch` + `runs_before` pages " +
+          "ONE branch's series past its 30-run cap. " +
+          "THE CURSOR MOVES `history` ONLY. `latest_run`, every run-grain block and the " +
+          "window-grain blocks (`unstable_tests`, `directory_growth`, the `layer_*` window pair, " +
+          "`slowest_tests`) keep reading the NEWEST runs, so a paged body is never a mix of " +
+          "anchors — `history_window.window_blocks_anchor` says `newest_runs`. " +
+          "A MISSED CURSOR DOES NOT ERROR — IT FALLS BACK AND SAYS SO: an unknown id, a deleted " +
+          "run or ANOTHER REPOSITORY'S id (the lookup is repository-scoped, so a foreign id " +
+          "leaks nothing) serves the unfiltered newest window with `history_window.before: null`, " +
+          "the guarded ask echoed in `history_window.requested_runs_before` and " +
+          "`history_window.runs_before_resolved` as `false` — check it before believing a page is the " +
+          "one you asked for (it is `true` when no cursor was asked). " +
+          "Send the id as a STRING (\"42\", not 42): a wrong-typed value is refused by name " +
+          "before any request is made, and a blank one is treated as no ask. The value is " +
+          "forwarded unvalidated — a digits-only id within the bigint range is the honest shape " +
+          "and every other (`[]`, `abc`, `0`, a sign, a NUL, over-bigint) is the SERVER's no ask, " +
+          "answered with `requested_runs_before: null`, never this bridge's opinion to pre-empt.",
+      },
       compare_to: {
         type: "string",
         description:
@@ -1430,6 +1476,11 @@ const getRepositoryOverview: ToolDefinition = {
     // divergent answer to "what does a run id look like". SPGD-2018 names this
     // the row-level run ask; see this file's header.
     const runId = optionalString(args["run_id"], "run_id");
+    // Forwarded UNVALIDATED, deliberately, for the same reason as `run_id`:
+    // digits-only is the server's honest shape and every other shape is its
+    // no ask (never a 400/404). SPGD-2020 names this the keyset cursor of the
+    // `history` array; it moves `history` ONLY — see this file's header.
+    const runsBefore = optionalString(args["runs_before"], "runs_before");
     // Forwarded UNVALIDATED, deliberately, exactly like `layer`: a same-branch
     // ask, a blank one and every malformed shape (`?compare_to[]=…`, hash
     // shapes, NUL) are absorbed by the server as no ask — never a 400/404 — so
@@ -1473,6 +1524,7 @@ const getRepositoryOverview: ToolDefinition = {
         unstable_test: unstableTest,
         commit_sha: commitSha,
         run: runId,
+        runs_before: runsBefore,
         compare_to: compareTo,
         layer,
         unannotated_examples: unannotatedExamples === true ? "true" : undefined,
