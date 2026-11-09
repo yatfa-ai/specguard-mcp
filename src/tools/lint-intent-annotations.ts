@@ -57,7 +57,9 @@ const lintIntentAnnotations: ToolDefinition = {
   description:
     "Validate the `@intent:` annotations in a project's test files against the " +
     "OpenTestIntent schema, using that project's own SpecGuard linter: `specguard-lint` for Ruby " +
-    "(RSpec, *_spec.rb) or `specguard lint` for JS/TS (@yatfa/specguard; .ts/.tsx/.js/.jsx/.mjs/.cjs). " +
+    "(RSpec, *_spec.rb; Minitest, *_test.rb; plus any spec/test `support/` file that carries an `@intent:` token, " +
+    "so annotated shared-example files are validated too) or `specguard lint` for JS/TS " +
+    "(@yatfa/specguard; .ts/.tsx/.js/.jsx/.mjs/.cjs). " +
     "SPECGUARD_LINT_COMMAND picks which one runs; a JS/TS run also needs the validator backend, " +
     "a validate-intent binary whose path SPECGUARD_VALIDATE_INTENT names (today the only way to supply it; " +
     "there is no prebuilt auto-resolution yet), otherwise the linter exits 2 and says why. " +
@@ -87,7 +89,8 @@ const lintIntentAnnotations: ToolDefinition = {
         items: { type: "string" },
         description:
           "Specific test files to check, relative to project_dir. Omit to check every spec file " +
-          "under it outside dependency/build directories (*_spec.rb for specguard-lint; " +
+          "under it outside dependency/build directories (*_spec.rb and *_test.rb, plus `.rb` files under " +
+          "`spec/**/support/` or `test/**/support/` that contain an `@intent:` token, for specguard-lint; " +
           ".ts/.tsx/.js/.jsx/.mjs/.cjs for specguard lint). An empty list is an error, not a way " +
           "to say 'everything'. Cannot be combined with `changed`.",
       },
