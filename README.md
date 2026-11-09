@@ -71,7 +71,7 @@ Register it with your MCP client — for Claude Code:
 
 Validates the `@intent:` annotations in a project's test files against the
 [OpenTestIntent](https://github.com/yatfa-ai/open-test-intent) schema, by running that project's own
-linter with `--json` — `specguard-lint` (Ruby/RSpec, `*_spec.rb`) or `specguard lint` (JS/TS,
+linter with `--json` — `specguard-lint` (Ruby/RSpec and Minitest, `*_spec.rb` / `*_test.rb`, plus `spec/**/support/**/*.rb` and `test/**/support/**/*.rb` files that carry an `@intent:` token) or `specguard lint` (JS/TS,
 `@yatfa/specguard`; `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`). `SPECGUARD_LINT_COMMAND` selects which;
 the server does not auto-detect it. A JS/TS run needs the validator backend: a `validate-intent` binary
 whose path `SPECGUARD_VALIDATE_INTENT` names (install it with open-test-intent's `scripts/install.sh`). That variable is
@@ -82,7 +82,7 @@ binary the linter exits `2` and says why (see the specguard-ts README, "The vali
 | argument | |
 | --- | --- |
 | `project_dir` | the project to lint; defaults to the server's working directory. A path that does not exist, or is not a directory, is refused by name — never reported as a missing linter |
-| `paths` | specific test files, relative to `project_dir`; omit to check every spec file outside dependency/build directories. An empty list is an error rather than a synonym for "everything", because a run that selected nothing must not come back clean |
+| `paths` | specific test files, relative to `project_dir`; omit to check every spec file outside dependency/build directories (for the Ruby linter that includes `support/` files under `spec/` or `test/` that contain an `@intent:` token). An empty list is an error rather than a synonym for "everything", because a run that selected nothing must not come back clean |
 | `changed` | check what the branch changed since the merge base with the default branch — CI's mode; **needs a linter version that ships `--changed`**: the Ruby gem and `@yatfa/specguard` main do, `@yatfa/specguard` 0.1.1 on npm does not (exit `2`, `invalid option: --changed`); untracked spec files count too (no `git add` needed); `--exclude-standard` keeps `.gitignore`d paths out of the untracked leg alone, and a tracked file is never subject to `.gitignore`, so the dependency/build directory fence holds ignored tracked paths out |
 | `base` | diff `changed` against this ref instead |
 
